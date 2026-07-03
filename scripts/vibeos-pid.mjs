@@ -3,7 +3,7 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { homedir } from "node:os"
-import { execSync } from "node:child_process"
+import { execFileSync, execSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -62,7 +62,7 @@ function padEnd(str, len) {
 
 function runSyntaxCheck() {
   try {
-    execSync("node --check dist/vibeOS.js", { cwd: ROOT, stdio: "pipe" })
+    execFileSync(process.execPath, ["--check", "dist/vibeOS.js"], { cwd: ROOT, stdio: "pipe" })
     return { status: "pass", output: null }
   } catch (err) {
     return { status: "fail", output: err.stderr?.toString() || err.message }

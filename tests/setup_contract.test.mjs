@@ -6,19 +6,19 @@ import assert from "node:assert/strict"
 import { readFileSync, existsSync, mkdtempSync, rmSync, realpathSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { execSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const SETUP = join(ROOT, "bin", "setup.js")
 
 function sandboxRun(args) {
   const sandbox = mkdtempSync(join(realpathSync("/tmp"), "vibeos-setup-"))
-  const out = execSync("node " + SETUP + " " + args + " 2>&1 || true", {
+  const result = spawnSync(process.execPath, [SETUP, ...args.split(/\s+/).filter(Boolean)], {
     encoding: "utf8", timeout: 15000,
     env: { ...process.env, HOME: sandbox, USER: "test" }
   })
   rmSync(sandbox, { recursive: true, force: true })
-  return out
+  return (result.stdout || "") + (result.stderr || "")
 }
 
 test("contract: setup.js with no explicit command defaults to setup and completes", () => {
@@ -37,14 +37,14 @@ test("contract: setup.js with set command completes", () => {
 })
 
 test("contract: setup.js with invalid command exits 1 and shows usage", () => {
-  try {
-    execSync("node " + SETUP + " bogus", { encoding: "utf8", timeout: 5000, stdio: "pipe" })
-    assert.fail("should have thrown")
-  } catch (e) {
-    assert.equal(e.status, 1, "exit code must be 1")
-    const stderr = e.stderr?.toString() || ""
-    assert.ok(stderr.includes("Usage:"), "stderr must show usage: " + stderr.slice(0, 100))
-  }
+  const result = spawnSync(process.execPath, [SETUP, "bogus"], {
+    encoding: "utf8",
+    timeout: 5000,
+    env: { ...process.env },
+  })
+  assert.equal(result.status, 1, "exit code must be 1")
+  const stderr = result.stderr || ""
+  assert.ok(stderr.includes("Usage:"), "stderr must show usage: " + stderr.slice(0, 100))
 })
 
 test("contract: setup.js --project flag is accepted without crashing", () => {

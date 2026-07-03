@@ -8,9 +8,10 @@ import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolv
 import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
+import { getSessionHealthSnapshot } from "./session-health.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
-import { collectOpenCodeConfigPaths, installVibeTierAgents, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
+import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
 import { loadAxisOverrides, writeAxisOverride, clearAxisOverrides } from "./selection-manager.js"
 
@@ -236,10 +237,11 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
   results.push({ ok: existingOcConfigs.length > 0, okLabel: existingOcConfigs.length > 0 ? "OK" : "WARN", label: "cascade opencode configs", detail: existingOcConfigs.length ? existingOcConfigs.join(" | ") : "none found", fix: "run `vibe setup --project` or `npm run deploy`" })
   const primaryAgent = primaryOc.agent && typeof primaryOc.agent === "object" ? primaryOc.agent[VIBE_PRIMARY_AGENT] || null : null
-  const primaryAgentOk = !!primaryAgent && primaryAgent.mode === "primary" && primaryOc.default_agent === VIBE_PRIMARY_AGENT
-  results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT })}` : `missing in ${primaryOcConfigPath}`, fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
-  const defaultAgentOk = primaryOc.default_agent === VIBE_PRIMARY_AGENT
-  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: primaryOc.default_agent || null, expected: VIBE_PRIMARY_AGENT, active_slot: sel.active_slot || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  const resolvedDefaultAgent = normalizeNativeOpenCodeAgent(primaryOc.default_agent, "vibe")
+  const primaryAgentOk = !!primaryAgent && primaryAgent.mode === "primary" && !String(primaryAgent.model || "").trim()
+  results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: resolvedDefaultAgent, expected: "primary vibe agent present" })}` : `missing in ${primaryOcConfigPath}`, fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  const defaultAgentOk = isNativeOpenCodeAgent(primaryOc.default_agent)
+  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: resolvedDefaultAgent, expected: "build|plan|vibe", active_slot: sel.active_slot || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
   results.push({
     ok: cheapFirstOk,
     okLabel: cheapFirstOk ? "OK" : "WARN",
@@ -505,6 +507,11 @@ export function createTrinityTool(deps) {
       if (action === "reality-check") {
         const projectFingerprint = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "")
         const reality = getRealityCheckView(projectFingerprint)
+        const health = getSessionHealthSnapshot({
+          sessionId: deps._OC_SID,
+          projectFingerprint,
+          userText: deps.latestUserIntent || "",
+        })
         const projectState = typeof deps.loadProjectState === "function" ? deps.loadProjectState() : {}
         const projectBucket = projectFingerprint ? projectState?.project_hashes?.[projectFingerprint] : null
         const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {}
@@ -519,8 +526,26 @@ export function createTrinityTool(deps) {
         lines.push(`Scope: ${reality.scope}${reality.project_id ? ` (${reality.project_id})` : ""}`)
         lines.push(`Enabled: ${reality.enabled ? "YES" : "NO"}`)
         lines.push(`Rules loaded: ${reality.rules.length}`)
-        for (const rule of reality.rules.slice(0, 8)) {
-          lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`)
+        if (health) {
+          lines.push(`Progress risk: ${health.risk} (${health.score})`)
+          lines.push(`Decisive progress: ${health.decisiveProgress ? "YES" : "NO"}`)
+          lines.push(`Meta-work drift: ${health.metaWorkDrift ? "YES" : "NO"}`)
+          lines.push(`Recommended action: ${health.recommendedAction}`)
+          if (health.stopDoing) lines.push(`Stop doing: ${health.stopDoing}`)
+          if (Array.isArray(health.loopSignals) && health.loopSignals.length > 0) {
+            lines.push("Loop signals:")
+            for (const signal of health.loopSignals.slice(0, 5)) {
+              lines.push(`  - ${signal.kind}: ${signal.summary}`)
+            }
+          }
+          if (health.claimEvidence?.status && health.claimEvidence.status !== "not_applicable") {
+            lines.push(`Claim evidence: ${health.claimEvidence.status}`)
+            if (health.claimEvidence.reason) lines.push(`  ${health.claimEvidence.reason}`)
+          }
+        } else {
+          for (const rule of reality.rules.slice(0, 8)) {
+            lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`)
+          }
         }
         if (projectBucket?.totalSessions != null) {
           lines.push(`Project sessions: ${projectBucket.totalSessions}`)

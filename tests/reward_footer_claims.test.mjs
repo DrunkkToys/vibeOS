@@ -8,7 +8,7 @@ import { buildRewardInput } from "../src/lib/hooks/footer.js"
 import { evaluateClaimVerification } from "../src/lib/claim-verification.js"
 import { computeReward } from "../src/vibeOS-lib/reward-engine.js"
 
-test("footer reward wiring: claim mismatch reaches the lie penalty", () => {
+test("footer reward wiring: contradicted completion claim reaches the claim penalty", () => {
   const input = buildRewardInput({
     finalOutcome: "negative",
     assistantText: "I fixed the bug, rebuilt the pipeline, and verified the release against the regression suite. The issue is resolved and the deployment is complete.",
@@ -16,6 +16,7 @@ test("footer reward wiring: claim mismatch reaches the lie penalty", () => {
     prevAssistantTexts: [],
     savingsUsd: 0,
     isBrainTier: true,
+    sessionId: "test-contradicted-claim",
   })
 
   assert.ok(input.claims.length > 0, "the footer should forward claim evidence")
@@ -24,7 +25,7 @@ test("footer reward wiring: claim mismatch reaches the lie penalty", () => {
   assert.equal(result.breakdown.liePenalty, -15)
 })
 
-test("footer reward wiring: no mismatch keeps claim penalty out", () => {
+test("footer reward wiring: unsupported completion claims still reach the claim penalty", () => {
   const input = buildRewardInput({
     finalOutcome: "negative",
     assistantText: "I fixed the bug, rebuilt the pipeline, and verified the release against the regression suite. The issue is resolved and the deployment is complete.",
@@ -32,12 +33,13 @@ test("footer reward wiring: no mismatch keeps claim penalty out", () => {
     prevAssistantTexts: [],
     savingsUsd: 0,
     isBrainTier: true,
+    sessionId: "test-unsupported-claim",
   })
 
-  assert.equal(input.claims.length, 0, "the footer should not invent claim evidence")
+  assert.ok(input.claims.length > 0, "unsupported completion claims should still be forwarded")
 
   const result = computeReward(input)
-  assert.equal(result.breakdown.liePenalty, 0)
+  assert.equal(result.breakdown.liePenalty, -15)
 })
 
 test("footer reward wiring: empty inputs stay safe and only hit laziness", () => {
@@ -48,6 +50,7 @@ test("footer reward wiring: empty inputs stay safe and only hit laziness", () =>
     prevAssistantTexts: [],
     savingsUsd: 0,
     isBrainTier: false,
+    sessionId: "test-empty-claim",
   })
 
   assert.equal(input.claims.length, 0, "empty output should not invent claim evidence")
@@ -65,6 +68,7 @@ test("claim verification adds an explicit verify nudge when claims are unsubstan
     vibeHome,
   })
 
+  assert.equal(result.status, "unsupported")
   assert.equal(result.unsubstantiatedCount, 1)
   assert.match(result.claimTag, /verify/)
 })

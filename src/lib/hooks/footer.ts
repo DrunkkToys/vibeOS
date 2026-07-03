@@ -12,8 +12,8 @@ import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, 
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
-import { detectLies } from "../../vibeOS-lib/lie-detector.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
+import { getSessionHealthSnapshot } from "../session-health.js"
 import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
@@ -143,6 +143,9 @@ function buildRewardInput({
   prevAssistantTexts,
   savingsUsd,
   isBrainTier,
+  sessionId,
+  turnId,
+  projectFingerprint,
   cacheHit = false,
   cacheMiss = false,
 }) {
@@ -151,17 +154,28 @@ function buildRewardInput({
     writeEditCount: 0,
     isBrainTier,
   })
-  const lieResult = detectLies({
-    assistantText,
+  const claimStatus = evaluateClaimVerification({
+    text: assistantText,
+    sessionId,
+    turnId,
     userText,
     prevAssistantTexts,
   })
+  const health = getSessionHealthSnapshot({
+    sessionId,
+    projectFingerprint,
+    userText,
+    assistantText,
+    prevAssistantTexts,
+    turnId,
+  })
   return {
     outcome: finalOutcome,
-    claims: lieResult.claimVsOutcomeMismatch ? lieResult.claims : [],
+    claims: claimStatus.status !== "supported" ? claimStatus.claims : [],
     laziness: lazinessResult,
     savingsUsd,
-    contradictionDetected: lieResult.selfContradiction,
+    contradictionDetected: claimStatus.status === "contradicted",
+    metaWorkDrift: health.metaWorkDrift,
     cacheHit,
     cacheMiss,
   }
@@ -449,18 +463,21 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     _footerStage = "claims"
     const claimStatus = evaluateClaimVerification({
       text,
-      vibeHome: VIBEOS_HOME,
+      vibeHome: getVibeOSHome(),
       sessionId: sid,
       turnId: latestTurnTruth?.turnId || "",
-    })
-    const lieResult = detectLies({
-      assistantText: text,
       userText: latestUserIntent || "",
       prevAssistantTexts,
     })
-    const claimTag = lieResult.claims.length > 0
-      ? (lieResult.claimVsOutcomeMismatch ? `⚠${lieResult.claims.length} verify` : "✓")
-      : (claimStatus.claimTag || "")
+    const sessionHealth = getSessionHealthSnapshot({
+      sessionId: sid,
+      projectFingerprint: currentProjectFingerprint || "",
+      userText: latestUserIntent || "",
+      assistantText: text,
+      prevAssistantTexts,
+      turnId: latestTurnTruth?.turnId || "",
+    })
+    const claimTag = claimStatus.claimTag || ""
     const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
     const hasExistingFooter = footerSuffix.test(text)
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
@@ -524,6 +541,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
                 prevAssistantTexts,
                 savingsUsd: _perTurnCacheDelta,
                 isBrainTier: String(currentTier || "").toLowerCase() === "high",
+                sessionId: sid,
+                turnId: latestTurnTruth?.turnId || "",
+                projectFingerprint: currentProjectFingerprint || "",
                 cacheHit: _cacheEvt.hit,
                 cacheMiss: _cacheMiss,
               })
@@ -560,6 +580,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           prevAssistantTexts,
           savingsUsd: _perTurnCacheDelta,
           isBrainTier: String(currentTier || "").toLowerCase() === "high",
+          sessionId: sid,
+          turnId: latestTurnTruth?.turnId || "",
+          projectFingerprint: currentProjectFingerprint || "",
           cacheHit: _cacheEvt.hit,
           cacheMiss: _cacheMiss,
         }))
@@ -590,6 +613,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
             prevAssistantTexts,
             savingsUsd: _perTurnCacheDelta,
             isBrainTier: String(currentTier || "").toLowerCase() === "high",
+            sessionId: sid,
+            turnId: latestTurnTruth?.turnId || "",
+            projectFingerprint: currentProjectFingerprint || "",
             cacheHit: _cacheEvt.hit,
             cacheMiss: _cacheMiss,
           }))
@@ -626,6 +652,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         lastModelError,
         pendingLiveModel: pendingSwitch?.model || undefined,
       })
+      if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
+        _alertTag = "↻ recover"
+      }
     } catch {}
 
     _footerStage = "build"
@@ -709,9 +738,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         resolutionReason: _rewardOutcome ? (_rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
         nextAction: _rewardOutcome === "negative"
           ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
-          : (getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
+          : (sessionHealth.recommendedAction || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
         loopInterventionLevel: liveBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
-        pivotDetected: Boolean(liveBlackboxState?.pivot_detected),
+        pivotDetected: Boolean(liveBlackboxState?.pivot_detected || sessionHealth.metaWorkDrift),
         stress: _footerStress,
         source: "footer",
       })

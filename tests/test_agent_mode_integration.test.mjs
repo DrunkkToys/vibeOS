@@ -108,7 +108,7 @@ test("full chain: 'fix production bug' → REFINING → agent_mode plan", () => 
   assert.equal(cv.agent_mode, "plan")
 })
 
-test.skip("syncControlSettings restores the previous OpenCode agent after plan mode ends and clears followup pause", async () => {
+test("syncControlSettings restores the previous OpenCode agent after plan mode ends and clears followup pause", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-agent-"))
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
@@ -150,7 +150,7 @@ test.skip("syncControlSettings restores the previous OpenCode agent after plan m
   }
 })
 
-test.skip("syncControlSettings restores a stuck startup plan agent from the latest OpenCode backup", async () => {
+test("syncControlSettings restores a stuck startup plan agent from the latest OpenCode backup", async () => {
   const home = mkdtempSync(join(tmpdir(), "vib-agent-backup-"))
   const prevHome = process.env.HOME
   const prevVibeHome = process.env.VIBEOS_HOME
@@ -163,6 +163,7 @@ test.skip("syncControlSettings restores a stuck startup plan agent from the late
     mkdirSync(join(home, ".claude"), { recursive: true })
     writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "plan" }, null, 2))
     writeFileSync(join(home, ".config/opencode/opencode.json.bak-restore-001"), JSON.stringify({ default_agent: "auto" }, null, 2))
+    writeFileSync(join(home, ".config/opencode/opencode.json.bak-restore-002"), JSON.stringify({ default_agent: "build" }, null, 2))
     writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: {} }, null, 2))
 
     const moduleUrl = pathToFileURL(join(process.cwd(), "dist-ts/lib/hooks/chat-transform.js")).href
@@ -182,11 +183,42 @@ test.skip("syncControlSettings restores a stuck startup plan agent from the late
       env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
       encoding: "utf8",
     }).trim())
-    assert.equal(result.agent, "auto")
+    assert.equal(result.agent, "build")
   } finally {
     process.env.HOME = prevHome
     process.env.VIBEOS_HOME = prevVibeHome
     process.env.VIBEOS_OPENCODE_HOME = prevOCHome
+  }
+})
+
+test("syncControlSettings falls back to vibe when previous_default_agent is invalid", async () => {
+  const home = mkdtempSync(join(tmpdir(), "vib-agent-invalid-"))
+  try {
+    const script = `
+      import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+      import { join } from "node:path";
+      const home = ${JSON.stringify(home)};
+      process.env.HOME = home;
+      process.env.VIBEOS_HOME = join(home, ".claude");
+      process.env.VIBEOS_OPENCODE_HOME = join(home, ".config/opencode");
+      mkdirSync(join(home, ".config/opencode"), { recursive: true });
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ default_agent: "plan" }, null, 2));
+      writeFileSync(join(home, ".claude/model-tiers.json"), JSON.stringify({ selection: { previous_default_agent: "auto" } }, null, 2));
+      const mod = await import(${JSON.stringify(DIST("lib/hooks/chat-transform.js"))} + "?invalid-restore=" + Date.now());
+      mod.syncControlSettings({});
+      const oc = JSON.parse(readFileSync(join(home, ".config/opencode/opencode.json"), "utf8"));
+      console.log(JSON.stringify({ agent: oc.default_agent }));
+    `
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      timeout: 20000,
+      cwd: process.cwd(),
+      env: { ...process.env, VIBEOS_FAST_CI: "1", VIBEOS_OPENCODE_HOME: join(home, ".config/opencode"), HOME: home, VIBEOS_HOME: join(home, ".claude") },
+      encoding: "utf8",
+    }).trim())
+    assert.equal(result.agent, "vibe")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
   }
 })
 

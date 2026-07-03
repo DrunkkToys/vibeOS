@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import { readFileSync, existsSync, statSync, mkdtempSync, rmSync, realpathSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { execSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const PKG = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"))
@@ -25,7 +25,7 @@ test("contract: package.json bin field points to an existing executable file", (
 test("contract: bin/setup.js has valid shebang and parses without syntax errors", () => {
   const firstLine = readFileSync(SETUP, "utf8").split("\n")[0]
   assert.equal(firstLine, "#!/usr/bin/env node", "first line must be shebang")
-  execSync("node --check " + SETUP, { encoding: "utf8", timeout: 10000 })
+  execFileSync(process.execPath, ["--check", SETUP], { encoding: "utf8", timeout: 10000 })
 })
 
 test("contract: bin/setup.js does NOT contain any readline/confirm prompt logic", () => {
@@ -37,7 +37,7 @@ test("contract: bin/setup.js does NOT contain any readline/confirm prompt logic"
 
 test("contract: bin/setup.js --help prints usage and exits 1", () => {
   try {
-    execSync("node " + SETUP + " --help", { encoding: "utf8", timeout: 5000 })
+    execFileSync(process.execPath, [SETUP, "--help"], { encoding: "utf8", timeout: 5000 })
     assert.fail("should have thrown exit code 1")
   } catch (e) {
     assert.equal(e.status, 1)
@@ -51,7 +51,7 @@ test("contract: bin/setup.js --help prints usage and exits 1", () => {
 
 test("contract: bin/setup.js --yes installs and completes", { timeout: 30000 }, () => {
   const sandbox = mkdtempSync(join(realpathSync("/tmp"), "vibeos-bin-test-"))
-  const out = execSync("node " + SETUP + " --yes 2>&1 || true", {
+  const out = execFileSync(process.execPath, [SETUP, "--yes"], {
     encoding: "utf8", timeout: 15000,
     env: { ...process.env, HOME: sandbox, USER: "test" }
   })

@@ -63,7 +63,7 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeTierAgents } from "../runtime-config.js"
+import { installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent } from "../runtime-config.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -98,7 +98,7 @@ export function mergeRemoteControlVector(remoteControlVector: unknown, localCont
 
 function resolveRestorableOpenCodeAgent(currentSel: unknown): string | null {
   const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : ""
-  if (remembered && remembered !== "plan") return remembered
+  if (remembered && remembered !== "plan" && isNativeOpenCodeAgent(remembered)) return normalizeNativeOpenCodeAgent(remembered)
 
   try {
     const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json"))
@@ -114,12 +114,12 @@ function resolveRestorableOpenCodeAgent(currentSel: unknown): string | null {
       try {
         const snapshot = safeJsonParse(readFileSync(candidate.path, "utf-8"))
         const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : ""
-        if (agent && agent !== "plan") return agent
+        if (agent && agent !== "plan" && isNativeOpenCodeAgent(agent)) return normalizeNativeOpenCodeAgent(agent)
       } catch {}
     }
   } catch {}
 
-  return null
+  return "vibe"
 }
 
 function ensureProjectContext(hookDirectory: string): string {
@@ -790,16 +790,19 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
     if (cv.agent_mode && !isUltraX) {
       updateOpenCodeConfig((oc) => {
-        if (oc.default_agent === cv.agent_mode) return false
-        if (cv.agent_mode === "plan" && oc.default_agent && oc.default_agent !== "plan") {
-          writeSelection("previous_default_agent", oc.default_agent)
+        const nextAgent = normalizeNativeOpenCodeAgent(cv.agent_mode, "vibe")
+        const currentAgent = normalizeNativeOpenCodeAgent(oc.default_agent, "vibe")
+        if (currentAgent === nextAgent) return false
+        if (nextAgent === "plan" && currentAgent !== "plan") {
+          writeSelection("previous_default_agent", currentAgent)
         }
-        oc.default_agent = cv.agent_mode
+        oc.default_agent = nextAgent
       })
     } else if (!isUltraX) {
       updateOpenCodeConfig((oc) => {
-        const restoreAgent = oc.default_agent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
-        if (restoreAgent && oc.default_agent === "plan") {
+        const currentAgent = normalizeNativeOpenCodeAgent(oc.default_agent, "vibe")
+        const restoreAgent = currentAgent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
+        if (restoreAgent && currentAgent === "plan") {
           oc.default_agent = restoreAgent
           if (currentSel.previous_default_agent) writeSelection("previous_default_agent", null)
         }

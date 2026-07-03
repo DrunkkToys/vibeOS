@@ -9,6 +9,7 @@ import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
 import { resolveApiToken } from "./api-client.js"
+import { getLatestSessionHealthSnapshot, getSessionHealthSnapshot } from "./session-health.js"
 import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, normalizeSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 import { getSessionDelegationSavings } from "./session-savings.js"
 import { readProjects, writeProjects, readSessions, writeSessions, readFlows, writeFlows, newId, nowIso, type FlowNode, type FlowEdge } from "./orch-store.js"
@@ -220,12 +221,19 @@ function getSessionOrchestrationState(deps: Deps, sessionId: string): any {
 function buildLocalStatus(deps: Deps, probe: { ok: boolean | null; version: string | null }): Record<string, unknown> {
   const state = deps.getState() as Record<string, unknown>
   const bb = deps.getBlackboxState()
+  const sessionId = deps.getCurrentSessionId()
+  const health = getLatestSessionHealthSnapshot(sessionId) || getSessionHealthSnapshot({
+    sessionId,
+    projectFingerprint: String(state?.current_project_fingerprint || ""),
+  })
   return {
     ...state,
     backend_connected: typeof state?.backend_connected === "boolean" ? state.backend_connected : probe.ok === true,
     backend_health_url: state?.backend_health_url ?? BACKEND_HEALTH_URL,
     backend_version: typeof state?.backend_version === "string" ? state.backend_version : probe.version,
     blackbox: bb ?? null,
+    session_health: health,
+    claim_evidence: health?.claimEvidence || null,
     dashboard_backlog_count: getDashboardBridgeBacklogCount(),
   }
 }

@@ -144,7 +144,7 @@ test("claim verification only substantiates against the same session when sessio
     windowMs: 120000,
   })
   assert.equal(match.unsubstantiatedCount, 0)
-  assert.equal(match.claimTag, "✓")
+  assert.equal(match.claimTag, "✓ evidence")
 })
 
 test("footer projects the latest executed turn truth instead of stale blackbox slot", async () => {

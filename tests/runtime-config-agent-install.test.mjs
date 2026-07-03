@@ -60,6 +60,24 @@ test("installVibeTierAgentsInConfig: creates vibe primary + 3 subagents on empty
   }
 })
 
+test("installVibeTierAgentsInConfig: preserves native build default_agent", async () => {
+  const { installVibeTierAgentsInConfig } = await import("../src/lib/runtime-config.js")
+  const cfg = { default_agent: "build" }
+  const changed = installVibeTierAgentsInConfig(cfg, TRINITY)
+  assert.equal(changed, true, "should install missing vibe agents")
+  assert.equal(cfg.default_agent, "build", "native OpenCode build selector must be preserved")
+  assert.ok(cfg.agent.vibe, "vibe primary agent must still be installed")
+})
+
+test("installVibeTierAgentsInConfig: preserves native plan default_agent", async () => {
+  const { installVibeTierAgentsInConfig } = await import("../src/lib/runtime-config.js")
+  const cfg = { default_agent: "plan" }
+  const changed = installVibeTierAgentsInConfig(cfg, TRINITY)
+  assert.equal(changed, true, "should install missing vibe agents")
+  assert.equal(cfg.default_agent, "plan", "native OpenCode plan selector must be preserved")
+  assert.ok(cfg.agent.vibe, "vibe primary agent must still be installed")
+})
+
 test("installVibeTierAgentsInConfig: idempotent output — already-correct config stays same", async () => {
   const { installVibeTierAgentsInConfig } = await import("../src/lib/runtime-config.js")
   const input = { default_agent: "vibe", agent: { vibe: { description: "VibeUltraX primary agent", mode: "primary" }, "vibe-cheap": { description: "VibeUltraX cheap tier subagent", mode: "subagent", model: "opencode/big-pickle" }, "vibe-medium": { description: "VibeUltraX medium tier subagent", mode: "subagent", model: "opencode-go/deepseek-v4-flash" }, "vibe-brain": { description: "VibeUltraX brain tier subagent", mode: "subagent", model: "opencode-go/mimo-v2.5" } } }
@@ -153,7 +171,7 @@ test("runtimeTierCoherence: detects coherent config", async () => {
     const result = runtimeTierCoherence(s.dir, "cheap", "opencode/big-pickle", "opencode/big-pickle")
     assert.equal(result.coherent, true, "coherent config must report coherent: true")
     assert.equal(result.agent, "vibe")
-    assert.equal(result.expectedAgent, "vibe")
+    assert.equal(result.expectedAgent, "build|plan|vibe")
     assert.equal(result.degraded, false, "coherent config must not be degraded")
   } finally { s.cleanup() }
 })

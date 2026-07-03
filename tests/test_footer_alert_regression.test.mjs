@@ -157,11 +157,22 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
 
 test("footer: claim-bearing output shows a check icon without needing cascade audit", async () => {
     writeTiers({ active_slot: "brain", vector_changed_slot: undefined, optimization_mode: "quality" })
+    const { getCurrentSessionId } = await import("../src/lib/state.js?csid=" + Date.now())
+    const vibeHome = process.env.VIBEOS_HOME
+    const cascadeDir = join(vibeHome, "cascade-audit")
+    mkdirSync(cascadeDir, { recursive: true })
+    const sessionId = getCurrentSessionId()
+    const cascadeEntry = {
+      _ts: new Date().toISOString(),
+      executed: true,
+    }
+    if (sessionId) cascadeEntry.sessionId = sessionId
+    writeFileSync(join(cascadeDir, "cascade-audit.jsonl"), JSON.stringify(cascadeEntry) + "\n")
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?claim-check=" + Date.now())
     const o = { text: "I fixed the bug, rebuilt the release, and verified the regression suite. The issue is resolved." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
     const footer = o.text.split("\n").pop() || ""
-    assert.ok(footer.includes("✓"), "footer should show a check icon for verified claims: " + footer)
+    assert.ok(footer.includes("\u2713"), "footer should show a check icon for verified claims: " + footer)
 })
 
 test("footer: vibeultrax tier follows the live model, not the stale persistent slot", async () => {

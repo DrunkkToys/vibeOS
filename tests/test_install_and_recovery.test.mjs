@@ -320,7 +320,7 @@ test("installer: asks before installing and respects no/yes answers", async () =
   process.env.USERPROFILE = sb
   try {
     const cwd = mkdtempSync(join(tmpdir(), "installer-cwd-"))
-    const autoRun = spawnSync("node", [join(ROOT, "bin", "setup.js")], {
+    const autoRun = spawnSync(process.execPath, [join(ROOT, "bin", "setup.js")], {
       cwd,
       encoding: "utf8",
       env: { ...process.env, HOME: sb, USERPROFILE: sb },
@@ -344,7 +344,7 @@ test("installer: legacy set alias still installs", async () => {
   process.env.VIBEOS_HOME = join(sb, ".claude")
   try {
     const cwd = mkdtempSync(join(tmpdir(), "installer-set-cwd-"))
-    const result = spawnSync("node", [join(ROOT, "bin", "setup.js"), "set"], {
+    const result = spawnSync(process.execPath, [join(ROOT, "bin", "setup.js"), "set"], {
       cwd,
       encoding: "utf8",
       env: { ...process.env, HOME: sb, USERPROFILE: sb },
