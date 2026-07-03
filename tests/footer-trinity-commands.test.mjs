@@ -207,35 +207,36 @@ test("trinity dashboard starts MCP server when no published port exists", async 
 
 // ── SECTION 1: Footer system tests ───────────────────────────────────
 
-test("footer: resolveBrand always returns vibeOS", () => {
-  assert.equal(resolveBrand("vibeultrax", "brain"), "vibeOS")
-  assert.equal(resolveBrand("vibeqmax", "medium"), "vibeOS")
-  assert.equal(resolveBrand("vibemax", "cheap"), "vibeOS")
-  assert.equal(resolveBrand("litex", "brain"), "vibeOS")
-  assert.equal(resolveBrand("quality", "medium"), "vibeOS")
-  assert.equal(resolveBrand("audit", "brain"), "vibeOS")
-  assert.equal(resolveBrand("forensic", "cheap"), "vibeOS")
-  assert.equal(resolveBrand("budget", "brain"), "vibeOS")
-  assert.equal(resolveBrand("speed", "medium"), "vibeOS")
+test("footer: resolveBrand maps modes to user-facing brands", () => {
+  assert.equal(resolveBrand("vibeultrax", "brain"), "VibeUltraX")
+  assert.equal(resolveBrand("vibeqmax", "medium"), "VibeQMaX")
+  assert.equal(resolveBrand("vibemax", "cheap"), "VibeMaX")
+  assert.equal(resolveBrand("litex", "brain"), "VibeLiteX")
+  assert.equal(resolveBrand("raw", "brain"), "Raw Brain")
+  assert.equal(resolveBrand("quality", "medium"), "VibeQMaX")
+  assert.equal(resolveBrand("audit", "brain"), "VibeQMaX")
+  assert.equal(resolveBrand("forensic", "cheap"), "VibeQMaX")
+  assert.equal(resolveBrand("budget", "brain"), "VibeLiteX")
+  assert.equal(resolveBrand("speed", "medium"), "VibeMaX")
   assert.equal(resolveBrand("unknown", "brain"), "vibeOS")
   assert.equal(resolveBrand("unknown", "medium"), "vibeOS")
   assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 
-test("footer: resolveBrand for branded modes always returns vibeOS", () => {
-  assert.equal(resolveBrand("vibeultrax", "brain"), "vibeOS")
-  assert.equal(resolveBrand("vibeqmax", "brain"), "vibeOS")
-  assert.equal(resolveBrand("vibemax", "brain"), "vibeOS")
-  assert.equal(resolveBrand("litex", "brain"), "vibeOS")
+test("footer: resolveBrand keeps branded modes distinct", () => {
+  assert.equal(resolveBrand("vibeultrax", "brain"), "VibeUltraX")
+  assert.equal(resolveBrand("vibeqmax", "brain"), "VibeQMaX")
+  assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
+  assert.equal(resolveBrand("litex", "brain"), "VibeLiteX")
 })
 
-test("footer: resolveBrand for built-in modes always returns vibeOS", () => {
-  assert.equal(resolveBrand("quality", "brain"), "vibeOS")
-  assert.equal(resolveBrand("audit", "brain"), "vibeOS")
-  assert.equal(resolveBrand("forensic", "brain"), "vibeOS")
-  assert.equal(resolveBrand("budget", "cheap"), "vibeOS")
-  assert.equal(resolveBrand("speed", "medium"), "vibeOS")
-  assert.equal(resolveBrand("longrun", "medium"), "vibeOS")
+test("footer: resolveBrand normalizes built-in runtime modes to canonical brands", () => {
+  assert.equal(resolveBrand("quality", "brain"), "VibeQMaX")
+  assert.equal(resolveBrand("audit", "brain"), "VibeQMaX")
+  assert.equal(resolveBrand("forensic", "brain"), "VibeQMaX")
+  assert.equal(resolveBrand("budget", "cheap"), "VibeLiteX")
+  assert.equal(resolveBrand("speed", "medium"), "VibeMaX")
+  assert.equal(resolveBrand("longrun", "medium"), "VibeQMaX")
 })
 
 test("footer: resolveBrand fallback logic for unknown modes", () => {
@@ -361,7 +362,7 @@ test("footer: buildFooterLine shows worker slot in brackets when workerSlot is p
 
   assert.ok(line.includes("[cheap]"), "worker slot shown in brackets: " + line)
   assert.ok(!line.includes("session:"), "no session: suffix: " + line)
-  assert.ok(line.includes("⟡ ◐"), "vector pulse shows: " + line)
+  assert.ok(line.includes("reroute: ◐ medium"), "vector pulse shows: " + line)
 })
 
 test("footer: buildFooterLine zero savings hides savings section", () => {
@@ -492,7 +493,8 @@ test("footer: formatSavingsPulse edge cases", () => {
 })
 
 test("footer: formatVectorPulse edge cases", () => {
-  assert.equal(formatVectorPulse("cheap"), "⟡ ⚡")
+  assert.equal(formatVectorPulse("cheap"), "reroute: ⚡ cheap")
+  assert.equal(formatVectorPulse("nonsense"), "")
   assert.equal(formatVectorPulse(undefined), "")
   assert.equal(formatVectorPulse(null), "")
 })

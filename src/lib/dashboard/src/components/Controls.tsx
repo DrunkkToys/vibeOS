@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js"
 import { postTrinity, type StatusPayload } from "../api"
 import RealityCheckPanel from "./RealityCheck"
-import { getBrandedModes, getRuntimeModes } from "../../../mode-router"
+import { getBrandedModes } from "../../../mode-router"
 
-const dashboardModes = [...getBrandedModes(), ...getRuntimeModes().filter((mode) => mode.id !== "balanced")]
+const dashboardModes = getBrandedModes()
 
 export default function Controls({ status, onAction }: { status: StatusPayload | null; onAction: () => void }) {
   const [busy, setBusy] = createSignal<string | null>(null)

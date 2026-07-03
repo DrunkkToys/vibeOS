@@ -2,7 +2,7 @@ import { For, Show } from "solid-js"
 import type { DashboardHomePayload, OrchFlow, OrchProject, OrchSession, StatusPayload } from "../api"
 import { postTrinity } from "../api"
 import { resolveFlowSummary } from "../home-model"
-import { getBrandedModes, getRuntimeModes, normalizeLegacyMode } from "../../../mode-router"
+import { getBrandedModes, getMode, normalizeLegacyMode } from "../../../mode-router"
 
 function fmtUsd(value: number | null | undefined): string {
   return `$${Number(value || 0).toFixed(2)}`
@@ -16,10 +16,9 @@ function sessionLabel(session: OrchSession | null | undefined): string {
 function formatModeLabel(mode: string | null | undefined): string {
   const normalized = String(mode || "").trim().toLowerCase()
   if (!normalized) return "auto"
+  if (normalized === "auto") return "auto"
   try {
-    return [...getBrandedModes(), ...getRuntimeModes()].find((entry) => entry.id === normalized)?.name
-      || [...getBrandedModes(), ...getRuntimeModes()].find((entry) => entry.id === normalizeLegacyMode(normalized))?.name
-      || normalized
+    return getMode(normalized).name || getMode(normalizeLegacyMode(normalized)).name || normalized
   } catch {
     return normalized
   }
@@ -41,10 +40,11 @@ export default function Home(props: {
   const flowSummary = () => resolveFlowSummary({ session: props.session, project: props.project, flows: props.flows })
   const todoPreview = () => (props.data?.todos || []).filter((todo) => todo?.status !== "done").slice(0, 4)
   const homeStatus = () => props.data?.status || props.status
-  const currentMode = () => formatModeLabel(homeStatus()?.optimization_mode || props.data?.home.cards.find((card) => card.label.toLowerCase() === "mode")?.value || "auto")
+  const currentModeId = () => String(props.data?.current_session?.optimization_mode || homeStatus()?.optimization_mode || props.data?.home.cards.find((card) => card.label.toLowerCase() === "mode")?.value || "auto").trim().toLowerCase()
+  const currentMode = () => formatModeLabel(currentModeId())
   const modeCards = () => getBrandedModes().map((mode) => ({
     ...mode,
-    active: String(homeStatus()?.optimization_mode || "").toLowerCase() === mode.id,
+    active: currentModeId() === mode.id,
   }))
   const operations = () => [
     { label: "mode", value: currentMode() },

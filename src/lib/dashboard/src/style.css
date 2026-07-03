@@ -421,6 +421,10 @@ pre{font-family:var(--mono);font-size:0.72rem}
 .session-plan-box,.policy-box{
   border:1px solid var(--border);background:var(--bg);padding:0.55rem 0.6rem;
 }
+.session-search-box{
+  border:1px solid var(--border);background:var(--bg);padding:0.55rem 0.6rem;
+}
+.session-search-results{display:flex;flex-direction:column;gap:0.4rem;margin-top:0.45rem}
 .session-plan-head{display:flex;justify-content:space-between;gap:0.5rem;margin-bottom:0.35rem;font-size:0.74rem;color:var(--text-bright)}
 .mode-control-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.45rem}
 .mode-card-btn{

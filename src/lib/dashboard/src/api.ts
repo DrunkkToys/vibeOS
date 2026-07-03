@@ -85,6 +85,7 @@ export interface DashboardSessionSummary{
   notes_count:number
   tags:string[]
   template:DashboardSessionTemplate
+  optimization_mode?:string|null
   orchestration_plan?:OrchPlan|null
   blackbox:DashboardSessionBlackbox
   recommendation:string
@@ -151,7 +152,7 @@ export function fetchCapabilities():Promise<CapabilitiesPayload>{return f<Capabi
 export function fetchDashboardHome():Promise<DashboardHomePayload>{return f<DashboardHomePayload>("/dashboard/home")}
 export function fetchSessionDetail(sessionId:string):Promise<SessionDetailPayload>{return f<SessionDetailPayload>(`/sessions/${encodeURIComponent(sessionId)}`)}
 export function postTrinity(action:string,slot?:string,level?:string):Promise<{ok:boolean;result?:unknown;error?:string}>{const b:Record<string,string>={action};if(slot)b.slot=slot;if(level)b.level=level;return f("/trinity",{method:"POST",body:JSON.stringify(b)})}
-export function postSessionAction(sessionId:string,payload:{action:string;[key:string]:unknown}):Promise<{ok:boolean;session:DashboardSessionSummary}>{return f(`/sessions/${encodeURIComponent(sessionId)}/action`,{method:"POST",body:JSON.stringify(payload)})}
+export function postSessionAction(sessionId:string,payload:{action:string;[key:string]:unknown}):Promise<{ok:boolean;session:DashboardSessionSummary;metrics?:Record<string,unknown>;orchestration?:Record<string,unknown>|null}>{return f(`/sessions/${encodeURIComponent(sessionId)}/action`,{method:"POST",body:JSON.stringify(payload)})}
 export function fetchRealityCheck(scope:"global"|"project"="global",project_id?:string):Promise<RealityCheckView>{const q=new URLSearchParams();q.set("scope",scope);if(project_id)q.set("project_id",project_id);return f<RealityCheckView>(`/reality-check?${q.toString()}`)}
 export function saveRealityCheck(payload:{scope:"global"|"project";project_id?:string;enabled:boolean;rules:RealityCheckRule[]}):Promise<{ok:boolean;settings?:RealityCheckView;error?:string}>{return f("/reality-check",{method:"POST",body:JSON.stringify(payload)})}
 export function webSearch(payload:{query:string;max_results?:number;provider?:string;compose_answer?:boolean;safe_search?:string;locale?:string}):Promise<WebSearchPayload>{return f<WebSearchPayload>("/web-search",{method:"POST",body:JSON.stringify(payload)})}

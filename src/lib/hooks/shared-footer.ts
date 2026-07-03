@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Shared footer formatting — single source of truth for text.complete and tool.execute.after
 
-import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE } from "../mode-router.js"
+import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../mode-router.js"
 
 export interface FooterLineInput {
   activeSlot: string
@@ -74,8 +74,19 @@ const TIER_ICON: Record<string, string> = {
   free: "\u{1F381}",
 }
 
-export function resolveBrand(_optMode: string, _activeSlot: string): string {
-  return "vibeOS"
+export function resolveBrand(optMode: string, _activeSlot: string): string {
+  const raw = String(optMode || "").trim().toLowerCase()
+  if (!raw || raw === "auto") return "vibeOS"
+  if (raw === "raw") return MODE_TABLE.raw.name
+  const isKnownMode = BRANDED_MODES.some((mode) => mode.id === raw) || RUNTIME_MODES.some((mode) => mode.id === raw)
+  const isKnownAlias = raw === "litex"
+  if (!isKnownMode && !isKnownAlias) return "vibeOS"
+  try {
+    const canonical = normalizeLegacyMode(raw)
+    return MODE_TABLE[canonical]?.name || "vibeOS"
+  } catch {
+    return "vibeOS"
+  }
 }
 
 export function resolveTierIcon(slot: string): string {
@@ -105,7 +116,10 @@ export function formatModeLabel(optMode: string): string {
 
 export function formatVectorPulse(vectorChangedSlot?: string): string {
   if (!vectorChangedSlot) return ""
-  return `⟡ ${TIER_ICON[vectorChangedSlot] || "⚡"}`
+  const slot = String(vectorChangedSlot || "").trim().toLowerCase()
+  if (!slot) return ""
+  if (!["brain", "medium", "cheap", "free"].includes(slot)) return ""
+  return `reroute: ${TIER_ICON[slot] || "⚡"} ${slot}`
 }
 
 export function formatEnforcementPulse(enfTags: string[]): string {

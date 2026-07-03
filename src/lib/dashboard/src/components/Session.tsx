@@ -6,6 +6,7 @@ import {
   postTrinity,
   runSession,
   updateSession,
+  webSearch,
   type CapabilitiesPayload,
   type DashboardHomePayload,
   type OrchFlow,
@@ -16,10 +17,11 @@ import {
   type SavingsPayload,
   type SessionDetailPayload,
   type StatusPayload,
+  type WebSearchPayload,
 } from "../api"
-import { getBrandedModes, getRuntimeModes } from "../../../mode-router"
+import { getBrandedModes, getMode } from "../../../mode-router"
 
-const dashboardModes = [...getBrandedModes(), ...getRuntimeModes().filter((mode) => mode.id !== "balanced")]
+const dashboardModes = getBrandedModes()
 
 function StepRow(props: { r: OrchStepResult }) {
   const r = props.r
@@ -69,13 +71,23 @@ export default function Session(props: {
   const [liveFlow, setLiveFlow] = createSignal<{ flow_name: string | null } | null>(null)
   const [livePlan, setLivePlan] = createSignal<OrchPlan | null>(null)
   const [liveSteps, setLiveSteps] = createSignal<OrchStepResult[]>([])
+  const [searchQuery, setSearchQuery] = createSignal("")
+  const [searchResult, setSearchResult] = createSignal<WebSearchPayload | null>(null)
+  const [searchBusy, setSearchBusy] = createSignal(false)
+  const [searchErr, setSearchErr] = createSignal<string | null>(null)
   const [err, setErr] = createSignal<string | null>(null)
   let abort: (() => void) | null = null
   onCleanup(() => abort?.())
 
+  const formatModeLabel = (mode: string | null | undefined) => {
+    const normalized = String(mode || "").trim().toLowerCase()
+    if (!normalized) return "auto"
+    if (normalized === "auto") return "auto"
+    try { return getMode(normalized).name || normalized } catch { return normalized }
+  }
   const sessionDetail = createMemo(() => detail()?.session)
   const effectivePlan = createMemo(() => livePlan() || sessionDetail()?.orchestration_plan || props.status?.orchestration_plan || null)
-  const effectiveMode = createMemo(() => String(props.status?.optimization_mode || "auto").toLowerCase())
+  const effectiveMode = createMemo(() => String(sessionDetail()?.optimization_mode || props.status?.optimization_mode || "auto").toLowerCase())
   const modeCards = createMemo(() => dashboardModes.map((mode) => ({
     ...mode,
     active: effectiveMode() === mode.id,
@@ -83,11 +95,12 @@ export default function Session(props: {
       ? props.capabilities?.vibeultrax?.enabled !== false
       : mode.id === "vibeqmax"
         ? props.capabilities?.vibeqmax?.enabled !== false
-        : mode.id === "vibemax"
-          ? props.capabilities?.vibemax?.enabled !== false
-          : true,
+      : mode.id === "vibemax"
+        ? props.capabilities?.vibemax?.enabled !== false
+        : true,
   })))
-  const effectiveModeLabel = createMemo(() => modeCards().find((mode) => mode.active)?.name || effectiveMode())
+  const effectiveModeLabel = createMemo(() => modeCards().find((mode) => mode.active)?.name || formatModeLabel(effectiveMode()))
+  const webSearchEnabled = createMemo(() => Boolean(props.capabilities?.web_search?.enabled))
 
   const flowLabel = () => {
     const fid = props.session.flow_id
@@ -161,13 +174,33 @@ export default function Session(props: {
     setErr(null)
     try {
       const res = await postSessionAction(props.session.id, { action })
-      mutateDetail((current) => current ? { ...current, session: res.session } : current)
+      mutateDetail((current) => current ? { ...current, session: res.session, metrics: res.metrics, orchestration: res.orchestration ?? null } : current)
       void refetchDetail()
       props.onRefresh()
     } catch (e: unknown) {
       setErr((e as Error).message)
     } finally {
       setBusyAction(null)
+    }
+  }
+
+  const runWebSearch = async () => {
+    const query = searchQuery().trim()
+    if (!query || searchBusy()) return
+    setSearchBusy(true)
+    setSearchErr(null)
+    try {
+      const result = await webSearch({
+        query,
+        provider: props.capabilities?.web_search?.provider || "duckduckgo",
+        max_results: 5,
+        compose_answer: true,
+      })
+      setSearchResult(result)
+    } catch (e: unknown) {
+      setSearchErr((e as Error).message)
+    } finally {
+      setSearchBusy(false)
     }
   }
 
@@ -337,6 +370,41 @@ export default function Session(props: {
               {props.status?.backend_connected ? "Backend reachable. Structured execution is live." : "Backend degraded. UI remains operational, but execution fidelity may be reduced."}
             </p>
           </div>
+          <Show when={webSearchEnabled()}>
+            <div class="session-state-block">
+              <span class="field-label">web search</span>
+              <textarea
+                class="text-area"
+                placeholder="Search the web inside this session workspace…"
+                value={searchQuery()}
+                onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void runWebSearch() }}
+              />
+              <div class="composer-actions">
+                <span class="muted">provider: {props.capabilities?.web_search?.provider || "duckduckgo"}</span>
+                <button class="flow-save" disabled={searchBusy() || !searchQuery().trim()} onClick={() => void runWebSearch()}>{searchBusy() ? "searching…" : "search web"}</button>
+              </div>
+              <Show when={searchResult()}>
+                {(result) => (
+                  <div class="session-search-box">
+                    <p class="session-copy">{result().answer || "No grounded answer returned."}</p>
+                    <div class="session-search-results">
+                      <For each={result().results.slice(0, 3)}>{(item) => (
+                        <a class="search-item" href={item.url} target="_blank" rel="noreferrer">
+                          <div class="search-item-title">
+                            <span class="search-rank">[{item.rank}]</span> {item.title}
+                          </div>
+                          <div class="search-item-meta">{item.domain}</div>
+                          <Show when={item.snippet}><div class="search-item-snippet">{item.snippet}</div></Show>
+                        </a>
+                      )}</For>
+                    </div>
+                  </div>
+                )}
+              </Show>
+              <Show when={searchErr()}><div class="error">{searchErr()}</div></Show>
+            </div>
+          </Show>
           <Show when={err()}><div class="error">{err()}</div></Show>
         </div>
 
