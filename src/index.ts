@@ -13,7 +13,7 @@ import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
+import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { getRuntimeVibeOSHome, setRuntimeVibeOSHome, resetRuntimeStateForTest as _resetRuntimeGlobalStateForTest } from "./lib/runtime-state.js"
@@ -38,6 +38,7 @@ import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
 import { getTiersFile, getReportsDir, getReportsIndex, getStateFile, getMcpRuntimeFile, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 import { getSessionDelegationSavings } from "./lib/session-savings.js"
+import { getLatestTurnTruth } from "./lib/turn-ledger.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -130,19 +131,32 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
       return false
     }
     _refreshModel(directory)
-    // Trinity fallback: if no live model is configured anywhere (fresh project,
-    // no opencode.json model field, no env var), fall back to the user's active
-    // slot model instead of painting an unhelpful "unknown" — this is the same
-    // fallback the rich footer (_appendFooter) already applies.
-    const slotModel = loadSelection().active_slot === "brain" ? TRINITY_BRAIN
-      : loadSelection().active_slot === "medium" ? TRINITY_MEDIUM
+    const sid = getCurrentSessionId()
+    const latestTurnTruth = getLatestTurnTruth(sid)
+    const latestExecutedRoute = latestTurnTruth?.executedRoute || null
+    const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
+    const latestFinalized = latestTurnTruth?.finalized || null
+    const sessionSlot = latestFinalized?.finalVisibleSlot
+      || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "")
+      || loadSelection().active_slot
+      || "cheap"
+    const slotModel = sessionSlot === "brain" ? TRINITY_BRAIN
+      : sessionSlot === "medium" ? TRINITY_MEDIUM
         : TRINITY_CHEAP
-    const resolvedModel = currentModel || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || slotModel || ""
-    const resolvedTier = String(currentTier || classify(resolvedModel) || "").toLowerCase()
-    const label = resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap"
+    const liveModel = readLiveOpenCodeModel(directory) || readConfig(directory) || readConfig(getOpenCodeHome()) || process?.env?.OPENCODE_MODEL || ""
+    const resolvedModel = latestFinalized?.finalVisibleModel
+      || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedModel : "")
+      || liveModel
+      || currentModel
+      || slotModel
+      || ""
+    const resolvedTier = String(classify(resolvedModel) || "").toLowerCase()
+    const label = latestFinalized?.finalVisibleSlot
+      || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "")
+      || (resolvedTier === "high" ? "brain" : resolvedTier === "mid" ? "medium" : "cheap")
     const fallbackExecution = resolveCurrentExecution({
       directory,
-      activeSlot: loadSelection().active_slot || label,
+      activeSlot: label,
       currentModel,
       liveModel: resolvedModel,
       tiersData: {
@@ -162,9 +176,8 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
       modelName: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),
     })}`
     try {
-      const sid = getCurrentSessionId()
-      if (sid) {
-        const eventsDir = join(getVibeOSHome(), "session-events")
+        if (sid) {
+          const eventsDir = join(getVibeOSHome(), "session-events")
         mkdirSync(eventsDir, { recursive: true })
         appendFileSync(join(eventsDir, `${sid}.jsonl`), JSON.stringify({
           ts: new Date().toISOString(),
