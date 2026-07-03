@@ -43,7 +43,7 @@ test("reward-engine: smart saving yields +1-3 bonus", () => {
   assert.equal(large.breakdown.savingBonus, 3)
 })
 
-test("reward-engine: lie claim-vs-outcome mismatch yields -15", () => {
+test("reward-engine: unsupported completion claim yields -15", () => {
   const result = reward.computeReward({
     outcome: "negative",
     claims: [{ line: 1, text: "I fixed the bug", pattern: "fix" }],
@@ -100,7 +100,7 @@ test("reward-engine: multiple penalties stack", () => {
   assert.equal(result.credits, -35)
 })
 
-test("reward-engine: self-contradiction lie yields -10", () => {
+test("reward-engine: contradiction yields -10", () => {
   const result = reward.computeReward({
     outcome: null,
     claims: [],
@@ -122,6 +122,18 @@ test("reward-engine: cache hit yields +2 credits", () => {
   })
   assert.equal(result.credits, 2)
   assert.equal(result.breakdown.cachePenalty, 2)
+})
+
+test("reward-engine: meta-work drift yields -8", () => {
+  const result = reward.computeReward({
+    outcome: null,
+    claims: [],
+    laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
+    savingsUsd: 0,
+    metaWorkDrift: true,
+  })
+  assert.equal(result.breakdown.metaWorkPenalty, -8)
+  assert.equal(result.credits, -8)
 })
 
 test("reward-engine: cache miss yields -2 credits", () => {

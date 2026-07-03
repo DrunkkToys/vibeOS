@@ -16,6 +16,8 @@ export default function StatusCard({ status }: { status: StatusPayload | null })
           <tr><td>flow</td><td><span class={`badge ${status.flow_enforcer ? "on" : "off"}`}>{status.flow_enforcer ? "ON" : "OFF"}</span></td></tr>
           <tr><td>tdd</td><td><span class={`badge ${status.tdd_enforcer ? "on" : "off"}`}>{status.tdd_enforcer ? "ON" : "OFF"}</span></td></tr>
           <tr><td>tdd strict</td><td><span class={`badge ${status.tdd_strict ? "on" : "off"}`}>{status.tdd_strict ? "ON" : "OFF"}</span></td></tr>
+          <tr><td>progress health</td><td><span class={`badge ${status.session_health?.risk === "high" ? "off" : "on"}`}>{status.session_health ? `${status.session_health.risk} (${status.session_health.score})` : "n/a"}</span></td></tr>
+          <tr><td>claim evidence</td><td><span class={`badge ${status.claim_evidence?.status === "supported" ? "on" : status.claim_evidence?.status === "not_applicable" ? "" : "off"}`}>{status.claim_evidence?.status || "n/a"}</span></td></tr>
           <tr><td>reality-check</td><td><span class={`badge ${status.reality_check_enabled ? "on" : "off"}`}>{status.reality_check_enabled ? `ON${status.reality_check_scope ? ` (${status.reality_check_scope})` : ""}` : "OFF"}</span></td></tr>
           <tr><td>backend</td><td><span class={`badge ${status.backend_connected ? "on" : "off"}`}>{status.backend_connected ? "⚡ ON" : "OFF"}</span></td></tr>
           <tr><td>backend url</td><td><code>{status.backend_api_url || status.backend_health_url || "unknown"}</code></td></tr>

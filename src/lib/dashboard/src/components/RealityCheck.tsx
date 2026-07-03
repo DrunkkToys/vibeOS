@@ -1,150 +1,93 @@
-import { createSignal, onMount } from "solid-js"
-import { fetchRealityCheck, postTrinity, saveRealityCheck, type StatusPayload, type RealityCheckRule, type RealityCheckView } from "../api"
+import { createSignal } from "solid-js"
+import { postTrinity, type StatusPayload } from "../api"
 
 export default function RealityCheckPanel({ status }: { status: StatusPayload | null }) {
-  const [scope, setScope] = createSignal<"global" | "project">("global")
-  const [projectId, setProjectId] = createSignal("")
-  const [enabled, setEnabled] = createSignal(true)
-  const [rulesText, setRulesText] = createSignal("[]")
-  const [view, setView] = createSignal<RealityCheckView | null>(null)
   const [busy, setBusy] = createSignal(false)
-  const [msg, setMsg] = createSignal<string>("")
+  const [msg, setMsg] = createSignal("")
+  const health = () => status?.session_health || null
+  const claim = () => status?.claim_evidence || health()?.claimEvidence || null
 
-  async function load(nextScope = scope(), nextProjectId = projectId()) {
-    setBusy(true)
-    setMsg("")
-    try {
-      const data = await fetchRealityCheck(nextScope, nextScope === "project" ? nextProjectId : undefined)
-      setView(data)
-      setScope(data.scope)
-      setProjectId(data.project_id || data.current_project?.id || nextProjectId || "")
-      setEnabled(data.enabled !== false)
-      setRulesText(JSON.stringify(data.rules || [], null, 2))
-    } catch (err: any) {
-      setMsg(err?.message || "Failed to load reality-check state")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function save() {
-    let rules: RealityCheckRule[] = []
-    try {
-      const parsed = JSON.parse(rulesText())
-      rules = Array.isArray(parsed) ? parsed : []
-    } catch {
-      setMsg("Rules must be valid JSON array")
-      return
-    }
-    setBusy(true)
-    setMsg("")
-    try {
-      const result = await saveRealityCheck({
-        scope: scope(),
-        project_id: scope() === "project" ? projectId() : undefined,
-        enabled: enabled(),
-        rules,
-      })
-      if (result.ok) {
-        setMsg("Saved reality-check settings")
-        await load(scope(), projectId())
-      } else {
-        setMsg(result.error || "Save failed")
-      }
-    } catch (err: any) {
-      setMsg(err?.message || "Save failed")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function runRealityCheck() {
+  async function refreshVerifiedState() {
     setBusy(true)
     setMsg("")
     try {
       const result = await postTrinity("reality-check")
-      setMsg(String(result.result || "Reality check complete"))
+      setMsg(String(result.result || "Verified state refreshed"))
     } catch (err: any) {
-      setMsg(err?.message || "Reality check failed")
+      setMsg(err?.message || "Failed to refresh verified state")
     } finally {
       setBusy(false)
     }
   }
 
-  onMount(() => { void load() })
-
   return (
     <div class="card-full">
-      <h3>Reality Check</h3>
-      <div class="control-group">
-        <h4>Scope</h4>
-        <div class="bracket-row">
-          <button class={`bracket-btn ${scope() === "global" ? "on" : ""}`} disabled={busy()} onClick={() => { setScope("global"); void load("global") }}>
-            global
-          </button>
-          <button class={`bracket-btn ${scope() === "project" ? "on" : ""}`} disabled={busy()} onClick={() => { setScope("project"); void load("project", projectId() || status?.current_project_fingerprint || view()?.current_project?.id || "") }}>
-            project
-          </button>
-        </div>
-      </div>
+      <h3>Progress Health</h3>
+      {!health() ? (
+        <p class="muted">No session health snapshot yet.</p>
+      ) : (
+        <>
+          <div class="control-group">
+            <h4>Current Risk</h4>
+            <div class="bracket-row">
+              <span class={`badge ${health()!.risk === "high" ? "off" : "on"}`}>{health()!.risk}</span>
+              <span class="badge">score {health()!.score}</span>
+              <span class={`badge ${health()!.decisiveProgress ? "on" : "off"}`}>{health()!.decisiveProgress ? "decisive progress" : "no decisive progress"}</span>
+              <span class={`badge ${health()!.metaWorkDrift ? "off" : "on"}`}>{health()!.metaWorkDrift ? "meta-work drift" : "task-focused"}</span>
+            </div>
+          </div>
 
-      {scope() === "project" && (
-        <div class="control-group">
-          <h4>Project</h4>
-          <label class="field-label" for="reality-project">project fingerprint</label>
-          <select
-            id="reality-project"
-            class="text-input"
-            value={projectId() || view()?.current_project?.id || ""}
-            disabled={busy()}
-            onChange={(e) => { setProjectId(e.currentTarget.value); void load("project", e.currentTarget.value) }}
-          >
-            <option value="">select a project</option>
-            {(view()?.known_projects || []).map((p) => (
-              <option value={p.id}>{p.name ? `${p.name} (${p.id})` : p.id}</option>
-            ))}
-          </select>
-        </div>
+          <div class="control-group">
+            <h4>Ratios</h4>
+            <div class="result-box">
+              <code>implementation {(health()!.implementationRatio * 100).toFixed(0)}% | inspection {(health()!.inspectionRatio * 100).toFixed(0)}%</code>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h4>Recovery</h4>
+            <div class="result-box">
+              <code>{health()!.recommendedAction}</code>
+              {health()!.stopDoing && <code>{health()!.stopDoing}</code>}
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h4>Loop Signals</h4>
+            <div class="result-box">
+              {(health()!.loopSignals || []).length === 0 ? (
+                <code>none</code>
+              ) : (
+                (health()!.loopSignals || []).slice(0, 4).map((signal) => (
+                  <code>{signal.kind}: {signal.summary}</code>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h4>Claim Evidence</h4>
+            <div class="result-box">
+              <code>{claim()?.status || "not_applicable"}{claim()?.reason ? ` — ${claim()!.reason}` : ""}</code>
+              {claim()?.matchedEvidence?.length ? <code>matched: {claim()!.matchedEvidence.join(", ")}</code> : null}
+              {claim()?.missingEvidence?.length ? <code>missing: {claim()!.missingEvidence.join(", ")}</code> : null}
+            </div>
+          </div>
+        </>
       )}
 
-      <div class="control-group">
-        <h4>Active</h4>
-        <div class="bracket-row">
-          <button class={`bracket-btn ${enabled() ? "on" : "off"}`} disabled={busy()} onClick={() => setEnabled(!enabled())}>
-            {enabled() ? "enabled" : "disabled"}
-          </button>
-        </div>
-      </div>
-
-      <div class="control-group">
-        <h4>Rules</h4>
-        <label class="field-label" for="reality-rules">editable JSON array</label>
-        <textarea
-          id="reality-rules"
-          class="text-area"
-          value={rulesText()}
-          disabled={busy()}
-          onInput={(e) => setRulesText(e.currentTarget.value)}
-        />
-      </div>
-
       <div class="bracket-row">
-        <button class="bracket-btn on" disabled={busy()} onClick={() => void load()}>
-          reload
-        </button>
-        <button class="bracket-btn on" disabled={busy()} onClick={() => void save()}>
-          save
-        </button>
-        <button class="bracket-btn on" disabled={busy()} onClick={() => void runRealityCheck()}>
-          reality-check
+        <button class="bracket-btn on" disabled={busy()} onClick={() => void refreshVerifiedState()}>
+          {busy() ? "..." : "verify state"}
         </button>
       </div>
 
-      <div class="result-box" style="margin-top:0.65rem">
-        <code>
-          {msg() || `scope=${scope()}${scope() === "project" && projectId() ? ` project=${projectId()}` : ""} rules=${view()?.rules?.length ?? 0}`}
-        </code>
-      </div>
+      {msg() && (
+        <div class="result-box" style="margin-top:0.65rem">
+          <code>{msg()}</code>
+        </div>
+      )}
     </div>
   )
 }
+

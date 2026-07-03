@@ -8,6 +8,7 @@ import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolv
 import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./mode-router.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
+import { getSessionHealthSnapshot } from "./session-health.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
@@ -506,6 +507,11 @@ export function createTrinityTool(deps) {
       if (action === "reality-check") {
         const projectFingerprint = deps.currentProjectFingerprint || (typeof deps.projectFingerprint === "function" ? deps.projectFingerprint(deps.directory || "") : "")
         const reality = getRealityCheckView(projectFingerprint)
+        const health = getSessionHealthSnapshot({
+          sessionId: deps._OC_SID,
+          projectFingerprint,
+          userText: deps.latestUserIntent || "",
+        })
         const projectState = typeof deps.loadProjectState === "function" ? deps.loadProjectState() : {}
         const projectBucket = projectFingerprint ? projectState?.project_hashes?.[projectFingerprint] : null
         const fullState = typeof deps.readFullState === "function" ? deps.readFullState() : {}
@@ -520,8 +526,26 @@ export function createTrinityTool(deps) {
         lines.push(`Scope: ${reality.scope}${reality.project_id ? ` (${reality.project_id})` : ""}`)
         lines.push(`Enabled: ${reality.enabled ? "YES" : "NO"}`)
         lines.push(`Rules loaded: ${reality.rules.length}`)
-        for (const rule of reality.rules.slice(0, 8)) {
-          lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`)
+        if (health) {
+          lines.push(`Progress risk: ${health.risk} (${health.score})`)
+          lines.push(`Decisive progress: ${health.decisiveProgress ? "YES" : "NO"}`)
+          lines.push(`Meta-work drift: ${health.metaWorkDrift ? "YES" : "NO"}`)
+          lines.push(`Recommended action: ${health.recommendedAction}`)
+          if (health.stopDoing) lines.push(`Stop doing: ${health.stopDoing}`)
+          if (Array.isArray(health.loopSignals) && health.loopSignals.length > 0) {
+            lines.push("Loop signals:")
+            for (const signal of health.loopSignals.slice(0, 5)) {
+              lines.push(`  - ${signal.kind}: ${signal.summary}`)
+            }
+          }
+          if (health.claimEvidence?.status && health.claimEvidence.status !== "not_applicable") {
+            lines.push(`Claim evidence: ${health.claimEvidence.status}`)
+            if (health.claimEvidence.reason) lines.push(`  ${health.claimEvidence.reason}`)
+          }
+        } else {
+          for (const rule of reality.rules.slice(0, 8)) {
+            lines.push(`  - ${rule.id}: ${rule.description || rule.pattern}`)
+          }
         }
         if (projectBucket?.totalSessions != null) {
           lines.push(`Project sessions: ${projectBucket.totalSessions}`)

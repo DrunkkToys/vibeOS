@@ -226,6 +226,7 @@ let _mcpServerRestartTimer = null
 let _mcpServerShouldRun = false
 let _mcpServerClosing = false
 let _dashboardBaseUrl = null
+let _mcpProjectDirectory = ""
 // Reference to the MCP server's data deps so the dashboard-sync loop can build
 // the same status/savings/sessions payloads without duplicating them.
 let _dashboardSyncDeps: any = null
@@ -679,7 +680,7 @@ async function ensureMcpServerRunning() {
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
               backendVersion: getBackendVersion(),
               optimizationMode: loadSelection()?.optimization_mode || null,
-              nativeAgent: readDefaultAgent(directory) || "vibe",
+              nativeAgent: readDefaultAgent(_mcpProjectDirectory) || "vibe",
               tiers: (() => { try { return safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.trinity } catch { return null } })(),
               blackbox: loadBlackboxState(),
               sessionId: _OC_SID,
@@ -892,6 +893,7 @@ async function ensureMcpServerRunning() {
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 export async function DelegationEnforcer({ client, directory } = {}) {
   console.error(`[vibeOS] LOADED cwd=${directory}`)
+  _mcpProjectDirectory = directory || ""
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
   const resolvedVibeOSHome = process.env.VIBEOS_HOME || join(hookHome, ".claude")

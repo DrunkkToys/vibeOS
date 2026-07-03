@@ -14,25 +14,25 @@ describe("PR #274 — reward engine credits and persistence", () => {
     assert.ok(result.credits > 0, "total credits must be positive")
   })
 
-  it("negative outcome with claims triggers lie penalty", () => {
+  it("negative outcome with unsupported claims triggers claim penalty", () => {
     const result = computeReward({
       outcome: "negative",
       claims: [{ line: 1, text: "works perfectly", pattern: "works" }],
       laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
       savingsUsd: 0,
     })
-    assert.equal(result.breakdown.liePenalty, -15, "lie claim mismatch = -15")
+    assert.equal(result.breakdown.liePenalty, -15, "unsupported completion claim = -15")
     assert.ok(result.credits < 0, "total credits must be negative")
   })
 
-  it("negative outcome without claims has no lie penalty", () => {
+  it("negative outcome without claims has no claim penalty", () => {
     const result = computeReward({
       outcome: "negative",
       claims: [],
       laziness: { shortOutput: false, todoPlaceholders: false, skippedDelegation: false, penalty: 0 },
       savingsUsd: 0,
     })
-    assert.equal(result.breakdown.liePenalty, 0, "no claims = no lie penalty")
+    assert.equal(result.breakdown.liePenalty, 0, "no claims = no claim penalty")
   })
 
   it("saving bonus tiers work correctly", () => {
@@ -99,7 +99,8 @@ describe("PR #274 — reward engine credits and persistence", () => {
       result.breakdown.savingBonus +
       result.breakdown.liePenalty +
       result.breakdown.contradictionPenalty +
-      result.breakdown.lazinessPenalty
+      result.breakdown.lazinessPenalty +
+      result.breakdown.metaWorkPenalty
     assert.equal(result.credits, expected, "credits must equal sum of breakdown fields")
   })
 })
