@@ -14,6 +14,7 @@ import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { detectLies } from "../../vibeOS-lib/lie-detector.js"
 import { evaluateClaimVerification } from "../claim-verification.js"
+import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
@@ -313,7 +314,11 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const { _stableStreak, _problemStreak } = readRewardSignals()
 
     const sid = getSessionId()
-    const sessionSlot = loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
+    const latestTurnTruth = getLatestTurnTruth(sid)
+    const latestExecutedRoute = latestTurnTruth?.executedRoute || null
+    const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
+    const latestFinalized = latestTurnTruth?.finalized || null
+    const sessionSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     const _cacheEvt = getLatestCacheEvent(sid)
@@ -323,7 +328,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     if (!liveModel) {
       liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
     }
-    const displayModel = liveModelSetting || liveModel || currentModel || ""
+    const displayModel = latestFinalized?.finalVisibleModel || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedModel : "") || liveModelSetting || liveModel || currentModel || ""
     const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || ""
     if (resolvedModel && resolvedModel !== currentModel) {
       setCurrentModel(resolvedModel)
@@ -342,6 +347,11 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
         : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
     const ultraCascadeDepth = Number(
+      latestFinalized?.cascadeDepth ??
+      (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.cascadeDepth : null) ??
+      (latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
+      diskBlackboxState?.control_vector?.cascade_depth ??
+      diskBlackboxState?.cascade_depth ??
       liveBlackboxState?.control_vector?.cascade_depth ??
       liveBlackboxState?.cascade_depth ?? 0,
     ) || 0
@@ -437,7 +447,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     })
     const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
     _footerStage = "claims"
-    const claimStatus = evaluateClaimVerification({ text, vibeHome: VIBEOS_HOME })
+    const claimStatus = evaluateClaimVerification({
+      text,
+      vibeHome: VIBEOS_HOME,
+      sessionId: sid,
+      turnId: latestTurnTruth?.turnId || "",
+    })
     const lieResult = detectLies({
       assistantText: text,
       userText: latestUserIntent || "",
@@ -614,12 +629,21 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     } catch {}
 
     _footerStage = "build"
-    const cascadeDepthForIcon = Number(
-      diskBlackboxState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
-      liveBlackboxState?.control_vector?.cascade_depth ??
-      liveBlackboxState?.cascade_depth ??
-      0,
-    ) || 0
+    const cascadeDepthSource =
+      ultraCascadeDepth > 0
+        ? ultraCascadeDepth
+        : (
+          latestFinalized?.cascadeDepth ??
+          latestExecutedRoute?.cascadeDepth ??
+          (Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
+          diskBlackboxState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
+          diskBlackboxState?.control_vector?.cascade_depth ??
+          diskBlackboxState?.cascade_depth ??
+          liveBlackboxState?.control_vector?.cascade_depth ??
+          liveBlackboxState?.cascade_depth ??
+          0
+        )
+    const cascadeDepthForIcon = Number(cascadeDepthSource) || 0
     const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
     const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
     const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
@@ -693,6 +717,33 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       })
     } catch (innerErr) {
       console.error("[vibeOS] footer recordLiveSessionSnapshot error:", innerErr?.message || innerErr)
+    }
+    try {
+      if (latestTurnTruth?.turnId) {
+        recordTurnFinalize({
+          sessionId: sid,
+          turnId: latestTurnTruth.turnId,
+          finalized: {
+            finalVisibleModel: execution.model,
+            finalVisibleSlot: activeSlot,
+            finalVisibleProvider: execution.provider,
+            finalVisibleProviderLabel: execution.provider_label,
+            finalVisibleModelName: modelDisplayName(execution.model),
+            footerLine: vibeLine,
+            claimTag: claimTag || "",
+            rewardTag: _rewardTag || "",
+            rewardCredits: _rewardCredits,
+            rewardOutcome: _rewardOutcome || "",
+            subRegime: currentSubRegime,
+            enforcementMode: cv?.enforcement_mode || "",
+            flowMode: cv?.flow_mode || "",
+            tddMode: cv?.tdd_mode || "",
+            cascadeDepth: cascadeDepthForIcon,
+          },
+        })
+      }
+    } catch (turnLedgerErr) {
+      console.error("[vibeOS] footer turn ledger error:", turnLedgerErr?.message || turnLedgerErr)
     }
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`

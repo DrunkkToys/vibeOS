@@ -141,6 +141,7 @@ function summarizeCache(cacheDb: unknown): Record<string, unknown> {
 
 export function buildSessionBridge(input: {
   sessionId?: string
+  turnId?: string
   fromModel?: string
   fromTier?: string
   toModel?: string
@@ -227,6 +228,7 @@ export function buildSessionBridge(input: {
     bridge_id: bridgeId,
     bridge_key: bridgeKey,
     session_id: sessionId,
+    turn_id: String(input.turnId || "").trim() || null,
     created_at: createdAt,
     from_model: fromModel,
     from_tier: fromTier,

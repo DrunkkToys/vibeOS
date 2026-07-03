@@ -56,11 +56,15 @@ function loadRecentCascadeRuns(vibeHome: string) {
 export function evaluateClaimVerification({
   text,
   vibeHome = getVibeOSHome(),
+  sessionId = "",
+  turnId = "",
   now = Date.now(),
   windowMs = 120000,
 }: {
   text: string
   vibeHome?: string
+  sessionId?: string
+  turnId?: string
   now?: number
   windowMs?: number
 }): ClaimVerificationResult {
@@ -68,9 +72,17 @@ export function evaluateClaimVerification({
   if (claims.length === 0) return { claims, unsubstantiatedCount: 0, claimTag: "" }
 
   const cascadeRuns = loadRecentCascadeRuns(vibeHome)
+  const sid = String(sessionId || "").trim()
+  const tid = String(turnId || "").trim()
   const substantiated = cascadeRuns.some(cr => {
     const cTs = typeof cr === "object" && cr ? (cr._ts || "") : ""
-    return Boolean(cTs) && Math.abs(new Date(cTs).getTime() - now) < windowMs
+    if (!cTs || Math.abs(new Date(cTs).getTime() - now) >= windowMs) return false
+    if (sid && String(cr.sessionId || "").trim() !== sid) return false
+    if (tid) {
+      const entryTurnId = String(cr.turnId || "").trim()
+      if (!entryTurnId || entryTurnId !== tid) return false
+    }
+    return cr.executed !== false
   })
 
   return {
