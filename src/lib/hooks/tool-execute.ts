@@ -57,6 +57,7 @@ import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-l
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
+import { buildTurnId, recordTurnRoute } from "../turn-ledger.js"
 import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 import { runtimeTierCoherence } from "../runtime-config.js"
@@ -331,7 +332,7 @@ function _routePathForSlot(root: string[], slot: string | null): string[] {
   return ["cheap"]
 }
 
-function _writeCascadeAudit(prompt: string, slot: string | null, model: string | null, decision: unknown): void {
+function _writeCascadeAudit(prompt: string, slot: string | null, model: string | null, decision: unknown, meta: unknown = {}): void {
   try {
     const dir = join(getVibeOSHome(), "cascade-audit")
     mkdirSync(dir, { recursive: true })
@@ -342,9 +343,20 @@ function _writeCascadeAudit(prompt: string, slot: string | null, model: string |
     const difficulty = computeDifficulty(prompt)
     const line = JSON.stringify({
       _ts: new Date().toISOString(),
+      sessionId: String(meta?.sessionId || getCurrentSessionId() || _OC_SID || ""),
+      turnId: String(meta?.turnId || ""),
+      bridgeId: String(meta?.bridgeId || ""),
+      parentSessionId: String(meta?.parentSessionId || ""),
       query_hash: hashQuery(String(prompt || "")),
       slot: String(slot || ""),
       model: String(model || ""),
+      selectedSlot: String(meta?.selectedSlot || slot || ""),
+      selectedModel: String(meta?.selectedModel || model || ""),
+      source: String(meta?.source || decision?.source || ""),
+      routePath: Array.isArray(meta?.routePath) ? meta.routePath : [],
+      cascadeDepth: Number(meta?.cascadeDepth || (Array.isArray(meta?.routePath) ? meta.routePath.length : 0) || 0),
+      executed: meta?.executed === false ? false : true,
+      status: String(meta?.status || "completed"),
       difficulty_score: Number(difficulty.score.toFixed(4)),
       difficulty_level: difficulty.level,
       difficulty_confidence: Number(difficulty.confidence.toFixed(2)),
@@ -398,7 +410,14 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     selectedSlot = backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
     source = "backend"
     reason = backendRoute?.reason || "backend route"
-    _writeCascadeAudit(prompt, selectedSlot, selectedModel, { escalate: selectedSlot !== "cheap", useCheap: selectedSlot === "cheap", confidence: backendRoute.confidence || 1, reason: `backend: ${reason}` })
+      _writeCascadeAudit(prompt, selectedSlot, selectedModel, { escalate: selectedSlot !== "cheap", useCheap: selectedSlot === "cheap", confidence: backendRoute.confidence || 1, reason: `backend: ${reason}`, source }, {
+        selectedSlot,
+        selectedModel,
+        source,
+        routePath: _routePathForSlot(cascadeRoot, selectedSlot),
+        cascadeDepth: _routePathForSlot(cascadeRoot, selectedSlot).length || 1,
+        executed: true,
+      })
   }
 
   const precomputedEmbeddingMode = input?.embeddingMode ? String(input.embeddingMode) : null
@@ -449,7 +468,14 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
       } else if (cascadeDecision.useCheap && !cascadeSelectedModel) {
         applyLocalCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
       }
-      _writeCascadeAudit(prompt, cascadeSelectedSlot, cascadeSelectedModel, cascadeDecision)
+      _writeCascadeAudit(prompt, cascadeSelectedSlot, cascadeSelectedModel, { ...cascadeDecision, source: cascadeSource }, {
+        selectedSlot: cascadeSelectedSlot,
+        selectedModel: cascadeSelectedModel,
+        source: cascadeSource,
+        routePath: _routePathForSlot(cascadeRoot, cascadeSelectedSlot),
+        cascadeDepth: _routePathForSlot(cascadeRoot, cascadeSelectedSlot).length || 1,
+        executed: true,
+      })
     } catch (err) {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade route resolver error: ${err.message}`)
     }
@@ -897,12 +923,22 @@ export const onToolExecuteBefore = async (input, output) => {
     if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
     if (_target && (targetArgs?.model !== _target || (routeDecision?.selectedSubagent && targetArgs?.subagent_type !== routeDecision.selectedSubagent))) {
       const _reason = routeDecision?.reason || (_exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`)
+      const turnId = buildTurnId({
+        sessionId: getCurrentSessionId(),
+        prompt: String(targetArgs?.prompt || latestUserIntent || ""),
+        salt: Date.now(),
+      })
       const _setModel = (obj) => {
         if (!obj || typeof obj !== "object") return
         obj.model = _target
         obj.modelID = _target
         obj.modelId = _target
         if (routeDecision?.selectedSubagent) obj.subagent_type = routeDecision.selectedSubagent
+        obj._vibe_turn_id = turnId
+      }
+      const enrichedRouteDecision = {
+        ...routeDecision,
+        turnId,
       }
       const bridge = buildSessionBridge({
         sessionId: getCurrentSessionId(),
@@ -917,8 +953,13 @@ export const onToolExecuteBefore = async (input, output) => {
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
         sourceStrategy: routeDecision?.source || (remoteRouteDecision ? "api-cascade" : "local-cascade"),
-        routeDecision,
+        routeDecision: enrichedRouteDecision,
+        turnId,
       })
+      enrichedRouteDecision.bridgeId = bridge?.bridge_id || null
+      enrichedRouteDecision.parentSessionId = getCurrentSessionId()
+      enrichedRouteDecision.status = "completed"
+      enrichedRouteDecision.contributedToFinalAnswer = true
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
       }
@@ -926,6 +967,54 @@ export const onToolExecuteBefore = async (input, output) => {
       _setModel(args)
       _setModel(inArgs)
       recordSessionBridge(bridge)
+      recordTurnRoute({
+        sessionId: getCurrentSessionId(),
+        turnId,
+        prompt: String(targetArgs?.prompt || latestUserIntent || ""),
+        plannedRoute: {
+          selectedModel: routeDecision?.selectedModel || null,
+          selectedSlot: routeDecision?.selectedSlot || null,
+          selectedSubagent: routeDecision?.selectedSubagent || null,
+          requiresDelegation: Boolean(routeDecision?.requiresDelegation),
+          reason: routeDecision?.reason || "",
+          source: routeDecision?.source || "",
+          routePath: Array.isArray(routeDecision?.routePath) ? routeDecision.routePath : [],
+          cascadeRoot: Array.isArray(routeDecision?.cascadeRoot) ? routeDecision.cascadeRoot : [],
+          cascadeDepth: Number(routeDecision?.cascadeDepth || 0) || 0,
+          backendTarget: routeDecision?.backendTarget || null,
+          backendExplicit: Boolean(routeDecision?.backendExplicit),
+          localConfidence: Number(routeDecision?.localConfidence || 0) || 0,
+          localScore: Number(routeDecision?.localScore || 0) || 0,
+        },
+        executedRoute: {
+          selectedModel: _target,
+          selectedSlot: routeDecision?.selectedSlot || (classify(_target) === "mid" ? "medium" : classify(_target) === "high" ? "brain" : "cheap"),
+          selectedSubagent: routeDecision?.selectedSubagent || null,
+          requiresDelegation: Boolean(routeDecision?.requiresDelegation),
+          reason: _reason,
+          source: routeDecision?.source || "",
+          routePath: Array.isArray(routeDecision?.routePath) ? routeDecision.routePath : [],
+          cascadeRoot: Array.isArray(routeDecision?.cascadeRoot) ? routeDecision.cascadeRoot : [],
+          cascadeDepth: Number(routeDecision?.cascadeDepth || 0) || 0,
+          bridgeId: bridge?.bridge_id || null,
+          parentSessionId: getCurrentSessionId(),
+          status: "completed",
+          contributedToFinalAnswer: true,
+        },
+      })
+      _writeCascadeAudit(String(targetArgs?.prompt || ""), routeDecision?.selectedSlot || null, _target, { ...routeDecision, source: routeDecision?.source || "", reason: _reason }, {
+        sessionId: getCurrentSessionId(),
+        turnId,
+        bridgeId: bridge?.bridge_id || null,
+        parentSessionId: getCurrentSessionId(),
+        selectedSlot: routeDecision?.selectedSlot || null,
+        selectedModel: _target,
+        source: routeDecision?.source || "",
+        routePath: Array.isArray(routeDecision?.routePath) ? routeDecision.routePath : [],
+        cascadeDepth: Number(routeDecision?.cascadeDepth || 0) || 0,
+        executed: true,
+        status: "completed",
+      })
       console.error(`[vibeOS] 🔀 Task → ${_target} (${routeDecision?.source || "route"}:${_reason}, path=${(routeDecision?.routePath || []).join("→") || "n/a"}, orchestrator: ${currentModel})`)
     }
   }
