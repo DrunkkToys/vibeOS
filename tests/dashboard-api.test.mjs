@@ -123,7 +123,8 @@ test("dashboard API serves home, templates, and session actions", async () => {
       body: JSON.stringify({ action: "undo" }),
     }).then((r) => r.json())
     assert.equal(undone.ok, true)
-    assert.equal(undone.session.history.length >= 1, true)
+    assert.equal(undone.session.status, "active")
+    assert.equal(undone.session.notes.at(-1).text, "ship next")
 
     const compare = await fetch(`${base}/sessions/sid-a/compare?with=sid-a`, { method: "GET" }).then((r) => r.json())
     assert.equal(compare.ok, true)

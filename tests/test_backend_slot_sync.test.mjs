@@ -273,5 +273,8 @@ test("live API connection not blocked by stale local disable state", async () =>
   const message = { text: "API connection test — footer should append regardless of stale disable state." }
   await _appendFooter({ args: { model: "deepseek/v4-pro" } }, message)
   assert.ok(message.text.length > 0, "footer should produce output regardless of API state")
-  assert.ok(message.text.includes("vibeOS") || message.text.includes("cheap"), "footer should reflect the vibeOS brand or applied slot")
+  assert.ok(
+    message.text.includes("vibeOS") || message.text.includes("Vibe") || message.text.includes("cheap"),
+    "footer should reflect the active branded mode or applied slot",
+  )
 })

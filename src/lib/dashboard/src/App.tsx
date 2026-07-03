@@ -52,8 +52,8 @@ export default function App() {
   const [creatingProject, setCreatingProject] = createSignal(false)
   const [creatingSessionFor, setCreatingSessionFor] = createSignal<string | null>(null)
 
-  const refreshStatus = () => fetchStatus().then(setS).catch(() => {})
-  const refreshSavings = () => fetchSavings().then(setSv).catch(() => {})
+  const refreshStatus = () => fetchStatus().then((value) => { setS(value); setConn(true) }).catch(() => setConn(false))
+  const refreshSavings = () => fetchSavings().then((value) => { setSv(value); setConn(true) }).catch(() => setConn(false))
   const refreshCapabilities = () => fetchCapabilities().then(setCap).catch(() => {})
   const refreshHome = () => fetchDashboardHome().then(setHome).catch(() => {})
   const refreshProjects = () => listProjects().then((r) => setProjects(r.projects)).catch(() => {})

@@ -459,6 +459,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
   const summary = {
     title: sessionId === selection?.current_session_id ? "Active Session" : "Session Workspace",
     session_id: sessionId,
+    version: orchestration.version,
     status: orchestration.status,
     locked: orchestration.locked,
     archived: orchestration.archived,
@@ -482,6 +483,7 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
       notes_count: orchestration.notes.length,
     }, sessionId === selection?.current_session_id, blackbox),
     notes: orchestration.notes,
+    history: orchestration.history,
     lifecycle: orchestration.lifecycle,
     orchestration,
   }

@@ -1,3 +1,21 @@
+import {
+  getPreviewCapabilities,
+  getPreviewDashboardHome,
+  getPreviewFlows,
+  getPreviewMessages,
+  getPreviewProjects,
+  getPreviewReports,
+  getPreviewSavings,
+  getPreviewSessionDetail,
+  getPreviewSessions,
+  getPreviewStatus,
+  previewEnabled,
+  simulatePreviewSessionAction,
+  simulatePreviewSessionUpdate,
+  simulatePreviewTrinity,
+  simulatePreviewWebSearch,
+} from "./preview-data.js"
+
 // When the dashboard is served same-origin by the plugin's local MCP server,
 // these globals are unset → BASE="" and no token (legacy behaviour). When served
 // durably by the Fastify API, the page injects __VIBEOS_DASHBOARD_BASE__
@@ -43,6 +61,9 @@ async function getBackendRootBase(): Promise<string> {
   return _backendRootBasePromise
 }
 async function bf<T>(u:string,o?:RequestInit):Promise<T>{const base=await getBackendRootBase();const r=await fetch(base+u,{headers:authHeaders(),...o});if(!r.ok)throw new Error(`API ${r.status}: ${r.statusText}`);return r.json()}
+async function withPreview<T>(request:()=>Promise<T>,fallback:()=>T|Promise<T>):Promise<T>{
+  try{return await request()}catch(error){if(previewEnabled())return await fallback();throw error}
+}
 export interface StatusPayload{enabled:boolean;active_slot:string;enforce:boolean;flow_enforcer:boolean;flow_extract_todos:boolean;tdd_enforcer:boolean;tdd_strict:boolean;thinking:string;current_model:string;current_provider?:string|null;current_quality_tier?:string|null;credit_percent:number;version:string;sessions_raw?:Record<string,unknown>;backend_connected?:boolean;backendConnected?:boolean;backend_api_url?:string;backend_health_url?:string;backend_health_checked_at?:string|null;backend_health_age_ms?:number|null;backend_health_latency_ms?:number|null;backend_health_status?:number|null;backend_health_error?:string|null;backend_version?:string|null;api_fallback?:boolean;api_fallback_since?:string|null;model_locked?:boolean;locked_slot?:string|null;locked_model?:string|null;optimization_mode?:string|null;recommended_next_action?:string|null;orchestration_plan?:OrchPlan|null;tiers?:Record<string,unknown>|null;label_modes?:string[]|null;todos?:{total:number;pending:number};current_project_fingerprint?:string|null;current_project_name?:string|null;reality_check_enabled?:boolean;reality_check_scope?:string;reality_check_project_id?:string|null;reality_check_rules_count?:number}
 export interface SavingsPayload{lifetime:{delegation_usd:number;cache_usd:number;missed_context7_usd:number;total_warns:number};current_session:{delegation_usd:number;cache_usd:number;warns_count:number;tool_breakdown:Record<string,number>};cache_hits_this_session:number;trend:"up"|"down"|"flat";savings_rate_per_hour:number}
 export interface SessionEntry{id:string;started:string|null;cost_usd:number;delegation_savings_usd:number;cache_savings_usd:number;warns_count:number}
@@ -144,18 +165,18 @@ export interface DashboardHomePayload{
   backend_health_url?:string
   backend_version?:string|null
 }
-export function fetchStatus():Promise<StatusPayload>{return f<StatusPayload>("/status")}
-export function fetchSavings():Promise<SavingsPayload>{return f<SavingsPayload>("/savings")}
-export function fetchSessions():Promise<{sessions:SessionEntry[];total_sessions:number}>{return f("/sessions")}
-export function fetchReports():Promise<ReportSummary[]>{return f("/reports")}
-export function fetchCapabilities():Promise<CapabilitiesPayload>{return f<CapabilitiesPayload>("/capabilities")}
-export function fetchDashboardHome():Promise<DashboardHomePayload>{return f<DashboardHomePayload>("/dashboard/home")}
-export function fetchSessionDetail(sessionId:string):Promise<SessionDetailPayload>{return f<SessionDetailPayload>(`/sessions/${encodeURIComponent(sessionId)}`)}
-export function postTrinity(action:string,slot?:string,level?:string):Promise<{ok:boolean;result?:unknown;error?:string}>{const b:Record<string,string>={action};if(slot)b.slot=slot;if(level)b.level=level;return f("/trinity",{method:"POST",body:JSON.stringify(b)})}
-export function postSessionAction(sessionId:string,payload:{action:string;[key:string]:unknown}):Promise<{ok:boolean;session:DashboardSessionSummary;metrics?:Record<string,unknown>;orchestration?:Record<string,unknown>|null}>{return f(`/sessions/${encodeURIComponent(sessionId)}/action`,{method:"POST",body:JSON.stringify(payload)})}
+export function fetchStatus():Promise<StatusPayload>{return withPreview(()=>f<StatusPayload>("/status"),()=>getPreviewStatus())}
+export function fetchSavings():Promise<SavingsPayload>{return withPreview(()=>f<SavingsPayload>("/savings"),()=>getPreviewSavings())}
+export function fetchSessions():Promise<{sessions:SessionEntry[];total_sessions:number}>{return withPreview(()=>f("/sessions"),()=>({sessions:[],total_sessions:0}))}
+export function fetchReports():Promise<ReportSummary[]>{return withPreview(()=>f("/reports"),()=>getPreviewReports())}
+export function fetchCapabilities():Promise<CapabilitiesPayload>{return withPreview(()=>f<CapabilitiesPayload>("/capabilities"),()=>getPreviewCapabilities())}
+export function fetchDashboardHome():Promise<DashboardHomePayload>{return withPreview(()=>f<DashboardHomePayload>("/dashboard/home"),()=>getPreviewDashboardHome())}
+export function fetchSessionDetail(sessionId:string):Promise<SessionDetailPayload>{return withPreview(()=>f<SessionDetailPayload>(`/sessions/${encodeURIComponent(sessionId)}`),()=>getPreviewSessionDetail(sessionId))}
+export function postTrinity(action:string,slot?:string,level?:string):Promise<{ok:boolean;result?:unknown;error?:string}>{const b:Record<string,string>={action};if(slot)b.slot=slot;if(level)b.level=level;return withPreview(()=>f("/trinity",{method:"POST",body:JSON.stringify(b)}),()=>simulatePreviewTrinity(action,slot))}
+export function postSessionAction(sessionId:string,payload:{action:string;[key:string]:unknown}):Promise<{ok:boolean;session:DashboardSessionSummary;metrics?:Record<string,unknown>;orchestration?:Record<string,unknown>|null}>{return withPreview(()=>f(`/sessions/${encodeURIComponent(sessionId)}/action`,{method:"POST",body:JSON.stringify(payload)}),()=>{const detail=simulatePreviewSessionAction(sessionId,String(payload.action||""));return{ok:true,session:detail.session,metrics:detail.metrics,orchestration:detail.orchestration??null}})}
 export function fetchRealityCheck(scope:"global"|"project"="global",project_id?:string):Promise<RealityCheckView>{const q=new URLSearchParams();q.set("scope",scope);if(project_id)q.set("project_id",project_id);return f<RealityCheckView>(`/reality-check?${q.toString()}`)}
 export function saveRealityCheck(payload:{scope:"global"|"project";project_id?:string;enabled:boolean;rules:RealityCheckRule[]}):Promise<{ok:boolean;settings?:RealityCheckView;error?:string}>{return f("/reality-check",{method:"POST",body:JSON.stringify(payload)})}
-export function webSearch(payload:{query:string;max_results?:number;provider?:string;compose_answer?:boolean;safe_search?:string;locale?:string}):Promise<WebSearchPayload>{return f<WebSearchPayload>("/web-search",{method:"POST",body:JSON.stringify(payload)})}
+export function webSearch(payload:{query:string;max_results?:number;provider?:string;compose_answer?:boolean;safe_search?:string;locale?:string}):Promise<WebSearchPayload>{return withPreview(()=>f<WebSearchPayload>("/web-search",{method:"POST",body:JSON.stringify(payload)}),()=>simulatePreviewWebSearch(payload.query))}
 export async function checkBackendHealth(url?: string): Promise<boolean> {
   const healthUrl = url || "https://api.vibetheog.com/health"
   try {
@@ -184,18 +205,18 @@ export interface OrchPlan{recommended_next_action:string;recommended_label:strin
 export interface OrchStepResult{step:OrchStep;result?:unknown;skipped?:boolean;reason?:string}
 export interface OrchMessage{id:string;role:"user"|"assistant";content:string;plan:OrchPlan|null;results:OrchStepResult[]|null;created_at:string}
 
-export function listProjects():Promise<{projects:OrchProject[]}>{return of("/projects")}
+export function listProjects():Promise<{projects:OrchProject[]}>{return withPreview(()=>of("/projects"),()=>({projects:getPreviewProjects()}))}
 export function createProject(name:string,fingerprint?:string):Promise<{project:OrchProject}>{return of("/projects",{method:"POST",body:JSON.stringify({name,fingerprint})})}
 export function updateProject(id:string,patch:Partial<Pick<OrchProject,"name"|"default_flow_id"|"fingerprint">>):Promise<{project:OrchProject}>{return of(`/projects/${id}`,{method:"PUT",body:JSON.stringify(patch)})}
 export function deleteProject(id:string):Promise<{ok:boolean}>{return of(`/projects/${id}`,{method:"DELETE"})}
 
-export function listSessions(projectId?:string):Promise<{sessions:OrchSession[]}>{return of(`/sessions${projectId?`?project_id=${encodeURIComponent(projectId)}`:""}`)}
+export function listSessions(projectId?:string):Promise<{sessions:OrchSession[]}>{return withPreview(()=>of(`/sessions${projectId?`?project_id=${encodeURIComponent(projectId)}`:""}`),()=>({sessions:getPreviewSessions(projectId)}))}
 export function createSession(projectId:string,title:string,flowId?:string|null):Promise<{session:OrchSession}>{return of("/sessions",{method:"POST",body:JSON.stringify({project_id:projectId,title,flow_id:flowId??null})})}
-export function updateSession(id:string,patch:Partial<Pick<OrchSession,"title"|"flow_id">>):Promise<{session:OrchSession}>{return of(`/sessions/${id}`,{method:"PUT",body:JSON.stringify(patch)})}
+export function updateSession(id:string,patch:Partial<Pick<OrchSession,"title"|"flow_id">>):Promise<{session:OrchSession}>{return withPreview(()=>of(`/sessions/${id}`,{method:"PUT",body:JSON.stringify(patch)}),()=>({session:simulatePreviewSessionUpdate(id,patch)}))}
 export function deleteSession(id:string):Promise<{ok:boolean}>{return of(`/sessions/${id}`,{method:"DELETE"})}
-export function listMessages(sessionId:string):Promise<{messages:OrchMessage[]}>{return of(`/sessions/${sessionId}/messages`)}
+export function listMessages(sessionId:string):Promise<{messages:OrchMessage[]}>{return withPreview(()=>of(`/sessions/${sessionId}/messages`),()=>({messages:getPreviewMessages(sessionId)}))}
 
-export function listFlows(projectId?:string):Promise<{flows:OrchFlow[]}>{return of(`/flows${projectId?`?project_id=${encodeURIComponent(projectId)}`:""}`)}
+export function listFlows(projectId?:string):Promise<{flows:OrchFlow[]}>{return withPreview(()=>of(`/flows${projectId?`?project_id=${encodeURIComponent(projectId)}`:""}`),()=>({flows:getPreviewFlows(projectId)}))}
 export function createFlow(name:string,graph:FlowGraph,scope:"global"|"project"="global",projectId?:string):Promise<{flow:OrchFlow}>{return of("/flows",{method:"POST",body:JSON.stringify({name,graph,scope,project_id:projectId})})}
 export function updateFlow(id:string,patch:{name?:string;graph?:FlowGraph}):Promise<{flow:OrchFlow}>{return of(`/flows/${id}`,{method:"PUT",body:JSON.stringify(patch)})}
 export function deleteFlow(id:string):Promise<{ok:boolean}>{return of(`/flows/${id}`,{method:"DELETE"})}

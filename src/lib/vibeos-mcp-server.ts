@@ -9,7 +9,7 @@ import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
 import { resolveApiToken } from "./api-client.js"
-import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
+import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, normalizeSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 import { getSessionDelegationSavings } from "./session-savings.js"
 import { readProjects, writeProjects, readSessions, writeSessions, readFlows, writeFlows, newId, nowIso, type FlowNode, type FlowEdge } from "./orch-store.js"
 
@@ -684,9 +684,14 @@ export function createMcpServer(deps: Deps): McpServer {
             optimization_mode: (deps.getState() as Record<string, any>)?.optimization_mode || (deps.getState() as Record<string, any>)?.selection?.optimization_mode || null,
           },
         )
+        const normalized = normalizeSessionOrchestration(orchestration as Record<string, unknown> | null | undefined, sessionId)
         return {
           ok: true,
-          session: detail,
+          session: {
+            ...detail,
+            version: detail?.version ?? normalized.version,
+            history: Array.isArray(detail?.history) ? detail.history : normalized.history,
+          },
           metrics,
           orchestration: orchestration as Record<string, unknown>,
         }
