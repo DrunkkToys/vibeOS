@@ -207,35 +207,35 @@ test("trinity dashboard starts MCP server when no published port exists", async 
 
 // ── SECTION 1: Footer system tests ───────────────────────────────────
 
-test("footer: resolveBrand maps all modes correctly", () => {
-  assert.equal(resolveBrand("vibeultrax", "brain"), "VibeUltraX")
-  assert.equal(resolveBrand("vibeqmax", "medium"), "VibeQMaX")
-  assert.equal(resolveBrand("vibemax", "cheap"), "VibeMaX")
-  assert.equal(resolveBrand("litex", "brain"), "VibeLiteX")
-  assert.equal(resolveBrand("quality", "medium"), "Quality")
-  assert.equal(resolveBrand("audit", "brain"), "Audit")
-  assert.equal(resolveBrand("forensic", "cheap"), "Forensic")
-  assert.equal(resolveBrand("budget", "brain"), "Budget")
-  assert.equal(resolveBrand("speed", "medium"), "Speed")
+test("footer: resolveBrand always returns vibeOS", () => {
+  assert.equal(resolveBrand("vibeultrax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("vibeqmax", "medium"), "vibeOS")
+  assert.equal(resolveBrand("vibemax", "cheap"), "vibeOS")
+  assert.equal(resolveBrand("litex", "brain"), "vibeOS")
+  assert.equal(resolveBrand("quality", "medium"), "vibeOS")
+  assert.equal(resolveBrand("audit", "brain"), "vibeOS")
+  assert.equal(resolveBrand("forensic", "cheap"), "vibeOS")
+  assert.equal(resolveBrand("budget", "brain"), "vibeOS")
+  assert.equal(resolveBrand("speed", "medium"), "vibeOS")
   assert.equal(resolveBrand("unknown", "brain"), "vibeOS")
   assert.equal(resolveBrand("unknown", "medium"), "vibeOS")
   assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 
-test("footer: resolveBrand for branded modes maps to correct brand name", () => {
-  assert.equal(resolveBrand("vibeultrax", "brain"), "VibeUltraX")
-  assert.equal(resolveBrand("vibeqmax", "brain"), "VibeQMaX")
-  assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
-  assert.equal(resolveBrand("litex", "brain"), "VibeLiteX")
+test("footer: resolveBrand for branded modes always returns vibeOS", () => {
+  assert.equal(resolveBrand("vibeultrax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("vibeqmax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("vibemax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("litex", "brain"), "vibeOS")
 })
 
-test("footer: resolveBrand for built-in modes maps to correct brand name", () => {
-  assert.equal(resolveBrand("quality", "brain"), "Quality")
-  assert.equal(resolveBrand("audit", "brain"), "Audit")
-  assert.equal(resolveBrand("forensic", "brain"), "Forensic")
-  assert.equal(resolveBrand("budget", "cheap"), "Budget")
-  assert.equal(resolveBrand("speed", "medium"), "Speed")
-  assert.equal(resolveBrand("longrun", "medium"), "Longrun")
+test("footer: resolveBrand for built-in modes always returns vibeOS", () => {
+  assert.equal(resolveBrand("quality", "brain"), "vibeOS")
+  assert.equal(resolveBrand("audit", "brain"), "vibeOS")
+  assert.equal(resolveBrand("forensic", "brain"), "vibeOS")
+  assert.equal(resolveBrand("budget", "cheap"), "vibeOS")
+  assert.equal(resolveBrand("speed", "medium"), "vibeOS")
+  assert.equal(resolveBrand("longrun", "medium"), "vibeOS")
 })
 
 test("footer: resolveBrand fallback logic for unknown modes", () => {
@@ -274,7 +274,6 @@ test("footer: buildFooterLine format matches required pattern", () => {
   assert.ok(line.includes("| v4-flash"))
   assert.ok(line.includes("| $183.50 saved \u2197"))
   assert.ok(line.includes("| VibeMaX \u26A1"))
-  assert.ok(line.includes("Speed"))
   assert.ok(line.includes("guarded"))
   assert.ok(line.includes("tests live"))
   assert.ok(!line.includes("slot:medium"))
@@ -362,7 +361,7 @@ test("footer: buildFooterLine shows worker slot in brackets when workerSlot is p
 
   assert.ok(line.includes("[cheap]"), "worker slot shown in brackets: " + line)
   assert.ok(!line.includes("session:"), "no session: suffix: " + line)
-  assert.ok(line.includes("⟡ medium"), "vector pulse shows: " + line)
+  assert.ok(line.includes("⟡ ◐"), "vector pulse shows: " + line)
 })
 
 test("footer: buildFooterLine zero savings hides savings section", () => {
@@ -493,7 +492,7 @@ test("footer: formatSavingsPulse edge cases", () => {
 })
 
 test("footer: formatVectorPulse edge cases", () => {
-  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse("cheap"), "⟡ ⚡")
   assert.equal(formatVectorPulse(undefined), "")
   assert.equal(formatVectorPulse(null), "")
 })

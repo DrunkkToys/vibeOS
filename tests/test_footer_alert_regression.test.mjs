@@ -64,7 +64,7 @@ test("footer: shows regime-derived mode instead of sticky selection", async () =
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr2=" + Date.now())
     const o = { text: "Another test message that is sufficiently long to trigger the vibeOS footer and verify mode display." }
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
-    assert.ok(o.text.includes("Speed"), "footer should show the backend-selected mode label: " + o.text.slice(-150))
+    assert.ok(o.text.includes("vibeOS"), "footer should show the vibeOS brand: " + o.text.slice(-150))
 })
 
 // ── Test 3: ⟡ pulse shows the decided slot when it differs from the model that ran ──
@@ -75,7 +75,7 @@ test("footer: ⟡ pulse shows the decided slot vs what ran", async () => {
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr3=" + Date.now())
     const o = { text: "Testing the arrow indicator when the ML wants to change the tier from brain to medium in a long message." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
-    assert.ok(o.text.includes("⟡ medium"), "footer should show ⟡ medium pulse: " + o.text.slice(-150))
+    assert.ok(o.text.includes("⟡ ◐"), "footer should show ⟡ ◐ pulse (medium icon): " + o.text.slice(-150))
 })
 
 // ── Test 4: footer drops redundant mode label ──
@@ -84,7 +84,7 @@ test("footer: brand follows actual mode, not just brain tier", async () => {
     const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr4=" + Date.now())
     const o = { text: "Testing the brand display in the footer with a sufficiently long message for vibeOS." }
     await _appendFooter({ args: { model: "deepseek/v4-pro" } }, o)
-    assert.ok(o.text.includes("VibeUltraX"), "footer should show the persisted mode brand, not a brain-tier alias: " + o.text.slice(-150))
+    assert.ok(o.text.includes("vibeOS"), "footer should show the vibeOS brand: " + o.text.slice(-150))
 })
 
 // ── Test 5: ML pipeline end-to-end via footer ──
@@ -101,8 +101,8 @@ test("footer: full ML pipeline — tier + mode + arrow in one line", async () =>
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.slice(-200)
     assert.ok(footer.includes("🧠") || footer.includes("◐") || footer.includes("⚡") || footer.includes("🎁"), "has tier: " + footer)
-    assert.ok(footer.includes("Budget"), "has backend-selected mode label: " + footer)
-    assert.ok(footer.includes("⟡ cheap"), "has vector pulse: " + footer)
+    assert.ok(footer.includes("vibeOS"), "has vibeOS brand: " + footer)
+    assert.ok(footer.includes("⟡ ⚡"), "has vector pulse (cheap icon): " + footer)
     assert.ok(!footer.includes("slot:"), "footer should not repeat the slot label: " + footer)
 })
 
@@ -151,8 +151,8 @@ test("footer: sticky branded mode stays visually distinct from the live regime l
     // The branded mode must appear (distinct from the INIT regime tag) but must
     // not be duplicated as "VibeUltraX · VibeUltraX" — the mode label is
     // suppressed when it would just repeat the brand.
-    assert.ok(footer.includes("VibeUltraX"), "footer should show the branded mode: " + footer)
-    assert.ok(!footer.includes("· VibeUltraX"), "footer must not duplicate the brand as a mode label: " + footer)
+    assert.ok(footer.includes("vibeOS"), "footer should show the vibeOS brand: " + footer)
+    assert.ok(!footer.includes("· vibeOS"), "footer must not duplicate the brand: " + footer)
 })
 
 test("footer: claim-bearing output shows a check icon without needing cascade audit", async () => {
@@ -179,7 +179,7 @@ test("footer: vibeultrax tier follows the live model, not the stale persistent s
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.split("\n").pop() || ""
     assert.ok(footer.includes("⚡ cheap"), "footer tier should follow the live cheap-slot model: " + footer)
-    assert.ok(footer.includes("VibeUltraX"), "footer should keep the branded mode visible: " + footer)
+    assert.ok(footer.includes("vibeOS"), "footer should show vibeOS brand: " + footer)
     assert.ok(!footer.includes("🧠 brain"), "footer should not show the stale brain slot: " + footer)
 })
 
@@ -203,7 +203,7 @@ test("footer: vibeultrax shows the medium tier when the cascade escalates to the
     await _appendFooter({ args: { model: "deepseek/v4-flash" } }, o)
     const footer = o.text.split("\n").pop() || ""
     assert.ok(footer.includes("◐ medium"), "footer tier should escalate to medium with the medium-slot live model: " + footer)
-    assert.ok(footer.includes("VibeUltraX"), "footer should keep the branded mode visible: " + footer)
+    assert.ok(footer.includes("vibeOS"), "footer should show vibeOS brand: " + footer)
     assert.ok(!footer.includes("⚡ cheap"), "footer should not pin to cheap once escalated: " + footer)
 })
 
@@ -250,7 +250,7 @@ test("footer: re-paints rich footer after streaming wipes an earlier paint", asy
     const finalText = full.message.parts[0].text
     assert.ok(/\n\n— .* —\s*$/.test(finalText), "final streamed text must be RE-painted with a footer: " + finalText.slice(-120))
     const finalFooter = finalText.split("\n").pop() || ""
-    assert.ok(finalFooter.includes("VibeUltraX"), "re-painted footer must be the rich branded one, not the basic fallback: " + finalFooter)
+    assert.ok(finalFooter.includes("vibeOS"), "re-painted footer must be the rich branded one, not the basic fallback: " + finalFooter)
     assert.ok(finalFooter.includes("⚡ cheap"), "re-painted footer keeps the cheap cascade entry: " + finalFooter)
     // 3) re-firing on the same (already-footed) object must not duplicate
     await _appendFooter({ message: { id: "msg_stream_x" }, args: { model: "deepseek/v4-flash" } }, full)

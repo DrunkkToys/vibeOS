@@ -74,9 +74,8 @@ const TIER_ICON: Record<string, string> = {
   free: "\u{1F381}",
 }
 
-export function resolveBrand(optMode: string, _activeSlot: string): string {
-  const normalized = String(optMode || "").trim().toLowerCase()
-  return BRAND_MAP[normalized] || "vibeOS"
+export function resolveBrand(_optMode: string, _activeSlot: string): string {
+  return "vibeOS"
 }
 
 export function resolveTierIcon(slot: string): string {
@@ -106,7 +105,7 @@ export function formatModeLabel(optMode: string): string {
 
 export function formatVectorPulse(vectorChangedSlot?: string): string {
   if (!vectorChangedSlot) return ""
-  return `⟡ ${vectorChangedSlot}`
+  return `⟡ ${TIER_ICON[vectorChangedSlot] || "⚡"}`
 }
 
 export function formatEnforcementPulse(enfTags: string[]): string {
@@ -263,12 +262,6 @@ export function buildFooterLine(input: FooterLineInput): string {
     line += ` | ${vibeBrand}${flashIcon}`
   } else if (flashIcon.trim()) {
     line += ` | ${flashIcon.trim()}`
-  }
-
-  // Avoid rendering the brand twice (e.g. "VibeUltraX · VibeUltraX") when the
-  // mode label resolves to the same text as the brand.
-  if (vibeBrand && optMode && optMode !== "auto" && modeLabel && modeLabel !== vibeBrand) {
-    line += ` · ${modeLabel}`
   }
 
   const cascadePulse = formatCascadePulse(input.cascadeIcon, input.cascadeLabel)

@@ -57,7 +57,7 @@ test("live blackbox state is shared through the canonical getter", async () => {
 
   const message = { text: "This response is long enough to trigger footer painting and carry the live decision state through." }
   await footer._appendFooter({ args: { model: "deepseek/deepseek-v4-flash" } }, message)
-  assert.ok(message.text.includes("VibeUltraX") || message.text.includes("deepseek"), message.text.slice(-240))
+  assert.ok(message.text.includes("vibeOS") || message.text.includes("Deepseek"), message.text.slice(-240))
 
   const systemOutput = { system: [] }
   await chatTransform.onSystemTransform({}, systemOutput)

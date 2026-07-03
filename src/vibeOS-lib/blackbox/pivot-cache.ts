@@ -49,6 +49,7 @@ interface PivotIndexStore {
 
 const PIVOT_INDEX_VERSION = 1
 const MAX_INDEXED_PIVOTS = 2048
+const PIVOT_TTL_MS = 4 * 60 * 60 * 1000
 
 export class PivotCache {
   private store: PivotStore | null
@@ -66,6 +67,7 @@ export class PivotCache {
     this.store = null
     this.index = this._loadIndex()
     this.pivotSequence = [...this.index.sequence]
+    this.pruneStale()
   }
 
   private _storePath(): string {
@@ -290,16 +292,33 @@ export class PivotCache {
     this.save()
   }
 
+  pruneStale(ttlMs: number = PIVOT_TTL_MS): void {
+    const cutoff = Date.now() - ttlMs
+    const staleIds = new Set<string>()
+    for (const [id, entry] of Object.entries(this.index.pivots)) {
+      if (entry.captured_at && new Date(entry.captured_at).getTime() < cutoff) staleIds.add(id)
+    }
+    if (staleIds.size === 0) return
+    for (const id of staleIds) {
+      delete this.index.pivots[id]
+      if (this.store?.pivots) delete this.store.pivots[id]
+    }
+    this.index.sequence = this.index.sequence.filter(id => !staleIds.has(id))
+    this.pivotSequence = [...this.index.sequence]
+  }
+
   detectPivotBack(tokens: Set<string>, confidenceThreshold: number = 0.5): { matchedId: string | null; confidence: number; reason: string } {
     if (this.index.sequence.length < 2) {
       return { matchedId: null, confidence: 0, reason: "not_enough_pivots" }
     }
+    const cutoff = Date.now() - PIVOT_TTL_MS
     const candidates: Array<[string, number, number]> = []
     for (let i = 0; i < this.index.sequence.length; i++) {
       const pid = this.index.sequence[i]
       if (pid === this.index.sequence[this.index.sequence.length - 1]) continue
       const entry = this.index.pivots[pid]
       if (!entry) continue
+      if (entry.captured_at && new Date(entry.captured_at).getTime() < cutoff) continue
       const cached = new Set(entry.tokens)
       if (cached.size === 0) continue
       const inter = new Set([...tokens].filter(x => cached.has(x)))
@@ -307,8 +326,7 @@ export class PivotCache {
       const jaccard = union.size === 0 ? 0 : inter.size / union.size
       const exactBonus = tokens.size === cached.size && [...tokens].every(t => cached.has(t)) ? 0.2 : 0
       const recency = i / Math.max(this.index.sequence.length, 1)
-      const accessBonus = Math.min(0.1, (entry.access_count || 0) * 0.02)
-      const confidence = jaccard + exactBonus + recency * 0.1 + accessBonus
+      const confidence = jaccard + exactBonus + recency * 0.1
       candidates.push([pid, confidence, jaccard])
     }
     if (candidates.length === 0) {

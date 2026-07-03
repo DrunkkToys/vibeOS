@@ -3,8 +3,8 @@ import assert from "node:assert/strict"
 import { buildEnforcementTags, buildResilientFooterLine, buildFooterLine, formatCascadePulse, formatEnforcementPulse, formatModeLabel, formatSavingsPulse, formatVectorPulse, resolveBrand, resolveRegimeIcon, resolveTierIcon, trendGlyph } from "../shared-footer.js"
 
 test("shared-footer resolves the expected brand names", () => {
-  assert.equal(resolveBrand("vibemax", "brain"), "VibeMaX")
-  assert.equal(resolveBrand("quality", "medium"), "Quality")
+  assert.equal(resolveBrand("vibemax", "brain"), "vibeOS")
+  assert.equal(resolveBrand("quality", "medium"), "vibeOS")
   assert.equal(resolveBrand("unknown", "cheap"), "vibeOS")
 })
 
@@ -36,7 +36,7 @@ test("shared-footer assigns a unique icon to each regime", () => {
 })
 
 test("shared-footer formats a compact vector pulse", () => {
-  assert.equal(formatVectorPulse("cheap"), "⟡ cheap")
+  assert.equal(formatVectorPulse("cheap"), "⟡ ⚡")
   assert.equal(formatVectorPulse(undefined), "")
 })
 
@@ -99,7 +99,7 @@ test("shared-footer keeps the footer compact while showing savings and slot stat
   assert.ok(line.includes("$12.57 saved ↗"))
   assert.ok(line.includes("VibeMaX ⚡"))
   assert.ok(line.includes("guarded"))
-  assert.ok(line.includes("⟡ cheap"))
+  assert.ok(line.includes("⟡ ⚡"))
 })
 
 test("shared-footer degrade path renders the ONE README footer, never the bare 3-segment line", () => {

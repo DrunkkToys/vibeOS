@@ -148,7 +148,7 @@ describe("production: outlier savings values", () => {
 
   it("shared-footer imports work with extreme outlier values", () => {
     const brand = resolveBrand("quality", "brain")
-    assert.equal(brand, "Quality")
+    assert.equal(brand, "vibeOS")
 
     const label = formatModeLabel("quality")
     assert.equal(label, "Quality")
