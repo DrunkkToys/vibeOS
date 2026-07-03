@@ -43,7 +43,7 @@ async function getBackendRootBase(): Promise<string> {
   return _backendRootBasePromise
 }
 async function bf<T>(u:string,o?:RequestInit):Promise<T>{const base=await getBackendRootBase();const r=await fetch(base+u,{headers:authHeaders(),...o});if(!r.ok)throw new Error(`API ${r.status}: ${r.statusText}`);return r.json()}
-export interface StatusPayload{enabled:boolean;active_slot:string;enforce:boolean;flow_enforcer:boolean;flow_extract_todos:boolean;tdd_enforcer:boolean;tdd_strict:boolean;thinking:string;current_model:string;credit_percent:number;version:string;sessions_raw?:Record<string,unknown>;backend_connected?:boolean;backendConnected?:boolean;backend_api_url?:string;backend_health_url?:string;backend_health_checked_at?:string|null;backend_health_age_ms?:number|null;backend_health_latency_ms?:number|null;backend_health_status?:number|null;backend_health_error?:string|null;model_locked?:boolean;locked_slot?:string|null;locked_model?:string|null;current_project_fingerprint?:string|null;current_project_name?:string|null;reality_check_enabled?:boolean;reality_check_scope?:string;reality_check_project_id?:string|null;reality_check_rules_count?:number}
+export interface StatusPayload{enabled:boolean;active_slot:string;enforce:boolean;flow_enforcer:boolean;flow_extract_todos:boolean;tdd_enforcer:boolean;tdd_strict:boolean;thinking:string;current_model:string;current_provider?:string|null;current_quality_tier?:string|null;credit_percent:number;version:string;sessions_raw?:Record<string,unknown>;backend_connected?:boolean;backendConnected?:boolean;backend_api_url?:string;backend_health_url?:string;backend_health_checked_at?:string|null;backend_health_age_ms?:number|null;backend_health_latency_ms?:number|null;backend_health_status?:number|null;backend_health_error?:string|null;backend_version?:string|null;api_fallback?:boolean;api_fallback_since?:string|null;model_locked?:boolean;locked_slot?:string|null;locked_model?:string|null;optimization_mode?:string|null;recommended_next_action?:string|null;orchestration_plan?:OrchPlan|null;tiers?:Record<string,unknown>|null;label_modes?:string[]|null;todos?:{total:number;pending:number};current_project_fingerprint?:string|null;current_project_name?:string|null;reality_check_enabled?:boolean;reality_check_scope?:string;reality_check_project_id?:string|null;reality_check_rules_count?:number}
 export interface SavingsPayload{lifetime:{delegation_usd:number;cache_usd:number;missed_context7_usd:number;total_warns:number};current_session:{delegation_usd:number;cache_usd:number;warns_count:number;tool_breakdown:Record<string,number>};cache_hits_this_session:number;trend:"up"|"down"|"flat";savings_rate_per_hour:number}
 export interface SessionEntry{id:string;started:string|null;cost_usd:number;delegation_savings_usd:number;cache_savings_usd:number;warns_count:number}
 export interface ReportSummary{id:string;type:string;summary:string;created:string;tags:string[]}
@@ -60,6 +60,8 @@ export interface CapabilitiesPayload{
   vibemax?:CapabilityState
   vibeqmax?:CapabilityState
   vibeultrax?:CapabilityState
+  vibelitex?:CapabilityState
+  raw?:CapabilityState
 }
 export interface WebSearchResult{id:string;title:string;url:string;domain:string;snippet?:string;source:string;rank:number}
 export interface WebSearchPayload{ok:boolean;query:string;provider:string;results:WebSearchResult[];citations:{id:number;title:string;url:string;domain:string}[];answer:string|null;meta:{resultCount:number;uniqueDomains:number}}
@@ -89,6 +91,11 @@ export interface DashboardSessionSummary{
   notes?:{text?:string}[]
   lifecycle?:DashboardSessionLifecycle
   orchestration?:Record<string,unknown>
+}
+export interface SessionDetailPayload{
+  session:DashboardSessionSummary
+  metrics?:Record<string,unknown>
+  orchestration?:Record<string,unknown>|null
 }
 export interface DashboardHomePayload{
   home:{title:string;subtitle:string;recommendation:string;cards:DashboardHomeCard[]}
@@ -142,7 +149,9 @@ export function fetchSessions():Promise<{sessions:SessionEntry[];total_sessions:
 export function fetchReports():Promise<ReportSummary[]>{return f("/reports")}
 export function fetchCapabilities():Promise<CapabilitiesPayload>{return f<CapabilitiesPayload>("/capabilities")}
 export function fetchDashboardHome():Promise<DashboardHomePayload>{return f<DashboardHomePayload>("/dashboard/home")}
+export function fetchSessionDetail(sessionId:string):Promise<SessionDetailPayload>{return f<SessionDetailPayload>(`/sessions/${encodeURIComponent(sessionId)}`)}
 export function postTrinity(action:string,slot?:string,level?:string):Promise<{ok:boolean;result?:unknown;error?:string}>{const b:Record<string,string>={action};if(slot)b.slot=slot;if(level)b.level=level;return f("/trinity",{method:"POST",body:JSON.stringify(b)})}
+export function postSessionAction(sessionId:string,payload:{action:string;[key:string]:unknown}):Promise<{ok:boolean;session:DashboardSessionSummary}>{return f(`/sessions/${encodeURIComponent(sessionId)}/action`,{method:"POST",body:JSON.stringify(payload)})}
 export function fetchRealityCheck(scope:"global"|"project"="global",project_id?:string):Promise<RealityCheckView>{const q=new URLSearchParams();q.set("scope",scope);if(project_id)q.set("project_id",project_id);return f<RealityCheckView>(`/reality-check?${q.toString()}`)}
 export function saveRealityCheck(payload:{scope:"global"|"project";project_id?:string;enabled:boolean;rules:RealityCheckRule[]}):Promise<{ok:boolean;settings?:RealityCheckView;error?:string}>{return f("/reality-check",{method:"POST",body:JSON.stringify(payload)})}
 export function webSearch(payload:{query:string;max_results?:number;provider?:string;compose_answer?:boolean;safe_search?:string;locale?:string}):Promise<WebSearchPayload>{return f<WebSearchPayload>("/web-search",{method:"POST",body:JSON.stringify(payload)})}

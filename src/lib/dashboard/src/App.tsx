@@ -314,7 +314,12 @@ export default function App() {
             <Session
               session={activeSession()!}
               flows={projectFlows(activeSession()!.project_id)}
+              status={s()}
+              capabilities={cap()}
+              home={home()}
+              savings={sv()}
               onSessionChange={onSessionChange}
+              onRefresh={() => { refreshStatus(); refreshSavings(); refreshHome(); refreshSessions() }}
             />
           </main>
         </Show>
