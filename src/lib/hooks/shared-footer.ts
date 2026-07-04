@@ -194,7 +194,7 @@ export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | nu
     const cascade = formatCascadePulse(p.cascadeIcon, p.cascadeLabel)
     const alert = typeof p.alertTag === "string" && p.alertTag ? ` | ${p.alertTag}` : ""
     const cascadePart = cascade ? ` | ${cascade}` : ""
-    return `— ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${cascadePart} | ${vibeBrand}${alert} —`
+    return `— ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName} | VIBE${cascadePart} | ${vibeBrand}${alert} —`
   }
 }
 
@@ -260,6 +260,8 @@ export function buildFooterLine(input: FooterLineInput): string {
   if (savingsTotal > 0) {
     const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend)
     if (savingsPulse) line += ` | ${savingsPulse}`
+  } else {
+    line += " | VIBE"
   }
 
   if (vibeBrand) {

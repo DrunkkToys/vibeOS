@@ -1,27 +1,19 @@
-import { createMemo, createResource, createSignal, For, Show, onCleanup } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Show, onCleanup } from "solid-js"
 import {
-  fetchSessionDetail,
   listMessages,
-  postSessionAction,
-  postTrinity,
   runSession,
-  updateSession,
-  webSearch,
-  type CapabilitiesPayload,
-  type DashboardHomePayload,
-  type OrchFlow,
   type OrchMessage,
   type OrchPlan,
+  type OrchProject,
   type OrchSession,
   type OrchStepResult,
   type SavingsPayload,
   type SessionDetailPayload,
   type StatusPayload,
-  type WebSearchPayload,
+  type CapabilitiesPayload,
 } from "../api"
-import { getBrandedModes, getMode } from "../../../mode-router"
-
-const dashboardModes = getBrandedModes()
+import { getMode, normalizeLegacyMode } from "../../../mode-router"
+import { fetchSessionDetail } from "../api"
 
 function StepRow(props: { r: OrchStepResult }) {
   const r = props.r
@@ -46,6 +38,13 @@ function fmtDate(value: string | null | undefined): string {
   try { return new Date(value).toLocaleString() } catch { return value }
 }
 
+function formatModeLabel(mode: string | null | undefined): string {
+  const normalized = String(mode || "").trim().toLowerCase()
+  if (!normalized) return "auto"
+  if (normalized === "auto") return "auto"
+  try { return getMode(normalizeLegacyMode(normalized)).name || normalized } catch { return normalized }
+}
+
 function deriveSessionActions(detail: SessionDetailPayload | undefined): string[] {
   const current = detail?.session
   const actions = ["start", "pause", "resume", current?.locked ? "unlock" : "lock", "archive", "undo"]
@@ -53,127 +52,90 @@ function deriveSessionActions(detail: SessionDetailPayload | undefined): string[
 }
 
 export default function Session(props: {
-  session: OrchSession
-  flows: OrchFlow[]
+  session: OrchSession | null
+  project: OrchProject | null
   status: StatusPayload | null
   capabilities: CapabilitiesPayload | null
-  home: DashboardHomePayload | null
   savings: SavingsPayload | null
-  onSessionChange: (s: OrchSession) => void
+  runRequest: { sessionId: string; prompt: string } | null
+  onRunRequestHandled: () => void
   onRefresh: () => void
 }) {
-  const [detail, { mutate: mutateDetail, refetch: refetchDetail }] = createResource(() => props.session.id, fetchSessionDetail)
-  const [messages, { refetch: refetchMessages }] = createResource(() => props.session.id, listMessages)
+  const [detail, { mutate: mutateDetail, refetch: refetchDetail }] = createResource(() => props.session?.id || null, (id) => id ? fetchSessionDetail(id) : Promise.resolve({ session: null } as SessionDetailPayload))
+  const [messages, { refetch: refetchMessages }] = createResource(() => props.session?.id || null, (id) => id ? listMessages(id) : Promise.resolve({ messages: [] as OrchMessage[] }))
   const [prompt, setPrompt] = createSignal("")
-  const [sourceContent, setSourceContent] = createSignal("")
   const [running, setRunning] = createSignal(false)
   const [busyAction, setBusyAction] = createSignal<string | null>(null)
-  const [liveFlow, setLiveFlow] = createSignal<{ flow_name: string | null } | null>(null)
   const [livePlan, setLivePlan] = createSignal<OrchPlan | null>(null)
   const [liveSteps, setLiveSteps] = createSignal<OrchStepResult[]>([])
-  const [searchQuery, setSearchQuery] = createSignal("")
-  const [searchResult, setSearchResult] = createSignal<WebSearchPayload | null>(null)
-  const [searchBusy, setSearchBusy] = createSignal(false)
-  const [searchErr, setSearchErr] = createSignal<string | null>(null)
   const [err, setErr] = createSignal<string | null>(null)
   let abort: (() => void) | null = null
   onCleanup(() => abort?.())
 
-  const formatModeLabel = (mode: string | null | undefined) => {
-    const normalized = String(mode || "").trim().toLowerCase()
-    if (!normalized) return "auto"
-    if (normalized === "auto") return "auto"
-    try { return getMode(normalized).name || normalized } catch { return normalized }
-  }
   const sessionDetail = createMemo(() => detail()?.session)
   const effectivePlan = createMemo(() => livePlan() || sessionDetail()?.orchestration_plan || props.status?.orchestration_plan || null)
   const effectiveMode = createMemo(() => String(sessionDetail()?.optimization_mode || props.status?.optimization_mode || "auto").toLowerCase())
-  const modeCards = createMemo(() => dashboardModes.map((mode) => ({
-    ...mode,
-    active: effectiveMode() === mode.id,
-    available: mode.id === "vibeultrax"
-      ? props.capabilities?.vibeultrax?.enabled !== false
-      : mode.id === "vibeqmax"
-        ? props.capabilities?.vibeqmax?.enabled !== false
-      : mode.id === "vibemax"
-        ? props.capabilities?.vibemax?.enabled !== false
-        : true,
-  })))
-  const effectiveModeLabel = createMemo(() => modeCards().find((mode) => mode.active)?.name || formatModeLabel(effectiveMode()))
-  const webSearchEnabled = createMemo(() => Boolean(props.capabilities?.web_search?.enabled))
+  const effectiveModeLabel = createMemo(() => formatModeLabel(effectiveMode()))
+  const backendOnline = createMemo(() => props.status?.backend_connected ?? props.status?.backendConnected ?? false)
 
-  const flowLabel = () => {
-    const fid = props.session.flow_id
-    if (!fid) return "inherit (project / global default)"
-    return props.flows.find((f) => f.id === fid)?.name || "custom"
-  }
-
-  const run = () => {
-    const p = prompt().trim()
-    if (!p || running()) return
+  const runPrompt = (value: string) => {
+    const session = props.session
+    const p = String(value || "").trim()
+    if (!session || !p || running()) return
     if (sessionDetail()?.locked) {
       setErr("Session is locked. Unlock it before running a deterministic flow.")
       return
     }
+    abort?.()
     setRunning(true)
     setErr(null)
     setLivePlan(null)
     setLiveSteps([])
-    setLiveFlow(null)
-    abort = runSession(props.session.id, {
+    abort = runSession(session.id, {
       prompt: p,
-      sourceContent: sourceContent() || undefined,
       query: p,
       execution_policy: "strict-deterministic",
     }, {
       onEvent: (event, data) => {
-        if (event === "flow") setLiveFlow(data)
-        else if (event === "plan") setLivePlan(data.plan)
+        if (event === "plan") setLivePlan(data.plan)
         else if (event === "step") setLiveSteps((s) => [...s, data])
         else if (event === "done") {
           setRunning(false)
+          abort = null
           setPrompt("")
-          setSourceContent("")
           setLivePlan(null)
           setLiveSteps([])
-          setLiveFlow(null)
           void refetchMessages()
           void refetchDetail()
           props.onRefresh()
         } else if (event === "error") {
           setErr(data.message || "run failed")
           setRunning(false)
+          abort = null
         }
       },
-      onError: (e) => { setErr(e.message); setRunning(false) },
+      onError: (e) => { setErr(e.message); setRunning(false); abort = null },
       onDone: () => setRunning(false),
     })
   }
 
-  const changeFlow = async (flowId: string) => {
-    const res = await updateSession(props.session.id, { flow_id: flowId || null })
-    props.onSessionChange(res.session)
-    void refetchDetail()
-  }
-
-  const setMode = async (modeId: string) => {
-    setBusyAction(`mode:${modeId}`)
-    setErr(null)
-    try {
-      await postTrinity("mode", modeId)
-      props.onRefresh()
-    } catch (e: unknown) {
-      setErr((e as Error).message)
-    } finally {
-      setBusyAction(null)
-    }
-  }
+  createEffect(() => {
+    const request = props.runRequest
+    const session = props.session
+    if (!request || !session || request.sessionId !== session.id) return
+    setPrompt(request.prompt)
+    props.onRunRequestHandled()
+    runPrompt(request.prompt)
+  })
 
   const mutateSessionAction = async (action: string) => {
+    const session = props.session
+    if (!session) return
     setBusyAction(action)
     setErr(null)
     try {
-      const res = await postSessionAction(props.session.id, { action })
+      const { postSessionAction } = await import("../api")
+      const res = await postSessionAction(session.id, { action })
       mutateDetail((current) => current ? { ...current, session: res.session, metrics: res.metrics, orchestration: res.orchestration ?? null } : current)
       void refetchDetail()
       props.onRefresh()
@@ -184,101 +146,74 @@ export default function Session(props: {
     }
   }
 
-  const runWebSearch = async () => {
-    const query = searchQuery().trim()
-    if (!query || searchBusy()) return
-    setSearchBusy(true)
-    setSearchErr(null)
-    try {
-      const result = await webSearch({
-        query,
-        provider: props.capabilities?.web_search?.provider || "duckduckgo",
-        max_results: 5,
-        compose_answer: true,
-      })
-      setSearchResult(result)
-    } catch (e: unknown) {
-      setSearchErr((e as Error).message)
-    } finally {
-      setSearchBusy(false)
-    }
-  }
-
   return (
-    <div class="session-workspace">
-      <section class="session-hero">
+    <div class="session-workspace card panel">
+      <div class="panel-head session-head">
         <div>
-          <div class="home-kicker">session workspace</div>
-          <h2 class="session-title">{props.session.title}</h2>
-          <div class="session-hero-meta">
-            <span>{props.session.id.slice(0, 18)}…</span>
-            <span>mode {effectiveModeLabel() || "auto"}</span>
-            <span>slot {props.status?.active_slot || "brain"}</span>
-            <span>model {(props.status?.current_model || "unknown").split("/").pop()}</span>
-            <span>{props.status?.backend_connected ? "backend online" : "backend degraded"}</span>
+          <div class="column-badge-row">
+            <span class="column-badge">3</span>
+            <h3>Session Chat</h3>
           </div>
+          <div class="panel-head-copy">{props.session ? props.session.title : "Select a session from column 2"} · live thread + structured run</div>
         </div>
-        <div class="session-hero-kpis">
-          <div class="session-kpi">
-            <span class="field-label">session savings</span>
-            <strong>{fmtUsd((sessionDetail()?.delegation_savings_usd || 0) + (sessionDetail()?.cache_savings_usd || 0))}</strong>
-          </div>
-          <div class="session-kpi">
-            <span class="field-label">session cost</span>
-            <strong>{fmtUsd(sessionDetail()?.cost_usd)}</strong>
-          </div>
-          <div class="session-kpi">
-            <span class="field-label">state</span>
-            <strong>{sessionDetail()?.locked ? "locked" : sessionDetail()?.status || "active"}</strong>
-          </div>
+        <div class="session-hero-meta">
+          <span>mode {effectiveModeLabel() || "auto"}</span>
+          <span>slot {props.status?.active_slot || "brain"}</span>
+          <span>model {(props.status?.current_model || "unknown").split("/").pop()}</span>
+          <span>backend {backendOnline() ? "live" : "degraded"}</span>
         </div>
-      </section>
+      </div>
 
-      <section class="session-grid-4">
-        <div class="card session-column">
-          <h3>Session State</h3>
-          <div class="session-state-stack">
-            <div class="session-state-row"><span>project</span><strong>{sessionDetail()?.project_name || "Current project"}</strong></div>
-            <div class="session-state-row"><span>status</span><strong>{sessionDetail()?.status || "active"}</strong></div>
-            <div class="session-state-row"><span>mode</span><strong>{effectiveModeLabel() || "auto"}</strong></div>
-            <div class="session-state-row"><span>started</span><strong>{fmtDate(sessionDetail()?.started_at)}</strong></div>
-            <div class="session-state-row"><span>lock</span><strong>{sessionDetail()?.locked ? "locked" : "mutable"}</strong></div>
-            <div class="session-state-row"><span>flow</span><strong>{flowLabel()}</strong></div>
-          </div>
-          <Show when={sessionDetail()?.tags?.length}>
-            <div class="session-chip-row">
-              <For each={sessionDetail()?.tags || []}>{(tag) => <span class="session-chip">{tag}</span>}</For>
-            </div>
-          </Show>
-          <div class="session-state-block">
-            <span class="field-label">recommendation</span>
-            <p class="session-copy">{sessionDetail()?.recommendation || props.status?.recommended_next_action || "Continue with the next structured step."}</p>
-          </div>
-          <div class="session-state-block">
-            <span class="field-label">lifecycle</span>
-            <div class="session-timeline">
-              <span>created {fmtDate(sessionDetail()?.lifecycle?.created_at)}</span>
-              <span>paused {fmtDate(sessionDetail()?.lifecycle?.paused_at)}</span>
-              <span>resumed {fmtDate(sessionDetail()?.lifecycle?.resumed_at)}</span>
-              <span>archived {fmtDate(sessionDetail()?.lifecycle?.archived_at)}</span>
+      <Show when={props.session} fallback={<p class="muted">Pick a session link from column 2 to open the chat and live run stream.</p>}>
+        <div class="session-hero session-hero-compact">
+          <div>
+            <div class="home-kicker">session workspace</div>
+            <h2 class="session-title">{props.session!.title}</h2>
+            <div class="session-hero-meta">
+              <span>{props.session!.id.slice(0, 18)}…</span>
+              <span>project {props.project?.name || sessionDetail()?.project_name || "selected"}</span>
+              <span>{backendOnline() ? "backend online" : "backend degraded"}</span>
+              <span>{sessionDetail()?.locked ? "locked" : sessionDetail()?.status || "active"}</span>
             </div>
           </div>
-          <div class="session-state-block">
-            <span class="field-label">notes</span>
-            <Show when={sessionDetail()?.notes?.length} fallback={<p class="muted">No session notes yet.</p>}>
-              <div class="session-notes-list">
-                <For each={sessionDetail()?.notes || []}>{(note) => (
-                  <div class="session-note-item">{note.text || "Untitled note"}</div>
-                )}</For>
+          <div class="session-hero-kpis">
+            <div class="session-kpi">
+              <span class="field-label">session savings</span>
+              <strong>{fmtUsd((sessionDetail()?.delegation_savings_usd || 0) + (sessionDetail()?.cache_savings_usd || 0))}</strong>
+            </div>
+            <div class="session-kpi">
+              <span class="field-label">session cost</span>
+              <strong>{fmtUsd(sessionDetail()?.cost_usd)}</strong>
+            </div>
+            <div class="session-kpi">
+              <span class="field-label">status</span>
+              <strong>{sessionDetail()?.locked ? "locked" : sessionDetail()?.status || "active"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="session-body">
+          <div class="session-thread">
+            <Show when={effectivePlan()}>
+              <div class="msg assistant live">
+                <div class="msg-role">resolved plan</div>
+                <div class="msg-content mono">{effectivePlan()!.recommended_label || "Structured plan"}</div>
+                <div class="session-plan-head">
+                  <span class="muted">{effectivePlan()!.recommended_next_action || effectivePlan()!.reason}</span>
+                  <span>{Math.round(Number(effectivePlan()!.confidence || 0) * 100)}%</span>
+                </div>
+                <div class="run-trace">
+                  <For each={effectivePlan()!.steps || []}>{(step, index) => (
+                    <div class="run-step">
+                      <span class="run-step-tool">{index() + 1}</span>
+                      <span class="run-step-label">{step.tool} · {step.label}</span>
+                    </div>
+                  )}</For>
+                </div>
               </div>
             </Show>
-          </div>
-        </div>
 
-        <div class="card session-column session-thread-column">
-          <h3>Thread</h3>
-          <div class="thread session-thread">
-            <For each={messages()?.messages || []} fallback={<p class="muted">No messages yet. Run a deterministic prompt below.</p>}>
+            <For each={messages()?.messages || []} fallback={<p class="muted">No chat yet. Use the composer below to run a structured session prompt.</p>}>
               {(m: OrchMessage) => (
                 <div class={`msg ${m.role}`}>
                   <div class="msg-role">{m.role}</div>
@@ -297,9 +232,9 @@ export default function Session(props: {
 
             <Show when={running()}>
               <div class="msg assistant live">
-                <div class="msg-role">running {liveFlow()?.flow_name ? `· ${liveFlow()!.flow_name}` : ""}</div>
+                <div class="msg-role">running</div>
                 <Show when={livePlan()}>
-                  <div class="msg-content mono">strict-deterministic plan: {livePlan()!.steps.map((s) => s.tool).join(" → ")}</div>
+                  <div class="msg-content mono">{livePlan()!.steps.map((s) => s.tool).join(" → ")}</div>
                 </Show>
                 <div class="run-trace">
                   <For each={liveSteps()}>{(r) => <StepRow r={r} />}</For>
@@ -315,165 +250,48 @@ export default function Session(props: {
               placeholder="Describe the next structured session task…"
               value={prompt()}
               onInput={(e) => setPrompt(e.currentTarget.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run() }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runPrompt(prompt()) }}
             />
-            <details class="composer-extra">
-              <summary>source content for TDD / review steps</summary>
-              <textarea class="text-area" placeholder="Paste source or diff context here" value={sourceContent()} onInput={(e) => setSourceContent(e.currentTarget.value)} />
-            </details>
             <div class="composer-actions">
               <span class="muted">policy: strict deterministic · ⌘/Ctrl+Enter to run</span>
-              <button class="flow-save" disabled={running() || !prompt().trim() || sessionDetail()?.locked} onClick={run}>{running() ? "running…" : "run structured flow"}</button>
+              <button class="flow-save" disabled={running() || !prompt().trim() || sessionDetail()?.locked} onClick={() => runPrompt(prompt())}>{running() ? "running…" : "run structured flow"}</button>
             </div>
           </div>
-        </div>
 
-        <div class="card session-column">
-          <h3>Review & KPIs</h3>
-          <div class="session-kpi-grid">
-            <div class="session-mini-kpi"><span class="field-label">provider</span><strong>{props.status?.current_provider || "unknown"}</strong></div>
-            <div class="session-mini-kpi"><span class="field-label">quality tier</span><strong>{props.status?.current_quality_tier || props.status?.active_slot || "brain"}</strong></div>
-            <div class="session-mini-kpi"><span class="field-label">pending todos</span><strong>{props.status?.todos?.pending ?? props.home?.totals.pending_todos ?? 0}</strong></div>
-            <div class="session-mini-kpi"><span class="field-label">savings / hr</span><strong>{fmtUsd(props.savings?.savings_rate_per_hour)}</strong></div>
-          </div>
-          <div class="session-state-block">
-            <span class="field-label">resolved plan</span>
-            <Show when={effectivePlan()} fallback={<p class="muted">No orchestration plan yet. Run the session to materialize one.</p>}>
-              <div class="session-plan-box">
-                <div class="session-plan-head">
-                  <strong>{effectivePlan()?.recommended_label || "Structured plan"}</strong>
-                  <span>{Math.round(Number(effectivePlan()?.confidence || 0) * 100)}%</span>
-                </div>
-                <p class="session-copy">{effectivePlan()?.recommended_next_action || effectivePlan()?.reason}</p>
-                <div class="run-trace">
-                  <For each={effectivePlan()?.steps || []}>{(step, index) => (
-                    <div class="run-step">
-                      <span class="run-step-tool">{index() + 1}</span>
-                      <span class="run-step-label">{step.tool} · {step.label}</span>
-                    </div>
-                  )}</For>
-                </div>
-              </div>
-            </Show>
-          </div>
-          <div class="session-state-block">
-            <span class="field-label">latest run trace</span>
-            <Show when={liveSteps().length} fallback={<p class="muted">No live execution trace yet.</p>}>
-              <div class="run-trace">
-                <For each={liveSteps()}>{(r) => <StepRow r={r} />}</For>
-              </div>
-            </Show>
-          </div>
-          <div class="session-state-block">
-            <span class="field-label">backend signal</span>
-            <p class="session-copy">
-              {props.status?.backend_connected ? "Backend reachable. Structured execution is live." : "Backend degraded. UI remains operational, but execution fidelity may be reduced."}
-            </p>
-          </div>
-          <Show when={webSearchEnabled()}>
+          <div class="session-mini-grid">
             <div class="session-state-block">
-              <span class="field-label">web search</span>
-              <textarea
-                class="text-area"
-                placeholder="Search the web inside this session workspace…"
-                value={searchQuery()}
-                onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void runWebSearch() }}
-              />
-              <div class="composer-actions">
-                <span class="muted">provider: {props.capabilities?.web_search?.provider || "duckduckgo"}</span>
-                <button class="flow-save" disabled={searchBusy() || !searchQuery().trim()} onClick={() => void runWebSearch()}>{searchBusy() ? "searching…" : "search web"}</button>
+              <span class="field-label">session state</span>
+              <div class="session-state-stack">
+                <div class="session-state-row"><span>project</span><strong>{sessionDetail()?.project_name || props.project?.name || "Current project"}</strong></div>
+                <div class="session-state-row"><span>status</span><strong>{sessionDetail()?.status || "active"}</strong></div>
+                <div class="session-state-row"><span>mode</span><strong>{effectiveModeLabel() || "auto"}</strong></div>
+                <div class="session-state-row"><span>started</span><strong>{fmtDate(sessionDetail()?.started_at)}</strong></div>
+                <div class="session-state-row"><span>lock</span><strong>{sessionDetail()?.locked ? "locked" : "mutable"}</strong></div>
               </div>
-              <Show when={searchResult()}>
-                {(result) => (
-                  <div class="session-search-box">
-                    <p class="session-copy">{result().answer || "No grounded answer returned."}</p>
-                    <div class="session-search-results">
-                      <For each={result().results.slice(0, 3)}>{(item) => (
-                        <a class="search-item" href={item.url} target="_blank" rel="noreferrer">
-                          <div class="search-item-title">
-                            <span class="search-rank">[{item.rank}]</span> {item.title}
-                          </div>
-                          <div class="search-item-meta">{item.domain}</div>
-                          <Show when={item.snippet}><div class="search-item-snippet">{item.snippet}</div></Show>
-                        </a>
-                      )}</For>
-                    </div>
-                  </div>
-                )}
-              </Show>
-              <Show when={searchErr()}><div class="error">{searchErr()}</div></Show>
             </div>
-          </Show>
+
+            <div class="session-state-block">
+              <span class="field-label">lifecycle</span>
+              <div class="session-timeline">
+                <span>created {fmtDate(sessionDetail()?.lifecycle?.created_at)}</span>
+                <span>paused {fmtDate(sessionDetail()?.lifecycle?.paused_at)}</span>
+                <span>resumed {fmtDate(sessionDetail()?.lifecycle?.resumed_at)}</span>
+                <span>archived {fmtDate(sessionDetail()?.lifecycle?.archived_at)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="session-actions-row">
+            <For each={deriveSessionActions(detail())}>{(action) => (
+              <button class="shell-link" disabled={busyAction() === action} onClick={() => void mutateSessionAction(action)}>
+                {busyAction() === action ? "…" : action}
+              </button>
+            )}</For>
+          </div>
+
           <Show when={err()}><div class="error">{err()}</div></Show>
         </div>
-
-        <div class="card session-column">
-          <h3>Deterministic Control</h3>
-          <div class="session-state-block">
-            <span class="field-label">vibe modes</span>
-            <div class="mode-control-grid">
-              <For each={modeCards()}>{(mode) => (
-                <button
-                  class={`mode-card-btn ${mode.active ? "active" : ""}`}
-                  disabled={busyAction() === `mode:${mode.id}` || !mode.available}
-                  title={mode.desc}
-                  onClick={() => setMode(mode.id)}
-                >
-                  <strong>{mode.name}</strong>
-                  <span>{mode.pipeline.join(" → ")}</span>
-                </button>
-              )}</For>
-            </div>
-          </div>
-
-          <div class="session-state-block">
-            <span class="field-label">flow binding</span>
-            <select value={props.session.flow_id || ""} onChange={(e) => changeFlow(e.currentTarget.value)}>
-              <option value="">inherit (project / global default)</option>
-              <For each={props.flows}>{(f) => <option value={f.id}>{f.name}{f.scope === "project" ? " (project)" : ""}</option>}</For>
-            </select>
-          </div>
-
-          <div class="session-state-block">
-            <span class="field-label">strict policy</span>
-            <div class="policy-box">
-              <div class="policy-row"><span>run model</span><strong>strict deterministic</strong></div>
-              <div class="policy-row"><span>links / commands</span><strong>blocked unless structured</strong></div>
-              <div class="policy-row"><span>TDD plan</span><strong>{effectivePlan()?.steps?.some((step) => step.tool === "tdd") ? "active in plan" : "inject when required"}</strong></div>
-              <div class="policy-row"><span>thinking</span><strong>{props.status?.thinking || "brief"}</strong></div>
-            </div>
-          </div>
-
-          <div class="session-state-block">
-            <span class="field-label">session actions</span>
-            <div class="session-action-grid">
-              <For each={deriveSessionActions(detail())}>{(action) => (
-                <button class="shell-link" disabled={busyAction() === action} onClick={() => mutateSessionAction(action)}>
-                  {busyAction() === action ? "…" : action}
-                </button>
-              )}</For>
-            </div>
-          </div>
-
-          <div class="session-state-block">
-            <span class="field-label">TDD Flow Plan</span>
-            <Show when={effectivePlan()?.steps?.length} fallback={<p class="muted">No structured plan yet. Run a session task to generate one.</p>}>
-              <div class="session-plan-list">
-                <For each={effectivePlan()?.steps || []}>{(step, index) => (
-                  <div class="session-plan-item">
-                    <span>{index() + 1}</span>
-                    <div>
-                      <strong>{step.label}</strong>
-                      <div class="muted">{step.tool} · {step.reason}</div>
-                    </div>
-                  </div>
-                )}</For>
-              </div>
-            </Show>
-          </div>
-        </div>
-      </section>
+      </Show>
     </div>
   )
 }

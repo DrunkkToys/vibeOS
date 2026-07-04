@@ -37,7 +37,7 @@ type Deps = {
   readReport: (id: string) => unknown
   runDiagnose: () => unknown
   runProject: () => unknown
-  runTrinity: (action: string, opts: { slot?: string; level?: string }) => Promise<unknown>
+  runTrinity: (action: string, opts: { slot?: string; level?: string; token?: string }) => Promise<unknown>
   runResearchAudit: (hours: number) => unknown
   saveReport: (params: { type: string; summary: string; findings: unknown[]; metrics: Record<string, unknown>; narrative: string; tags: unknown[] }) => string | null
   generateSessionCheckout: () => unknown
@@ -623,11 +623,12 @@ export function createMcpServer(deps: Deps): McpServer {
         const action = body?.action as string | undefined
         const slot = body?.slot as string | undefined
         const level = body?.level as string | undefined
+        const token = body?.token as string | undefined
         if (!action || typeof action !== "string") {
           json(res, 400, { error: "invalid request", status: 400 })
           return
         }
-        const result = await deps.runTrinity(action, { slot, level })
+        const result = await deps.runTrinity(action, { slot, level, token })
         const txt = typeof result === "string" ? result : JSON.stringify(result)
         const ok = !(txt.startsWith("❌") || txt.toLowerCase().includes("unknown action"))
         json(res, ok ? 200 : 400, ok ? { ok: true, result } : { ok: false, error: txt })

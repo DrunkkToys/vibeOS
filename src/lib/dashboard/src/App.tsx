@@ -1,15 +1,12 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import {
   createProject,
-  createSession,
-  deleteProject,
-  deleteSession,
   fetchCapabilities,
   fetchDashboardHome,
   fetchSavings,
   fetchStatus,
-  listFlows,
   listProjects,
+  listFlows,
   listSessions,
   openSSE,
   type CapabilitiesPayload,
@@ -22,42 +19,30 @@ import {
 } from "./api"
 import Sidebar, { type Selection } from "./components/Sidebar"
 import Home from "./components/Home"
-import StatusCard from "./components/Status"
-import SavingsCard from "./components/Savings"
-import SessionsPanel from "./components/Sessions"
-import StressGauge from "./components/StressGauge"
-import Controls from "./components/Controls"
-import ReportsPanel from "./components/Reports"
-import BlackboxPanel from "./components/Blackbox"
-import WebSearchPanel from "./components/WebSearch"
 import Session from "./components/Session"
-import ProjectView from "./components/ProjectView"
+import ProjectSessionsPanel from "./components/ProjectSessions"
+import ControlRail from "./components/ControlRail"
 import { DEFAULT_SELECTION_KIND } from "./home-model"
-
-type Tab = "status" | "controls" | "reports" | "blackbox" | "websearch"
 
 export default function App() {
   const [s, setS] = createSignal<StatusPayload | null>(null)
   const [sv, setSv] = createSignal<SavingsPayload | null>(null)
   const [cap, setCap] = createSignal<CapabilitiesPayload | null>(null)
   const [home, setHome] = createSignal<DashboardHomePayload | null>(null)
-  const [tab, setTab] = createSignal<Tab>("status")
   const [conn, setConn] = createSignal(false)
 
   const [selection, setSelection] = createSignal<Selection>({ kind: DEFAULT_SELECTION_KIND })
   const [projects, setProjects] = createSignal<OrchProject[]>([])
-  const [sessionsByProject, setSessionsByProject] = createSignal<Record<string, OrchSession[]>>({})
   const [flows, setFlows] = createSignal<OrchFlow[]>([])
-  const [expanded, setExpanded] = createSignal<Record<string, boolean>>({})
-  const [creatingProject, setCreatingProject] = createSignal(false)
-  const [creatingSessionFor, setCreatingSessionFor] = createSignal<string | null>(null)
+  const [sessionsByProject, setSessionsByProject] = createSignal<Record<string, OrchSession[]>>({})
+  const [runRequest, setRunRequest] = createSignal<{ sessionId: string; prompt: string } | null>(null)
 
   const refreshStatus = () => fetchStatus().then((value) => { setS(value); setConn(true) }).catch(() => setConn(false))
   const refreshSavings = () => fetchSavings().then((value) => { setSv(value); setConn(true) }).catch(() => setConn(false))
   const refreshCapabilities = () => fetchCapabilities().then(setCap).catch(() => {})
   const refreshHome = () => fetchDashboardHome().then(setHome).catch(() => {})
   const refreshProjects = () => listProjects().then((r) => setProjects(r.projects)).catch(() => {})
-  const refreshFlows = () => listFlows().then((r) => setFlows(r.flows)).catch(() => {})
+  const refreshFlows = (projectId?: string | null) => listFlows(projectId || undefined).then((r) => setFlows(r.flows)).catch(() => {})
   const refreshSessions = () => listSessions().then((r) => {
     const grouped: Record<string, OrchSession[]> = {}
     for (const sess of r.sessions) (grouped[sess.project_id] ||= []).push(sess)
@@ -73,83 +58,24 @@ export default function App() {
   refreshSavings()
   refreshCapabilities()
   refreshProjects()
-  refreshFlows()
   refreshSessions()
   refreshHome()
   onCleanup(cl)
 
-  createEffect(() => {
-    if (tab() === "websearch" && !cap()?.web_search?.enabled) setTab("status")
-  })
-
-  const newProject = () => setCreatingProject(true)
-
-  const newSession = (projectId: string) => setCreatingSessionFor(projectId)
-
-  const submitNewProject = async (name: string) => {
-    setCreatingProject(false)
-    const res = await createProject(name)
+  const createProjectFromPrompt = async () => {
+    const name = window.prompt("Project name")
+    if (!name || !name.trim()) return
+    const res = await createProject(name.trim())
     await refreshProjects()
     await refreshHome()
-    setExpanded((e) => ({ ...e, [res.project.id]: true }))
     setSelection({ kind: "project", projectId: res.project.id })
   }
 
-  const submitNewSession = async (projectId: string, title: string) => {
-    setCreatingSessionFor(null)
-    const res = await createSession(projectId, title || "New session")
-    await refreshSessions()
-    await refreshHome()
-    setExpanded((e) => ({ ...e, [projectId]: true }))
-    setSelection({ kind: "session", projectId, sessionId: res.session.id })
-  }
-
-  const cancelCreate = () => { setCreatingProject(false); setCreatingSessionFor(null) }
-
-  const removeProject = async (id: string) => {
-    if (!confirm("Delete this project and all its sessions?")) return
-    await deleteProject(id)
-    await refreshProjects()
-    await refreshSessions()
-    await refreshHome()
-    if ((selection() as { kind: string; projectId?: string }).projectId === id) setSelection({ kind: "home" })
-  }
-
-  const removeSession = async (id: string) => {
-    await deleteSession(id)
-    await refreshSessions()
-    await refreshHome()
-    if ((selection() as { kind: string; sessionId?: string }).sessionId === id) setSelection({ kind: "home" })
-  }
-
-  const toggle = (projectId: string) => setExpanded((e) => ({ ...e, [projectId]: !e[projectId] }))
-
-  const onSessionChange = (sess: OrchSession) => {
-    setSessionsByProject((m) => {
-      const list = (m[sess.project_id] || []).map((x) => (x.id === sess.id ? sess : x))
-      return { ...m, [sess.project_id]: list }
-    })
-    void refreshHome()
-  }
-
-  const onProjectChange = (p: OrchProject) => {
-    setProjects((list) => list.map((x) => (x.id === p.id ? p : x)))
-    void refreshHome()
-  }
-
-  const activeSession = () => {
+  const selectedProject = () => {
     const sel = selection()
-    if (sel.kind !== "session") return null
-    return (sessionsByProject()[sel.projectId] || []).find((x) => x.id === sel.sessionId) || null
-  }
-
-  const activeProject = () => {
-    const sel = selection()
-    const pid = sel.kind === "project" ? sel.projectId : sel.kind === "session" ? sel.projectId : null
-    return pid ? projects().find((x) => x.id === pid) || null : null
-  }
-
-  const currentProject = () => {
+    if (sel.kind === "project" || sel.kind === "session") {
+      return projects().find((x) => x.id === sel.projectId) || null
+    }
     const fingerprint = home()?.current_session?.project_fingerprint || s()?.current_project_fingerprint || ""
     const name = home()?.current_session?.project_name || s()?.current_project_name || ""
     return projects().find((project) => project.fingerprint && project.fingerprint === fingerprint)
@@ -157,18 +83,28 @@ export default function App() {
       || null
   }
 
-  const currentSession = () => {
-    const sessionId = home()?.current_session?.session_id || ""
-    if (!sessionId) return null
-    for (const list of Object.values(sessionsByProject())) {
-      const match = list.find((session) => session.id === sessionId)
-      if (match) return match
-    }
-    return null
+  const selectedProjectSessions = () => {
+    const project = selectedProject()
+    return project ? (sessionsByProject()[project.id] || []) : []
   }
 
-  const projectFlows = (projectId: string) => flows().filter((f) => f.scope === "global" || f.project_id === projectId)
-  const homeFlows = () => projectFlows(currentProject()?.id || currentSession()?.project_id || "")
+  const selectedSession = () => {
+    const sel = selection()
+    if (sel.kind === "session") {
+      return (sessionsByProject()[sel.projectId] || []).find((x) => x.id === sel.sessionId) || null
+    }
+    const currentSessionId = home()?.current_session?.session_id || ""
+    if (!currentSessionId) return null
+    const project = selectedProject()
+    if (!project) return null
+    const current = (sessionsByProject()[project.id] || []).find((x) => x.id === currentSessionId) || null
+    return current && current.project_id === project.id ? current : null
+  }
+
+  createEffect(() => {
+    const project = selectedProject()
+    void refreshFlows(project?.id || null)
+  })
 
   const backendIndicator = () => {
     const status = s()
@@ -185,66 +121,56 @@ export default function App() {
     return { label: "API OFF", tone: "disconnected", title: `${target} · ${reason}${checkedAt ? ` · checked ${checkedAt}` : ""}` }
   }
 
-  const tabs = () => [
-    { key: "status", label: "Status" },
-    { key: "controls", label: "Controls" },
-    { key: "reports", label: "Reports" },
-    { key: "blackbox", label: "Blackbox" },
-    { key: "websearch", label: "Web Search", visible: Boolean(cap()?.web_search?.enabled) },
-  ]
-  const visibleTabs = () => tabs().filter((t) => t.visible !== false)
-
-  const headerTitle = () => {
-    const sel = selection()
-    if (sel.kind === "project") return activeProject()?.name || "Project"
-    if (sel.kind === "session") return activeSession()?.title || "Session"
-    if (sel.kind === "status") return "Dashboard Overview"
-    return "Home"
+  const requestSessionRun = (prompt: string) => {
+    const session = selectedSession()
+    if (!session) return
+    setRunRequest({ sessionId: session.id, prompt })
   }
 
-  const headerSubtitle = () => {
-    const project = currentProject()
-    const session = currentSession()
-    if (project && session) return `${project.name} · ${session.title}`
-    if (project) return project.name
-    return home()?.current_session?.project_name || s()?.current_project_name || "OpenCode shell"
-  }
-
-  const openCurrentProject = () => {
-    const project = currentProject()
+  const openFirstProject = () => {
+    const project = selectedProject() || projects()[0] || null
     if (project) setSelection({ kind: "project", projectId: project.id })
   }
 
   const openCurrentSession = () => {
-    const session = currentSession()
+    const session = selectedSession() || null
     if (session) setSelection({ kind: "session", projectId: session.project_id, sessionId: session.id })
   }
 
+  const refreshAll = () => {
+    refreshStatus()
+    refreshSavings()
+    refreshHome()
+    refreshProjects()
+    refreshSessions()
+    void refreshFlows(selectedProject()?.id || null)
+  }
+
+  const isHomeView = () => selection().kind === "home" || selection().kind === "status"
+  const headerTitle = () => {
+    if (selection().kind === "status") return "Status"
+    if (selection().kind === "home") return "Dashboard"
+    return selectedProject()?.name || home()?.current_session?.project_name || "Home"
+  }
+  const headerSubtitle = () => {
+    if (selection().kind === "home") return home()?.home?.title || home()?.home?.subtitle || "Operational dashboard overview"
+    if (selection().kind === "status") return home()?.home?.subtitle || "Runtime status"
+    return selectedSession()?.title || home()?.home?.subtitle || "OpenCode-style operational dashboard"
+  }
+
   return (
-    <div class="shell">
+    <div class="shell shell-4col">
       <Sidebar
         projects={projects()}
-        sessionsByProject={sessionsByProject()}
-        expanded={expanded()}
         selection={selection()}
-        currentProjectId={currentProject()?.id || null}
-        currentProjectName={home()?.current_session?.project_name || s()?.current_project_name || null}
-        currentSessionId={home()?.current_session?.session_id || null}
-        creatingProject={creatingProject()}
-        creatingSessionFor={creatingSessionFor()}
+        home={home()}
+        status={s()}
         onSelect={setSelection}
-        onToggle={toggle}
-        onNewProject={newProject}
-        onNewSession={newSession}
-        onCreateProjectName={submitNewProject}
-        onCreateSessionName={submitNewSession}
-        onCancelCreate={cancelCreate}
-        onDeleteProject={removeProject}
-        onDeleteSession={removeSession}
+        onNewProject={createProjectFromPrompt}
       />
 
-      <div class="main">
-        <header class="header">
+      <main class="workspace">
+        <header class="header workspace-header">
           <div class="header-title">
             <div>
               <h1>{headerTitle()}</h1>
@@ -255,75 +181,69 @@ export default function App() {
           <div class="header-indicators">
             <span class={`indicator ${conn() ? "connected" : "disconnected"}`}>{conn() ? "LIVE" : "connecting"}</span>
             <span class={`indicator flash ${backendIndicator().tone}`} title={backendIndicator().title}>{backendIndicator().label}</span>
-            {cap()?.web_search?.enabled && <span class="indicator connected">WEB SEARCH</span>}
-            {s()?.enabled === false && <span class="indicator disabled">OFF</span>}
+            <span class={`indicator ${(s()?.backend_connected ?? s()?.backendConnected) ? "connected" : "disconnected"}`}>{(s()?.backend_connected ?? s()?.backendConnected) ? "API LIVE" : "API DEGRADED"}</span>
+            <span class={`indicator ${s()?.enabled === false ? "disabled" : "connected"}`}>{s()?.enabled === false ? "OFF" : "ON"}</span>
           </div>
         </header>
 
-        <Show when={selection().kind === "home"}>
-          <main class="content">
+        <Show
+          when={isHomeView()}
+          fallback={
+            <section class="workspace-grid">
+              <div class="workspace-column workspace-column-sessions">
+                <ProjectSessionsPanel
+                  project={selectedProject()}
+                  sessions={selectedProjectSessions()}
+                  selectedSessionId={selectedSession()?.id || null}
+                  currentSessionId={home()?.current_session?.session_id || null}
+                  onSelectSession={(session) => setSelection({ kind: "session", projectId: session.project_id, sessionId: session.id })}
+                />
+              </div>
+
+              <div class="workspace-column workspace-column-chat">
+                <Session
+                  session={selectedSession()}
+                  project={selectedProject()}
+                  status={s()}
+                  capabilities={cap()}
+                  savings={sv()}
+                  runRequest={runRequest()}
+                  onRunRequestHandled={() => setRunRequest(null)}
+                  onRefresh={refreshAll}
+                />
+              </div>
+
+              <div class="workspace-column workspace-column-controls">
+                <ControlRail
+                  status={s()}
+                  capabilities={cap()}
+                  home={home()}
+                  savings={sv()}
+                  session={selectedSession()}
+                  currentProject={selectedProject()}
+                  onRefresh={refreshAll}
+                  onCreatePlan={() => requestSessionRun("Create a concise structured plan for this session. Show the plan before execution, keep it deterministic, and include TDD steps if they are required.")}
+                  onStartTdd={() => requestSessionRun("Start TDD for this session. Produce failing tests first, then implement the minimum fix, then verify the result.")}
+                />
+              </div>
+            </section>
+          }
+        >
+          <section class="home-shell">
             <Home
               data={home()}
               status={s()}
-              project={currentProject()}
-              session={currentSession()}
-              flows={homeFlows()}
+              project={selectedProject()}
+              session={selectedSession()}
+              flows={flows()}
               onOpenStatus={() => setSelection({ kind: "status" })}
-              onOpenProject={openCurrentProject}
+              onOpenProject={openFirstProject}
               onOpenSession={openCurrentSession}
-              onTrinityAction={() => { refreshStatus(); refreshSavings(); refreshHome() }}
+              onTrinityAction={refreshAll}
             />
-          </main>
+          </section>
         </Show>
-
-        <Show when={selection().kind === "status"}>
-          <nav class="nav-tabs">
-            <For each={visibleTabs()}>{(t) => (
-              <button class={`tab ${tab() === t.key ? "active" : ""}`} onClick={() => setTab(t.key as Tab)}>{t.label}</button>
-            )}</For>
-          </nav>
-          <main class="content">
-            {tab() === "status" && (
-              <div class="grid-2col">
-                <StatusCard status={s()} />
-                <SavingsCard savings={sv()} />
-                <StressGauge status={s()} />
-                <SessionsPanel />
-              </div>
-            )}
-            {tab() === "controls" && <Controls status={s()} onAction={() => { refreshStatus(); refreshSavings(); refreshHome() }} />}
-            {tab() === "reports" && <ReportsPanel />}
-            {tab() === "blackbox" && <BlackboxPanel />}
-            {tab() === "websearch" && <WebSearchPanel />}
-          </main>
-        </Show>
-
-        <Show when={selection().kind === "project" && activeProject()}>
-          <main class="content">
-            <ProjectView
-              project={activeProject()!}
-              flows={projectFlows(activeProject()!.id)}
-              onProjectChange={onProjectChange}
-              onFlowsChange={() => { refreshFlows(); refreshHome() }}
-            />
-          </main>
-        </Show>
-
-        <Show when={selection().kind === "session" && activeSession()}>
-          <main class="content">
-            <Session
-              session={activeSession()!}
-              flows={projectFlows(activeSession()!.project_id)}
-              status={s()}
-              capabilities={cap()}
-              home={home()}
-              savings={sv()}
-              onSessionChange={onSessionChange}
-              onRefresh={() => { refreshStatus(); refreshSavings(); refreshHome(); refreshSessions() }}
-            />
-          </main>
-        </Show>
-      </div>
+      </main>
     </div>
   )
 }

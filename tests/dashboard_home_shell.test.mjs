@@ -12,11 +12,14 @@ test("dashboard home shell defaults to Home selection", () => {
 
   const appSource = readFileSync(join(ROOT, "src/lib/dashboard/src/App.tsx"), "utf8")
   assert.ok(appSource.includes('fetchDashboardHome'), "App should fetch dashboard home data")
-  assert.ok(appSource.includes('selection().kind === "home"'), "App should render Home as the primary view")
+  assert.ok(appSource.includes("shell-4col"), "App should render the 4-column workspace shell")
+  assert.ok(appSource.includes("ProjectSessionsPanel"), "App should render a dedicated project sessions column")
+  assert.ok(appSource.includes("ControlRail"), "App should render the deterministic control rail")
 
   const sidebarSource = readFileSync(join(ROOT, "src/lib/dashboard/src/components/Sidebar.tsx"), "utf8")
   assert.ok(sidebarSource.includes('kind: "home"'), "Sidebar should expose a Home selection")
   assert.ok(sidebarSource.includes("Home"), "Sidebar should label the pinned Home entry")
+  assert.ok(sidebarSource.includes("sidebar-home-card"), "Sidebar should carry the main home info card")
 })
 
 test("project icon inference is stable and falls back cleanly", () => {
