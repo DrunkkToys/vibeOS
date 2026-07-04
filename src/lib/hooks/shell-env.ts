@@ -20,9 +20,9 @@ export const onShellEnv = async (_input, output) => {
     const tiers = existsSync(tiersPath) ? safeJsonParse(readFileSync(tiersPath, "utf-8")) : null
     const slotModel = slot === "brain" ? tiers?.trinity?.brain?.oc : slot === "medium" ? tiers?.trinity?.medium?.oc : slot === "cheap" ? tiers?.trinity?.cheap?.oc : ""
     const displayModel = slotModel
-      || (slot === "cheap" ? "opencode/big-pickle" : "")
       || resolveTrinityDisplayModel(directory, slot, "", currentModel)
       || currentModel
+      || (slot === "cheap" ? "opencode/big-pickle" : "")
     if (!output) output = {}
     output.env ??= {}
     const slotTier = slot === "brain" ? "high" : slot === "medium" ? "mid" : slot === "cheap" ? "budget" : ""
