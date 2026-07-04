@@ -380,7 +380,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // At the cascade entry this reads "⚡ cheap | Big Pickle"; once it escalates
     // to e.g. deepseek-v4-flash (the medium slot) it reads "◐ medium | V4 Flash"
     // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
-    const ultraLiveModel = displayModel || liveModel || currentModel || ""
+    const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
     const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
       const ct = liveBlackboxState?.control_vector?.cascade_tier || liveBlackboxState?.cv?.cascade_tier
       if (ct === "medium" || ct === "brain") return ct
@@ -390,6 +390,11 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       const c = String(classify(ultraLiveModel) || "").toLowerCase()
       return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
     })()
+    const cascadeModel = displayModel
+      || (ultraResolvedTier === "brain" ? TRINITY_BRAIN
+        : ultraResolvedTier === "medium" ? TRINITY_MEDIUM
+        : TRINITY_CHEAP)
+      || ""
     _footerStage = "execution"
     const execution = resolveCurrentExecution({
       directory,
@@ -411,12 +416,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         : execution.quality === "mid"
           ? "medium"
           : "cheap"
-    let _modelTag = `[${shortModelName(displayModel)}]`
+    let _modelTag = `[${shortModelName(cascadeModel)}]`
     const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
     const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
     if (_workerModel && _workerModel !== brainModel) {
       const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
-      _modelTag = `[${shortModelName(displayModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
+      _modelTag = `[${shortModelName(cascadeModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
     }
 
     _autoReportCount = (_autoReportCount || 0) + 1
