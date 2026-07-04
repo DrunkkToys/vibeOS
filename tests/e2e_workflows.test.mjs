@@ -263,8 +263,7 @@ serialTest('e2e: simulated full session hook sequence does not crash', async () 
     const sessionKey = Object.keys(blackboxState.sessions).find(s => !s.endsWith('_opt'))
     assert.ok(sessionKey, 'blackbox session should exist')
 
-    const selectionState = JSON.parse(readFileSync(join(home, '.claude', 'model-tiers.json'), 'utf-8')).selection
-    const expectedSlot = selectionState.vector_changed_slot || blackboxState.sessions[sessionKey].active_slot || 'cheap'
+    const expectedSlot = blackboxState.sessions[sessionKey].active_slot || 'cheap'
     assert.ok(['cheap', 'medium', 'brain'].includes(expectedSlot), 'ML turn should persist a real slot')
 
     const toolInput = { tool: 'write', args: { filePath: join(projectDir, 'src/foo.ts') } }
@@ -284,9 +283,6 @@ serialTest('e2e: simulated full session hook sequence does not crash', async () 
     assert.equal(toolFooterLine, textFooterLine, 'tool footer alert and live footer should share the same line format')
     const liveFooter = textOutput.text.slice(-200)
     assert.ok(liveFooter.includes('◐ medium') || liveFooter.includes('🧠 brain') || liveFooter.includes('⚡ cheap'), 'live footer should show the selected tier')
-    if (selectionState.vector_changed_slot && selectionState.vector_changed_slot !== selectionState.active_slot) {
-        assert.ok(liveFooter.includes(`⟡ ${selectionState.vector_changed_slot}`), 'live footer should show the vector pulse')
-    }
     assert.ok(liveFooter.toLowerCase().includes('vibelitex') || liveFooter.toLowerCase().includes('budget') || liveFooter.toLowerCase().includes('vibeqmax') || liveFooter.toLowerCase().includes('vibeos'), 'live footer should show optimization mode')
 
     await hooks['experimental.chat.messages.transform']({}, { messages: [{ role: 'assistant', content: 'Done' }] })

@@ -71,25 +71,6 @@ test("footer: shows optimization_mode speed", () => {
   assert.equal(sel.optimization_mode, "speed")
 })
 
-// ── Footer shows vector_changed_slot arrow ──
-test("footer: → arrow appears when vector_changed differs from active_slot", () => {
-  writeTiers({ active_slot: "brain", vector_changed_slot: "cheap" })
-  const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  assert.equal(sel.vector_changed_slot, "cheap")
-  assert.notEqual(sel.vector_changed_slot, sel.active_slot)
-  // Vector pulse logic: if vector_changed_slot exists and differs, show ⟡ ${vector_changed_slot}
-  const pulse = sel.vector_changed_slot && sel.vector_changed_slot !== sel.active_slot ? ` ⟡ ${sel.vector_changed_slot}` : ""
-  assert.ok(pulse.includes("cheap"))
-})
-
-test("footer: vector_changed_slot priority for tier display", () => {
-  writeTiers({ active_slot: "brain", vector_changed_slot: "medium" })
-  const sel = JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf8")).selection
-  // ML decision takes priority
-  const displaySlot = sel.vector_changed_slot || sel.active_slot
-  assert.equal(displaySlot, "medium")
-})
-
 // ── Deployment instructions survive writes ──
 test("footer: enforcement+flow+tdd settings preserved across tier changes", () => {
   writeTiers({ active_slot: "brain", delegation_enforce: true, flow_enforce: true, tdd_enforce: true, tdd_strict: false })

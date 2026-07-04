@@ -14,7 +14,6 @@ import {
   resolveBrand,
   resolveTierIcon,
   formatSavingsPulse,
-  formatVectorPulse,
   trendGlyph,
 } from "../src/lib/hooks/shared-footer.js"
 import { createTrinityTool } from "../src/lib/trinity-tool.js"
@@ -265,7 +264,6 @@ test("footer: buildFooterLine format matches required pattern", () => {
     optMode: "speed",
     flashIcon: " \u26A1",
     enfTags: ["[ENF ON]", "[TDD ON]"],
-    vectorChangedSlot: "brain",
   })
 
   assert.ok(line.startsWith("\u2014"))
@@ -292,7 +290,6 @@ test("footer: buildFooterLine with vibeultrax mode", () => {
     optMode: "vibeultrax",
     flashIcon: " \u{1F9E0}",
     enfTags: ["[ENF ON]", "[FLOW ON]", "[TDD ON]", "[STRICT]"],
-    vectorChangedSlot: undefined,
   })
 
   assert.ok(line.includes("\u{1F9E0} brain"))
@@ -315,7 +312,6 @@ test("footer: buildFooterLine with vibeqmax mode", () => {
     optMode: "vibeqmax",
     flashIcon: " \u26A1",
     enfTags: [],
-    vectorChangedSlot: undefined,
   })
 
   assert.ok(line.includes("\u26A1 cheap"))
@@ -336,7 +332,6 @@ test("footer: buildFooterLine with vibemax mode on cheap slot", () => {
     optMode: "vibemax",
     flashIcon: " \u26A1",
     enfTags: [],
-    vectorChangedSlot: undefined,
   })
 
   assert.ok(line.includes("\u26A1 cheap"))
@@ -357,12 +352,10 @@ test("footer: buildFooterLine shows worker slot in brackets when workerSlot is p
     optMode: "vibeultrax",
     flashIcon: " \u26A1",
     enfTags: ["[Q&A]"],
-    vectorChangedSlot: "medium",
   })
 
   assert.ok(line.includes("[cheap]"), "worker slot shown in brackets: " + line)
   assert.ok(!line.includes("session:"), "no session: suffix: " + line)
-  assert.ok(line.includes("reroute: ◐ medium"), "vector pulse shows: " + line)
 })
 
 test("footer: buildFooterLine zero savings hides savings section", () => {
@@ -377,7 +370,6 @@ test("footer: buildFooterLine zero savings hides savings section", () => {
     optMode: "auto",
     flashIcon: " \u2699\uFE0F",
     enfTags: [],
-    vectorChangedSlot: undefined,
   })
 
   assert.ok(!line.includes("$"))
@@ -396,7 +388,6 @@ test("footer: buildFooterLine auto mode omits mode text", () => {
     optMode: "auto",
     flashIcon: " \u{1F9E0}",
     enfTags: [],
-    vectorChangedSlot: undefined,
   })
 
   assert.ok(!line.includes(" auto"))
@@ -490,13 +481,6 @@ test("footer: formatSavingsPulse edge cases", () => {
   assert.equal(formatSavingsPulse(5.50, "up"), "$5.50 saved \u2197")
   assert.equal(formatSavingsPulse(3.00, "down"), "$3.00 saved \u2198")
   assert.equal(formatSavingsPulse(10.00, "stable"), "$10.00 saved")
-})
-
-test("footer: formatVectorPulse edge cases", () => {
-  assert.equal(formatVectorPulse("cheap"), "reroute: ⚡ cheap")
-  assert.equal(formatVectorPulse("nonsense"), "")
-  assert.equal(formatVectorPulse(undefined), "")
-  assert.equal(formatVectorPulse(null), "")
 })
 
 // ── SECTION 2: textCompletePainted Set prevents double-painting ──────
@@ -739,7 +723,6 @@ const results = {
     "buildEnforcementTags all off",
     "trendGlyph",
     "formatSavingsPulse",
-    "formatVectorPulse",
     "textCompletePainted",
     "trinity status",
     "trinity mode vibeultrax",

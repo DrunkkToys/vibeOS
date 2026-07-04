@@ -16,7 +16,6 @@ export interface FooterLineInput {
   optMode: string
   flashIcon: string
   enfTags: string[]
-  vectorChangedSlot?: string
   subRegime?: string
   stressGauge?: string
   cascadeIcon?: string
@@ -114,14 +113,6 @@ export function formatModeLabel(optMode: string): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
-export function formatVectorPulse(vectorChangedSlot?: string): string {
-  if (!vectorChangedSlot) return ""
-  const slot = String(vectorChangedSlot || "").trim().toLowerCase()
-  if (!slot) return ""
-  if (!["brain", "medium", "cheap", "free"].includes(slot)) return ""
-  return `reroute: ${TIER_ICON[slot] || "⚡"} ${slot}`
-}
-
 export function formatEnforcementPulse(enfTags: string[]): string {
   const tags = new Set(enfTags || [])
   const parts: string[] = []
@@ -189,7 +180,6 @@ export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | nu
       optMode,
       flashIcon: typeof p.flashIcon === "string" ? p.flashIcon : "",
       enfTags,
-      vectorChangedSlot: p.vectorChangedSlot,
       subRegime: p.subRegime,
       stressGauge: p.stressGauge,
       cascadeIcon: p.cascadeIcon,
@@ -257,7 +247,7 @@ export function buildFooterAlert(opts: {
 }
 
 export function buildFooterLine(input: FooterLineInput): string {
-  const { activeSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, vectorChangedSlot, subRegime } = input
+  const { activeSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, subRegime } = input
   const savingsTotal = Number.isFinite(Number(input.savingsTotal ?? input.ltTotal)) ? Number(input.savingsTotal ?? input.ltTotal) : 0
 
   const tierIcon = resolveTierIcon(activeSlot)
@@ -281,10 +271,6 @@ export function buildFooterLine(input: FooterLineInput): string {
   const cascadePulse = formatCascadePulse(input.cascadeIcon, input.cascadeLabel)
   if (cascadePulse) {
     line += ` | ${cascadePulse}`
-  }
-
-  if (vectorChangedSlot && vectorChangedSlot !== activeSlot) {
-    line += ` | ${formatVectorPulse(vectorChangedSlot)}`
   }
 
   const enforcementPulse = formatEnforcementPulse(enfTags)

@@ -43,7 +43,6 @@ function loadSelectionImpl(): any {
       active_slot:        j?.selection?.active_slot || null,
       entry_slot:         j?.selection?.entry_slot || j?.selection?.active_slot || null,
       worker_slot:        j?.selection?.worker_slot || j?.selection?.selected_slot || null,
-      vector_changed_slot: j?.selection?.vector_changed_slot || null,
       slot_locked:        j?.selection?.slot_locked === true,
       active_pipeline:    Array.isArray(activePipeline) ? activePipeline : null,
       optimization_mode:  j?.selection?.optimization_mode || null,
