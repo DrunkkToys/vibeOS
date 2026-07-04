@@ -760,7 +760,7 @@ async function ensureMcpServerRunning() {
             const trinity = _pluginHooksRuntime?.tool?.trinity
             if (!trinity?.execute)
               return { error: "trinity runtime unavailable" }
-            return trinity.execute({ action: rvAction, slot: params.slot, level: params.level })
+            return trinity.execute({ action: rvAction, slot: params.slot, level: params.level, token: params.token })
           },
           runResearchAudit: (hours) => researchAudit({ hours: hours ?? 24 }),
           saveReport: (data) => saveReport(data),

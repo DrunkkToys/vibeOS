@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
 
 import { For, Show } from "solid-js"
-import type { OrchProject, OrchSession } from "../api"
-import { activeContextLabel, inferProjectIcon } from "../home-model"
-import CreateForm from "./CreateForm"
+import type { DashboardHomePayload, OrchProject, StatusPayload } from "../api"
+import { inferProjectIcon } from "../home-model"
 
 export type Selection =
   | { kind: "home" }
@@ -20,122 +19,67 @@ function isActive(sel: Selection, target: Selection): boolean {
   return false
 }
 
+function projectSwatch(project: OrchProject): string {
+  const seed = `${project.name}|${project.fingerprint || project.id}`
+  let hash = 0
+  for (const ch of seed) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0
+  const hue = hash % 360
+  return `hsl(${hue} 72% 46%)`
+}
+
 export default function Sidebar(props: {
   projects: OrchProject[]
-  sessionsByProject: Record<string, OrchSession[]>
-  expanded: Record<string, boolean>
   selection: Selection
-  currentProjectId?: string | null
-  currentProjectName?: string | null
-  currentSessionId?: string | null
-  creatingProject: boolean
-  creatingSessionFor: string | null
+  home: DashboardHomePayload | null
+  status: StatusPayload | null
   onSelect: (s: Selection) => void
-  onToggle: (projectId: string) => void
   onNewProject: () => void
-  onNewSession: (projectId: string) => void
-  onCreateProjectName: (name: string) => void
-  onCreateSessionName: (projectId: string, name: string) => void
-  onCancelCreate: () => void
-  onDeleteProject: (id: string) => void
-  onDeleteSession: (id: string) => void
 }) {
   return (
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <div class="sidebar-brand-mark">~</div>
-        <div>
-          <div class="sidebar-brand-title">opencode</div>
-          <div class="sidebar-brand-subtitle">dashboard home</div>
-        </div>
-      </div>
-
       <button
-        class={`sidebar-item pinned ${isActive(props.selection, { kind: "home" }) ? "active" : ""}`}
+        class={`sidebar-icon-button ${isActive(props.selection, { kind: "home" }) ? "active" : ""}`}
+        title="Home"
         onClick={() => props.onSelect({ kind: "home" })}
       >
-        <span class="sidebar-icon">&#8962;</span> Home
+        <span class="sidebar-home-icon" aria-hidden="true">⌂</span>
       </button>
 
-      <button
-        class={`sidebar-item pinned ${isActive(props.selection, { kind: "status" }) ? "active" : ""}`}
-        onClick={() => props.onSelect({ kind: "status" })}
-      >
-        <span class="sidebar-icon">&#8801;</span> Overview
-      </button>
-
-      <div class="sidebar-context-card">
-        <div class="sidebar-section-label">active context</div>
-        <div class="sidebar-context-main">{activeContextLabel({ currentProjectName: props.currentProjectName, currentSessionId: props.currentSessionId })}</div>
-        <Show when={props.currentProjectId}>
-          <button class="sidebar-inline-link" onClick={() => props.onSelect({ kind: "project", projectId: props.currentProjectId! })}>
-            open project
-          </button>
-        </Show>
-        <Show when={props.currentProjectId && props.currentSessionId}>
-          <button class="sidebar-inline-link" onClick={() => props.onSelect({ kind: "session", projectId: props.currentProjectId!, sessionId: props.currentSessionId! })}>
-            open session
-          </button>
-        </Show>
-      </div>
-
-      <div class="sidebar-section-head">
-        <span class="sidebar-section-label">projects</span>
-        <button class="sidebar-add" title="New project" onClick={props.onNewProject}>+</button>
-      </div>
-
-      <Show when={props.creatingProject}>
-        <CreateForm
-          placeholder="project name"
-          onSubmit={props.onCreateProjectName}
-          onCancel={props.onCancelCreate}
-        />
+      <Show when={props.home}>
+        <button class="sidebar-home-card" title="Open dashboard home" onClick={() => props.onSelect({ kind: "home" })}>
+          <span class="sidebar-home-card-kicker">Home</span>
+          <span class="sidebar-home-card-title">{props.home?.home.title}</span>
+          <span class="sidebar-home-card-copy">{props.home?.home.recommendation || props.home?.home.subtitle}</span>
+          <span class="sidebar-home-card-meta">
+            <span>{props.status?.backend_connected ? "live" : "degraded"}</span>
+            <span>{props.status?.active_slot || "brain"}</span>
+            <span>{props.status?.optimization_mode || "auto"}</span>
+          </span>
+        </button>
       </Show>
 
-      <For each={props.projects} fallback={<div class="sidebar-empty">no projects — click + to create one</div>}>
-        {(project) => (
-          <div class="sidebar-project">
-            <div class="sidebar-project-row">
-              {(() => {
-                const icon = inferProjectIcon(project)
-                return <span class="sidebar-project-icon" title={icon.label}>{icon.glyph}</span>
-              })()}
-              <button
-                class={`sidebar-item ${isActive(props.selection, { kind: "project", projectId: project.id }) ? "active" : ""}`}
-                onClick={() => { props.onToggle(project.id); props.onSelect({ kind: "project", projectId: project.id }) }}
+      <For each={props.projects} fallback={<></>}>
+        {(project) => {
+          const icon = inferProjectIcon(project)
+          return (
+            <button
+              class={`sidebar-icon-button ${isActive(props.selection, { kind: "project", projectId: project.id }) ? "active" : ""}`}
+              title={project.name}
+              onClick={() => props.onSelect({ kind: "project", projectId: project.id })}
+            >
+              <span
+                class="sidebar-project-icon"
+                title={icon.label}
+                style={`--project-icon-bg:${projectSwatch(project)};--project-icon-fg:#f5f5f5;`}
               >
-                <span class="sidebar-caret">{props.expanded[project.id] ? "&#9662;" : "&#9656;"}</span> {project.name}
-              </button>
-              <button class="sidebar-add" title="New session" onClick={() => props.onNewSession(project.id)}>+</button>
-              <button class="sidebar-delete" title="Delete project" onClick={() => props.onDeleteProject(project.id)}>x</button>
-            </div>
-            <Show when={props.expanded[project.id]}>
-              <div class="sidebar-sessions">
-                <Show when={props.creatingSessionFor === project.id}>
-                  <CreateForm
-                    placeholder="session title"
-                    onSubmit={(name) => props.onCreateSessionName(project.id, name)}
-                    onCancel={props.onCancelCreate}
-                  />
-                </Show>
-                <For each={props.sessionsByProject[project.id] || []} fallback={<div class="sidebar-empty sub">no sessions</div>}>
-                  {(session) => (
-                    <div class="sidebar-session-row">
-                      <button
-                        class={`sidebar-item session ${isActive(props.selection, { kind: "session", projectId: project.id, sessionId: session.id }) ? "active" : ""}`}
-                        onClick={() => props.onSelect({ kind: "session", projectId: project.id, sessionId: session.id })}
-                      >
-                        <span class="sidebar-icon">&#8250;</span> {session.title}
-                      </button>
-                      <button class="sidebar-delete" title="Delete session" onClick={() => props.onDeleteSession(session.id)}>x</button>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        )}
+                {icon.glyph}
+              </span>
+            </button>
+          )
+        }}
       </For>
+
+      <button class="sidebar-icon-button sidebar-add-button" title="New project" onClick={props.onNewProject}>+</button>
     </aside>
   )
 }

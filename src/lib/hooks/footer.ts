@@ -259,6 +259,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       0,
     ) || 0
     const diskCascadeDepth = Number(
+      _cascadeRouteLen ??
       diskBlackboxState?.control_vector?.cascade_depth ??
       diskBlackboxState?.cascade_depth ??
       0,
@@ -332,7 +333,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const latestExecutedRoute = latestTurnTruth?.executedRoute || null
     const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
     const latestFinalized = latestTurnTruth?.finalized || null
-    const sessionSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
+    const turnTruthSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || ""
+    const sessionSlot = turnTruthSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
     const _cacheEvt = getLatestCacheEvent(sid)
@@ -360,10 +362,14 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       : (isApiConnected()
         ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
         : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
+    const selectedRoutePathDepth = Array.isArray(loadSelection().route_path)
+      ? loadSelection().route_path.length
+      : null
     const ultraCascadeDepth = Number(
       latestFinalized?.cascadeDepth ??
       (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.cascadeDepth : null) ??
       (latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
+      selectedRoutePathDepth ??
       diskBlackboxState?.control_vector?.cascade_depth ??
       diskBlackboxState?.cascade_depth ??
       liveBlackboxState?.control_vector?.cascade_depth ??
@@ -499,7 +505,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       const c = String(classify(m) || "").toLowerCase()
       return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
     })()
-    const activeSlot = displayMode === "vibeultrax" ? ultraResolvedTier : ranTier
+    const activeSlot = turnTruthSlot || (displayMode === "vibeultrax" ? ultraResolvedTier : ranTier)
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
     _footerStage = "control-vector"
@@ -665,6 +671,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           latestFinalized?.cascadeDepth ??
           latestExecutedRoute?.cascadeDepth ??
           (Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
+          selectedRoutePathDepth ??
           diskBlackboxState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
           diskBlackboxState?.control_vector?.cascade_depth ??
           diskBlackboxState?.cascade_depth ??
@@ -691,7 +698,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       enfTags,
       subRegime: currentSubRegime,
       stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
-      cascadeIcon: displayMode !== "vibeultrax" ? "" : cascadeDepthForIcon >= 3 ? "▸▸▸" : cascadeDepthForIcon >= 2 ? "▸▸" : cascadeDepthForIcon >= 1 ? "▸" : "",
+      cascadeIcon: cascadeDepthForIcon >= 3 ? "▸▸▸" : cascadeDepthForIcon >= 2 ? "▸▸" : cascadeDepthForIcon >= 1 ? "▸" : "",
       cascadeLabel: "",
       claimTag: claimTag || undefined,
       rewardTag: _rewardTag || undefined,
@@ -840,8 +847,14 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
   if (!currentText) return
   const footerSuffix = /\n\n— [^\n]+—\s*$/
   if (footerSuffix.test(currentText)) return // a footer is already present, leave it
+  const sid = getSessionId()
+  const latestTurnTruth = getLatestTurnTruth(sid)
+  const latestExecutedRoute = latestTurnTruth?.executedRoute || null
+  const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
+  const latestFinalized = latestTurnTruth?.finalized || null
+  const turnTruthSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || ""
   const sel = loadSelection()
-  const slot = sel.active_slot || "cheap"
+  const slot = turnTruthSlot || sel.active_slot || "cheap"
   // Prefer the live OpenCode default (project opencode.json `model` = the dropdown) so
   // even the resilient fallback footer stays coherent with what actually ran.
   const liveModel = readLiveOpenCodeModel(directory) || currentModel || readConfig(directory) || process?.env?.OPENCODE_MODEL || ""
@@ -858,9 +871,13 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
   })
   const cascadeState = loadBlackboxState()
   const cvCt = cascadeState?.control_vector?.cascade_tier
+  const selectedRoutePathDepth = Array.isArray(loadSelection().route_path)
+    ? loadSelection().route_path.length
+    : null
   const cascadeDepth = Number(
     cvCt === "medium" ? 2 : cvCt === "brain" ? 3
-      : cascadeState?.control_vector?.cascade_depth ??
+      : selectedRoutePathDepth ??
+        cascadeState?.control_vector?.cascade_depth ??
         cascadeState?.cascade_depth ??
         cascadeState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
         0,
@@ -888,7 +905,11 @@ function _paintResilientFooter(output, directory, lastModelError?: string) {
     cascadeLabel: "",
     alertTag: alertTag || undefined,
   })
-  const footerText = `${currentText}\n\n${vibeLine}`
+  const normalizedVibeLine = (line: string) => {
+    if (line.includes("$") || line.includes("VIBE")) return line
+    return line.endsWith(" —") ? line.replace(/ —$/, " | VIBE —") : `${line} | VIBE`
+  }
+  const footerText = `${currentText}\n\n${normalizedVibeLine(vibeLine)}`
   if (typeof payload?.text === "string") payload.text = footerText
   else if (typeof payload?.result === "string") payload.result = footerText
   else if (typeof payload?.content === "string") payload.content = footerText
