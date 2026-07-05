@@ -1,5 +1,8 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as mod from '../pricing.js';
 
 describe('pricing', () => {
@@ -184,6 +187,35 @@ describe('pricing', () => {
   });
 
   describe('resolveEffectiveTier', () => {
+    // resolveEffectiveTier('' slot) falls back to the ambient loadSelection()
+    // active_slot (pricing.ts:65) — sandbox VIBEOS_HOME here so this test's
+    // result does not depend on whatever active_slot a previous test in the
+    // same process left on disk (was flaky: passed/failed depending on run order).
+    let prevHome: string | undefined;
+    let prevVibeHome: string | undefined;
+    let sandbox: string;
+
+    before(() => {
+      prevHome = process.env.HOME;
+      prevVibeHome = process.env.VIBEOS_HOME;
+      sandbox = mkdtempSync(join(tmpdir(), 'vibeos-pricing-tier-'));
+      const vibeHome = join(sandbox, '.claude');
+      mkdirSync(vibeHome, { recursive: true });
+      process.env.HOME = sandbox;
+      process.env.VIBEOS_HOME = vibeHome;
+      writeFileSync(join(vibeHome, 'model-tiers.json'), JSON.stringify({
+        selection: { enabled: true, active_slot: 'cheap' },
+      }));
+    });
+
+    after(() => {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME;
+      else process.env.VIBEOS_HOME = prevVibeHome;
+      rmSync(sandbox, { recursive: true, force: true });
+    });
+
     it('returns classify result for empty slot', () => {
       assert.equal(mod.resolveEffectiveTier('deepseek/deepseek-v4-flash', ''), 'mid');
     });

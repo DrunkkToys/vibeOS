@@ -1568,6 +1568,16 @@ export const onSystemTransform = async (_input, output) => {
         if (s.entry_tier) writeSelection("entry_tier", s.entry_tier)
         if (s.pipeline) writeSelection("pipeline", s.pipeline)
         writeSelection("escalation_count", 0)
+        // Reset the persisted cascade route to THIS turn's entry decision every turn —
+        // otherwise a Task delegation's escalated route_path (written by tool-execute.ts
+        // on a prior turn) never comes back down once the orchestrator stops delegating,
+        // and the footer stays stuck at the last escalated tier/icon forever.
+        if (Array.isArray(syncResult?.route_path)) {
+          s.route_path = syncResult.route_path
+          s.pipeline_root = syncResult.pipeline_root || s.pipeline_root
+          s.cascade_depth = syncResult.route_path.length || 1
+          saveBlackboxStateToCtx(bb)
+        }
       }
     } catch {}
     const fp = ensureProjectContext(hookDirectory)

@@ -32,7 +32,7 @@ import {
 import { latestUserIntent } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon, resolveActiveCascadeTier } from "./shared-footer.js"
 import { getVibeOSHome } from "../state.js"
 
 function isGreetingLike(text: string): boolean {
@@ -1199,24 +1199,26 @@ export const onToolExecuteAfter = async (input, output) => {
       ).trim().toLowerCase()
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
       const cascadeState = loadBlackboxState()
-      const cascadeDepth = Number(
-        cascadeState?.sessions?.[currentSid]?.cascade_depth ??
-        cascadeState?.control_vector?.cascade_depth ??
-        cascadeState?.cascade_depth ??
-        0,
-      ) || 0
+      const cascadeSession = cascadeState?.sessions?.[currentSid] || {}
+      const cascadeDepth = Number(cascadeSession?.cascade_depth ?? cascadeState?.control_vector?.cascade_depth ?? 0) || 0
       // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the
       // header stays coherent (cheap entry \u2192 "\u26A1 cheap | Big Pickle"; escalated
       // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
-      // the tier to cheap while the model name shows a higher tier.
+      // the tier to cheap while the model name shows a higher tier. resolved_tier is the
+      // BE-classify path's own authoritative field (chat-transform.ts) and takes priority;
+      // otherwise resolveActiveCascadeTier reads route_path \u2014 the same array the depth
+      // icon uses \u2014 so tier label and icon can never disagree.
       const _ultraSlot = () => {
-        const _rTier = String(cascadeState?.sessions?.[currentSid]?.resolved_tier || "").toLowerCase()
+        const _rTier = String(cascadeSession?.resolved_tier || "").toLowerCase()
         if (_rTier === "cheap" || _rTier === "medium" || _rTier === "brain") return _rTier
-        const m = displayModel || resolvedModel || ""
-        if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
-        if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
-        if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
-        return execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap"
+        return resolveActiveCascadeTier({
+          liveSession: cascadeSession,
+          liveModel: displayModel || resolvedModel || "",
+          trinityCheap: TRINITY_CHEAP,
+          trinityMedium: TRINITY_MEDIUM,
+          trinityBrain: TRINITY_BRAIN,
+          classify,
+        }).tier
       }
       const activeSlot = displayMode === "vibeultrax"
         ? _ultraSlot()

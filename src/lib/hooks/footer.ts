@@ -8,7 +8,7 @@ import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded, isApiFallback } from "../api-client.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine, resolveActiveCascadeTier } from "./shared-footer.js"
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
@@ -362,34 +362,30 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       : (isApiConnected()
         ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
         : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
-    const selectedRoutePathDepth = Array.isArray(loadSelection().route_path)
-      ? loadSelection().route_path.length
-      : null
-    const ultraCascadeDepth = Number(
-      latestFinalized?.cascadeDepth ??
-      (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.cascadeDepth : null) ??
-      (latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
-      selectedRoutePathDepth ??
-      diskBlackboxState?.control_vector?.cascade_depth ??
-      diskBlackboxState?.cascade_depth ??
-      liveBlackboxState?.control_vector?.cascade_depth ??
-      liveBlackboxState?.cascade_depth ?? 0,
-    ) || 0
     // VibeUltraX is a cascade: show the LIVE running model and the tier that
     // model actually occupies in the user's trinity (cheap → medium → brain).
     // At the cascade entry this reads "⚡ cheap | Big Pickle"; once it escalates
     // to e.g. deepseek-v4-flash (the medium slot) it reads "◐ medium | V4 Flash"
     // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
+    // resolveActiveCascadeTier reads route_path — the same persisted array the
+    // depth icon uses — so the tier label and the icon can never disagree.
     const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
-    const ultraResolvedTier = ((): "cheap" | "medium" | "brain" => {
-      const ct = liveBlackboxState?.control_vector?.cascade_tier || liveBlackboxState?.cv?.cascade_tier
-      if (ct === "medium" || ct === "brain") return ct
-      if (TRINITY_CHEAP && ultraLiveModel === TRINITY_CHEAP) return "cheap"
-      if (TRINITY_MEDIUM && ultraLiveModel === TRINITY_MEDIUM) return "medium"
-      if (TRINITY_BRAIN && ultraLiveModel === TRINITY_BRAIN) return "brain"
-      const c = String(classify(ultraLiveModel) || "").toLowerCase()
-      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
-    })()
+    const ultraCascadeResolution = resolveActiveCascadeTier({
+      liveSession: liveBlackboxState?.sessions?.[sid],
+      diskSession: diskBlackboxState?.sessions?.[sid],
+      // Legacy pre-session-scoped schema fallback (root-level cascade_depth).
+      legacyDepth: liveBlackboxState?.control_vector?.cascade_depth ?? liveBlackboxState?.cascade_depth
+        ?? diskBlackboxState?.control_vector?.cascade_depth ?? diskBlackboxState?.cascade_depth ?? 0,
+      liveModel: ultraLiveModel,
+      trinityCheap: TRINITY_CHEAP,
+      trinityMedium: TRINITY_MEDIUM,
+      trinityBrain: TRINITY_BRAIN,
+      classify,
+    })
+    const ultraResolvedTier = ultraCascadeResolution.tier
+    const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
+      ? latestExecutedRoute.routePath.length
+      : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
     const cascadeModel = displayModel
       || (ultraResolvedTier === "brain" ? TRINITY_BRAIN
         : ultraResolvedTier === "medium" ? TRINITY_MEDIUM
@@ -497,20 +493,12 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
     const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
     // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
-    // this turn — the live model the footer already resolved (ultraLiveModel =
-    // displayModel || liveModel || currentModel) — so the icon and the model name shown
-    // can never disagree. This is the same source the vibeultrax tier uses, now applied
-    // to every mode. The intended/next slot is surfaced separately via the "switch
-    // pending" alert (pendingLiveModel below), not by pre-painting the future tier here.
-    const ranTier = ((): "cheap" | "medium" | "brain" => {
-      const m = ultraLiveModel || currentModel || ""
-      if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
-      if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
-      if (TRINITY_BRAIN && m === TRINITY_BRAIN) return "brain"
-      const c = String(classify(m) || "").toLowerCase()
-      return c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
-    })()
-    const activeSlot = turnTruthSlot || (displayMode === "vibeultrax" ? ultraResolvedTier : ranTier)
+    // this turn, so the icon and the model name shown can never disagree. ultraResolvedTier
+    // (resolveActiveCascadeTier above) is that one source, applied to every mode — no
+    // separate re-derivation for non-vibeultrax modes. The intended/next slot is surfaced
+    // separately via the "switch pending" alert (pendingLiveModel below), not by
+    // pre-painting the future tier here.
+    const activeSlot = turnTruthSlot || ultraResolvedTier
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
     _footerStage = "control-vector"
@@ -669,22 +657,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     } catch {}
 
     _footerStage = "build"
-    const cascadeDepthSource =
-      ultraCascadeDepth > 0
-        ? ultraCascadeDepth
-        : (
-          latestFinalized?.cascadeDepth ??
-          latestExecutedRoute?.cascadeDepth ??
-          (Array.isArray(latestExecutedRoute?.routePath) ? latestExecutedRoute.routePath.length : null) ??
-          selectedRoutePathDepth ??
-          diskBlackboxState?.sessions?.[getCurrentSessionId()]?.cascade_depth ??
-          diskBlackboxState?.control_vector?.cascade_depth ??
-          diskBlackboxState?.cascade_depth ??
-          liveBlackboxState?.control_vector?.cascade_depth ??
-          liveBlackboxState?.cascade_depth ??
-          0
-        )
-    const cascadeDepthForIcon = Number(cascadeDepthSource) || 0
+    const cascadeDepthForIcon = Number(ultraCascadeDepth) || 0
     const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
     const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
     const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
