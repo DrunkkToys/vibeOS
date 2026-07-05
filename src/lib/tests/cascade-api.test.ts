@@ -47,19 +47,19 @@ describe("cascade-api — chat-transform.ts", () => {
   })
 
   it("stores entry_tier in blackbox session state", () => {
-    assert.ok(src.includes("entry_tier: cascadeData.entry_tier"), "must store entry_tier in session")
+    assert.ok(src.includes("entry_tier: entryTier"), "must store entry_tier in session")
   })
 
   it("stores pipeline in blackbox session state", () => {
-    assert.ok(src.includes("pipeline: cascadeData.pipeline"), "must store pipeline in session")
+    assert.ok(src.includes("pipeline: cascadeData.pipeline || prev.pipeline"), "must store pipeline in session")
   })
 
   it("stores uncertainty_signals in blackbox session state", () => {
-    assert.ok(src.includes("uncertainty_signals: cascadeData.uncertainty_signals"), "must store uncertainty_signals in session")
+    assert.ok(src.includes("uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals"), "must store uncertainty_signals in session")
   })
 
   it("stores cascade_depth in blackbox session state", () => {
-    assert.ok(src.includes("cascade_depth: cascadeData.cascade_depth"), "must store cascade_depth in session")
+    assert.ok(src.includes("cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0"), "must store cascade_depth in session")
   })
 
   it("writes entry_tier to selection state after syncControlSettings", () => {
@@ -118,5 +118,26 @@ describe("cascade-api — footer cascade depth", () => {
 
   it("maps cascade_depth to cascadeIcon", () => {
     assert.ok(src.includes("cascadeIcon") && src.includes("cascadeDepthForIcon"), "footer must map cascade_depth to cascadeIcon")
+  })
+})
+
+describe("cascade-api — escalation consumption in onSystemTransform", () => {
+  const src = readFileSync(join(ROOT, "src", "lib", "hooks", "chat-transform.ts"), "utf-8")
+
+  it("reads pending_escalation_tier from selection", () => {
+    assert.ok(src.includes("pending_escalation_tier"), "onSystemTransform must check pending_escalation_tier")
+  })
+
+  it("overrides optimizationDecision.entry_slot with escalation tier", () => {
+    assert.ok(src.includes('entry_slot: _pendingEscTier'), "must set entry_slot from escalation tier")
+  })
+
+  it("clears pending_escalation flags after consumption", () => {
+    assert.ok(src.includes('writeSelection("pending_escalation_tier", null)'), "must clear pending_escalation_tier")
+    assert.ok(src.includes('writeSelection("pending_escalation_loop_context", null)'), "must clear pending_escalation_loop_context")
+  })
+
+  it("injects escalation loop context into system prompt", () => {
+    assert.ok(src.includes("escalation context"), "must inject [escalation context] into system prompt")
   })
 })

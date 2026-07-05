@@ -48,7 +48,7 @@ import {
   incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { getApiClient, remoteCall, isApiConnected } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js"
@@ -778,6 +778,33 @@ export const onToolExecuteBefore = async (input, output) => {
     const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
     const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const selection = loadSelection()
+    // Check for pending escalation from previous subagent turn
+    const _bbRoute = loadBlackboxState()
+    const _sessRoute = _bbRoute?.sessions?.[_OC_SID]
+    const _pendingEscTier = _sessRoute?.pending_escalation_tier
+    if (_pendingEscTier) {
+      const _escModel = _pendingEscTier === "brain" ? TRINITY_BRAIN : _pendingEscTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+      if (_escModel) {
+        routeDecision = {
+          selectedModel: _escModel,
+          selectedSlot: _pendingEscTier,
+          selectedSubagent: _pendingEscTier === "cheap" ? "explore" : _pendingEscTier === "medium" ? "general" : "vibe-brain",
+          requiresDelegation: _pendingEscTier === "medium" || _pendingEscTier === "brain",
+          shouldOverrideLocal: true,
+          delegationReason: `escalation from ${_sessRoute.entry_tier || "prior tier"}`,
+          reason: `pending escalation to ${_pendingEscTier}`,
+          source: "cascade-escalation",
+          routePath: "escalation",
+          cascadeRoot: selection.active_pipeline || "cheap->medium->brain",
+        }
+        // Clear pending escalation so it only applies once (re-delegation is immediate)
+        const _bb2 = loadBlackboxState()
+        if (_bb2?.sessions?.[_OC_SID]) {
+          _bb2.sessions[_OC_SID].pending_escalation_tier = undefined
+          _saveBlackboxState(_bb2)
+        }
+      }
+    }
     const activePipeline = selection.active_pipeline
     const cascadeInput = {
       prompt: _prompt,
@@ -966,6 +993,18 @@ export const onToolExecuteBefore = async (input, output) => {
       enrichedRouteDecision.contributedToFinalAnswer = false
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
+      }
+      // Inject loop_context from pending escalation so the higher tier
+      // model sees what the cheaper model already attempted.
+      const _bbLoopCtx = loadBlackboxState()
+      const _loopCtxVal = _bbLoopCtx?.sessions?.[_OC_SID]?.pending_escalation_loop_context
+      if (typeof targetArgs?.prompt === "string" && _loopCtxVal) {
+        targetArgs.prompt = `[prior escalation context: ${_loopCtxVal}]\n${targetArgs.prompt}`
+        const _bbClr = loadBlackboxState()
+        if (_bbClr?.sessions?.[_OC_SID]) {
+          _bbClr.sessions[_OC_SID].pending_escalation_loop_context = undefined
+          _saveBlackboxState(_bbClr)
+        }
       }
       _setModel(targetArgs)
       _setModel(args)
@@ -1465,6 +1504,63 @@ export const onToolExecuteAfter = async (input, output) => {
       s.lifetime.last_updated = new Date().toISOString()
       return s
     })
+
+    // ── Cascade escalation via uncertainty detection ──
+    if (taskOutput && !(process.execArgv.includes("--test") || process.argv.includes("--test"))) {
+      try {
+        const _mode = loadSelection().optimization_mode
+        if (_mode === "vibeultrax") {
+          const _bb = loadBlackboxState()
+          const _session = _bb?.sessions?.[_OC_SID]
+          if (_session?.entry_tier && _session?.pipeline && _session?.uncertainty_signals) {
+            const us = _session.uncertainty_signals as any
+            const highPatterns = Array.isArray(us?.high) ? us.high : []
+            if (highPatterns.length > 0) {
+              const _matched = highPatterns.some((p: string) => typeof p === "string" && new RegExp(p, "i").test(taskOutput))
+              if (_matched) {
+                const _escCount = Number(_session.escalation_count || 0)
+                if (_escCount < 3) {
+                  const _client = getApiClient()
+                  if (_client && !isApiFallback()) {
+                    const _res = await _client.escalate(
+                      taskPrompt || latestUserIntent || "",
+                      taskOutput,
+                      _session.entry_tier || "cheap",
+                      _escCount,
+                      _session.sub_regime || "",
+                      [],
+                    )
+                    if (_res?.escalate) {
+                      // Do NOT return the cheap model's output
+                      if (output?.result?.length) output.result = ""
+                      if (output?.text?.length) output.text = ""
+                      if (output?.content?.length) output.content = ""
+                      if (output?.state?.result?.length) output.state.result = ""
+                      if (output?.state?.output?.length) output.state.output = ""
+                      // Write escalation state for re-delegation
+                      const _nextCount = _escCount + 1
+                      _writeSelection("pending_escalation_tier", _res.next_tier)
+                      _writeSelection("pending_escalation_loop_context", _res.loop_context)
+                      _writeSelection("escalation_count", _nextCount)
+                      // Persist to blackbox session state
+                      const _bbState = loadBlackboxState()
+                      if (_bbState?.sessions?.[_OC_SID]) {
+                        _bbState.sessions[_OC_SID].escalation_count = _nextCount
+                        _bbState.sessions[_OC_SID].pending_escalation_tier = _res.next_tier
+                        _bbState.sessions[_OC_SID].pending_escalation_loop_context = _res.loop_context
+                        _saveBlackboxState(_bbState)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_escErr) {
+        if (DEBUG_INTERNALS) console.error("[vibeOS] cascade escalation error:", _escErr?.message || _escErr)
+      }
+    }
   }
 
   function _payload(obj) {

@@ -1354,17 +1354,23 @@ export const onSystemTransform = async (_input, output) => {
         if (client) {
           const cascadeData = await client.classify(latestUserIntent, {})
           if (cascadeData) {
-            const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
-            bb.sessions ??= {}
-            bb.sessions[_OC_SID] = {
-              ...(bb.sessions[_OC_SID] || {}),
-              entry_tier: cascadeData.entry_tier,
-              pipeline: cascadeData.pipeline,
-              uncertainty_signals: cascadeData.uncertainty_signals,
-              cascade_depth: cascadeData.cascade_depth,
-              resolved_tier: cascadeData.resolved_tier,
-            }
-            saveBlackboxStateToCtx(bb)
+      const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+      bb.sessions ??= {}
+      const prev = bb.sessions[_OC_SID] || {}
+      const entryTier = cascadeData.entry_tier || prev.entry_tier || "cheap"
+      // escalation_count > 0 tells the credit force-cheap guard (tool-execute.ts:856)
+      // to NOT override the cascade's tier recommendation
+      const escalationCount = entryTier !== "cheap" ? (prev.escalation_count || 0) + 1 : (prev.escalation_count || 0)
+      bb.sessions[_OC_SID] = {
+        ...prev,
+        entry_tier: entryTier,
+        pipeline: cascadeData.pipeline || prev.pipeline,
+        uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals,
+        cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
+        resolved_tier: cascadeData.resolved_tier || prev.resolved_tier,
+        escalation_count: escalationCount,
+      }
+      saveBlackboxStateToCtx(bb)
           }
         }
       } catch {}
@@ -1419,6 +1425,24 @@ export const onSystemTransform = async (_input, output) => {
       }, requestedOptimizationMode)
       _controlVector = optimizationDecision?.control_vector || _controlVector
       optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+    }
+    // ── Escalation re-route: consume pending_escalation_tier from previous turn ──
+    const _pendingSel = loadSelection()
+    const _pendingEscTier = _pendingSel?.pending_escalation_tier
+    const _pendingEscCtx = _pendingSel?.pending_escalation_loop_context
+    let _escalationLoopContext = null
+    if (_pendingEscTier) {
+      optimizationMode = _pendingEscTier
+      optimizationDecision = {
+        ...(optimizationDecision || {}),
+        optimization_mode: _pendingEscTier,
+        entry_slot: _pendingEscTier,
+        tier_bias: _pendingEscTier,
+        source: "escalation",
+      }
+      if (_pendingEscCtx) _escalationLoopContext = _pendingEscCtx
+      writeSelection("pending_escalation_tier", null)
+      writeSelection("pending_escalation_loop_context", null)
     }
     if (_controlVector) {
       const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
@@ -1768,6 +1792,9 @@ export const onSystemTransform = async (_input, output) => {
       // Persistent project knowledge tree — decisions/blockers/facts that survive across
       // sessions, condensed to one line per topic branch. null when nothing recorded yet.
       pushSystem(output, projectTreeDirective(fp))
+    }
+    if (_escalationLoopContext) {
+      pushSystem(output, "[escalation context] " + _escalationLoopContext + " ")
     }
     // WRITER: capture the turn's user intent into the knowledge tree under a branch keyed
     // by the current sub-regime, so the tree accumulates real, deduped project context
