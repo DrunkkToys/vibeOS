@@ -1348,6 +1348,27 @@ export const onSystemTransform = async (_input, output) => {
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
     const classifiedRegime = liveBlackboxState?.sub_regime
       || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
+    if (latestUserIntent && isApiConnected() && !isApiFallback()) {
+      try {
+        const client = getApiClient()
+        if (client) {
+          const cascadeData = await client.classify(latestUserIntent, {})
+          if (cascadeData) {
+            const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+            bb.sessions ??= {}
+            bb.sessions[_OC_SID] = {
+              ...(bb.sessions[_OC_SID] || {}),
+              entry_tier: cascadeData.entry_tier,
+              pipeline: cascadeData.pipeline,
+              uncertainty_signals: cascadeData.uncertainty_signals,
+              cascade_depth: cascadeData.cascade_depth,
+              resolved_tier: cascadeData.resolved_tier,
+            }
+            saveBlackboxStateToCtx(bb)
+          }
+        }
+      } catch {}
+    }
     let optimizationDecision = null
     let optimizationMode = requestedOptimizationMode
     let _controlVector = null
@@ -1519,6 +1540,15 @@ export const onSystemTransform = async (_input, output) => {
         }
       } catch {}
     }
+    try {
+      const bb = loadBlackboxStateFromCtx()
+      if (bb?.sessions?.[_OC_SID]) {
+        const s = bb.sessions[_OC_SID]
+        if (s.entry_tier) writeSelection("entry_tier", s.entry_tier)
+        if (s.pipeline) writeSelection("pipeline", s.pipeline)
+        writeSelection("escalation_count", 0)
+      }
+    } catch {}
     const fp = ensureProjectContext(hookDirectory)
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)
