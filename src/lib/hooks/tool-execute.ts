@@ -739,23 +739,8 @@ export const onToolExecuteBefore = async (input, output) => {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] credit refresh error: ${creditErr.message}`)
     }
   }
-  const creditForceCheap = _credit < 40 && t === "task" && TRINITY_CHEAP && args && typeof args === "object"
-  const explicitApiUrl = String(process.env.VIBEOS_API_URL || "").trim()
-  const isNodeTestRun = process.execArgv.includes("--test") || process.argv.includes("--test")
-  if (creditForceCheap && process.env.VIBEOS_TEST_CONTEXT === "1" && !explicitApiUrl) {
-    if (args.model !== TRINITY_CHEAP) {
-      args.model = TRINITY_CHEAP
-      args.modelID = TRINITY_CHEAP
-      args.modelId = TRINITY_CHEAP
-      args.subagent_type = taskSubagentTypeForSlot("cheap") || args.subagent_type
-      console.error(`[vibeOS] 🔀 Credit ${_credit}%: forcing Task → cheap slot (${TRINITY_CHEAP})`)
-    }
-    return
-  }
-
-  // Trinity rule: route Task subagents based on orchestrator tier.
-  // Exploratory first-word detection → cheap (mirrors CC exploratory routing).
-  // Then: high-tier brain → medium slot; mid-tier brain → cheap slot.
+  // Subagent routing reads the single source of truth (control vector / worker
+  // slot in selection state) below. No credit / remote / ML / escalation layers.
   if (t === "task" && currentModel && ((args && typeof args === "object") || (inArgs && typeof inArgs === "object"))) {
     // OpenCode versions differ on where task args are consumed and what
     // key name is used for model. Update both input/output arg objects and
@@ -768,211 +753,47 @@ export const onToolExecuteBefore = async (input, output) => {
     _prompt = (targetArgs?.prompt ?? "").trim().toLowerCase()
     if (typeof targetArgs?.prompt === "string") setActiveJobFromTaskPrompt(targetArgs.prompt)
     const _firstWord = _prompt.split(/\s+/)[0]
-    const BASE_EXPLORATORY = new Set(["check","find","list","search","does","verify","look","count","show","get","read","grep","scan","detect","inspect"])
-    const LEARNED_EXPLORATORY = getLearnedExploratoryWords()
-    const EXPLORATORY = new Set([...BASE_EXPLORATORY, ...LEARNED_EXPLORATORY])
-    const _exploratoryTarget = EXPLORATORY.has(_firstWord) ? TRINITY_CHEAP : null
-    const _tierTarget = (currentTier === "high" && TRINITY_MEDIUM && TRINITY_MEDIUM !== currentModel) ? TRINITY_MEDIUM
-      : TRINITY_CHEAP && TRINITY_CHEAP !== currentModel ? TRINITY_CHEAP
-        : null
-    const _hasMedia = /\.(png|jpg|jpeg|gif|webp|bmp|svg|mp4|webm|ogg|mp3|wav|avi|mov)/i.test(_prompt)
-    const stressScore = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const selection = loadSelection()
-    // Check for pending escalation from previous subagent turn
-     const _bbRoute = loadBlackboxState()
-     const _sessRoute = _bbRoute?.sessions?.[_OC_SID]
-     const _pendingEscTier = _sessRoute?.pending_escalation_tier
-      // Override: if BE detected a loop or web-search intent,
-      // write to pending_escalation_tier so the existing escalation handler
-      // (below) correctly overrides the subagent slot.
-      const _loopBreak = _sessRoute?.loop_break === true
-      const _webSearch = _sessRoute?.web_search === true
-      if ((_loopBreak || _webSearch) && !_pendingEscTier) {
-        const _bb2 = loadBlackboxState()
-        if (_bb2?.sessions?.[_OC_SID]) {
-          _bb2.sessions[_OC_SID].pending_escalation_tier = "brain"
-          if (_webSearch) _bb2.sessions[_OC_SID].web_search = true
-          _saveBlackboxState(_bb2)
-        }
-      }
-      if (_pendingEscTier) {
-      const _escModel = _pendingEscTier === "brain" ? TRINITY_BRAIN : _pendingEscTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
-      if (_escModel) {
-        routeDecision = {
-          selectedModel: _escModel,
-          selectedSlot: _pendingEscTier,
-          selectedSubagent: _pendingEscTier === "cheap" ? "explore" : _pendingEscTier === "medium" ? "general" : "vibe-brain",
-          requiresDelegation: _pendingEscTier === "medium" || _pendingEscTier === "brain",
-          shouldOverrideLocal: true,
-          delegationReason: `escalation from ${_sessRoute.entry_tier || "prior tier"}`,
-          reason: `pending escalation to ${_pendingEscTier}`,
-          source: "cascade-escalation",
-          routePath: "escalation",
-          cascadeRoot: selection.active_pipeline || "cheap->medium->brain",
-        }
-        // Clear pending escalation so it only applies once (re-delegation is immediate)
-        const _bb2 = loadBlackboxState()
-        if (_bb2?.sessions?.[_OC_SID]) {
-          _bb2.sessions[_OC_SID].pending_escalation_tier = undefined
-          _saveBlackboxState(_bb2)
-        }
-      }
-     // Clear consumed overrides so they don't re-trigger on next turn
-     if (_loopBreak || _webSearch) {
-       const _bbClr = loadBlackboxState()
-       if (_bbClr?.sessions?.[_OC_SID]) {
-         if (_loopBreak) _bbClr.sessions[_OC_SID].loop_break = false
-         if (_webSearch) _bbClr.sessions[_OC_SID].web_search = false
-         _saveBlackboxState(_bbClr)
-       }
-     }
-     }
-     const activePipeline = selection.active_pipeline
-    const cascadeInput = {
-      prompt: _prompt,
-      firstWord: _firstWord,
-      currentTier,
-      currentModel,
-      trinityCheap: TRINITY_CHEAP,
-      trinityMedium: TRINITY_MEDIUM,
-      trinityBrain: TRINITY_BRAIN,
-      activePipeline,
-      stressScore,
-      hasMedia: _hasMedia,
-      exploratoryTarget: _exploratoryTarget,
-      tierTarget: _tierTarget,
-      mlEnabled: ML_ENABLED,
-      mlConfidenceThreshold: ML_CONFIDENCE_THRESHOLD,
-    }
-    const shouldTryRemoteCascade = !isNodeTestRun || Boolean(explicitApiUrl)
-    const client = shouldTryRemoteCascade ? getApiClient() : null
-    let remoteRouteDecision = null
-    if (client?.cascadeResolve) {
-      try {
-        remoteRouteDecision = await client.cascadeResolve(cascadeInput)
-      } catch {}
-    }
-    let routeDecision = remoteRouteDecision && remoteRouteDecision.selectedModel
-      ? remoteRouteDecision
-      : null
-    if (!routeDecision) {
-      if (client?.routeModel) {
-        try {
-          const legacyRoute = await client.routeModel(
-            cascadeInput.prompt,
-            cascadeInput.currentTier,
-            cascadeInput.trinityCheap,
-            cascadeInput.trinityMedium,
-            [],
-            cascadeInput.stressScore,
-          )
-          if (legacyRoute?.target) {
-            const legacySlot = _slotFromModel(String(legacyRoute.target), TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN)
-            const brp = _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, legacySlot), legacySlot)
-            routeDecision = {
-              selectedModel: String(legacyRoute.target),
-              selectedSlot: legacySlot,
-              selectedSubagent: taskSubagentTypeForSlot(legacySlot) || null,
-              requiresDelegation: legacySlot === "medium" || legacySlot === "brain",
-              shouldOverrideLocal: true,
-              delegationReason: legacyRoute.reason || "",
-              reason: legacyRoute.reason || "",
-              source: "backend-route-model",
-              cascadeDepth: brp.length || 1,
-              routePath: brp,
-              cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, legacySlot),
-            }
-          }
-        } catch {}
-      }
-    }
-    if (!routeDecision) {
-      let embeddingMode: string | null = null
-      if (ML_ENABLED) {
-        try {
-          const embResult = await remoteCall(
-            "blackboxSelectModeEmbedding",
-            [_OC_SID || getCurrentSessionId(), { userText: _prompt, prompt: _prompt }],
-            () => null,
-          ) as { mode?: string } | null
-          embeddingMode = embResult?.mode || null
-        } catch { /* non-fatal */ }
-      }
-      routeDecision = resolveCascadeRouteDecision(embeddingMode ? { ...cascadeInput, embeddingMode } : cascadeInput)
-    }
-    const _bbForEscalation = loadBlackboxState()
-    const _sidForEscalation = _OC_SID
-    const _escalationPending = _bbForEscalation?.sessions?.[_sidForEscalation]?.cascade_depth > 0 || _bbForEscalation?.sessions?.[_sidForEscalation]?.escalation_count > 0
-    if (creditForceCheap && !_escalationPending && routeDecision?.source !== "backend" && routeDecision?.source !== "backend-route-model" && routeDecision?.source !== "api-cascade") {
-      const creditSlot = "cheap"
-      routeDecision = {
-        ...(routeDecision || {}),
-        selectedModel: TRINITY_CHEAP,
-        selectedSlot: creditSlot,
-        selectedSubagent: taskSubagentTypeForSlot(creditSlot) || null,
-        requiresDelegation: false,
-        shouldOverrideLocal: true,
-        delegationReason: `credit ${_credit}%`,
-        reason: `credit ${_credit}%`,
-        source: "credit",
-        routePath: _routePathForSlot(_normalizeCascadeRoot(selection.active_pipeline, creditSlot), creditSlot),
-        cascadeRoot: _normalizeCascadeRoot(selection.active_pipeline, creditSlot),
-      }
-    }
-    if (selection.optimization_mode === "vibeultrax" && (selection.requires_delegation || routeDecision?.requiresDelegation)) {
-      const controlSlot = selection.worker_slot || selection.selected_slot || routeDecision?.selectedSlot || null
-      const controlModel = _modelForSlot(controlSlot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN) || selection.worker_model || null
-      const routeSlot = routeDecision?.selectedSlot || null
-      const shouldApplyControlVector = controlModel && (!routeSlot || _slotRank(controlSlot) >= _slotRank(routeSlot))
-      if (shouldApplyControlVector) {
-        routeDecision = {
-          ...routeDecision,
-          selectedModel: controlModel,
-          selectedSlot: controlSlot,
-          selectedSubagent: taskSubagentTypeForSlot(controlSlot) || routeDecision?.selectedSubagent || null,
-          requiresDelegation: true,
-          delegationReason: "control vector requires delegation",
-          source: "control-vector",
-          reason: "control vector requires delegation",
-          routePath: Array.isArray(selection.route_path) ? selection.route_path : routeDecision?.routePath || [],
-        }
-      }
+    // ── ONE source of truth ──
+    // syncControlSettings (onSystemTransform) already decided this turn's worker
+    // tier in selection state. Escalation (loop / web-search / uncertainty)
+    // propagates here via tier_bias -> worker_slot. Read it; never re-derive.
+    const _rawSlot = String(selection.worker_slot || selection.selected_slot || "").trim().toLowerCase()
+    const _slot = (_rawSlot === "cheap" || _rawSlot === "medium" || _rawSlot === "brain")
+      ? _rawSlot
+      : (currentTier === "high" ? "medium" : "cheap")
+    const _cascadeRoot = _normalizeCascadeRoot(selection.active_pipeline, _slot)
+    const _routePath = _routePathForSlot(_cascadeRoot, _slot)
+    const routeDecision = {
+      selectedModel: _modelForSlot(_slot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN),
+      selectedSlot: _slot,
+      selectedSubagent: taskSubagentTypeForSlot(_slot),
+      requiresDelegation: _slot === "medium" || _slot === "brain",
+      shouldOverrideLocal: true,
+      delegationReason: `worker slot ${_slot}`,
+      reason: `worker slot ${_slot}`,
+      source: "control-vector",
+      routePath: _routePath,
+      cascadeRoot: _cascadeRoot,
+      cascadeDepth: _routePath.length || 1,
     }
     try {
       const _bbState = loadBlackboxState()
       const _sid = _OC_SID
-      if (_bbState && _bbState.sessions && _sid && _bbState.sessions[_sid]) {
-        if (routeDecision?.cascadeRoot) _bbState.sessions[_sid].pipeline_root = routeDecision.cascadeRoot
-        const cd = routeDecision?.cascadeDepth || (Array.isArray(routeDecision?.routePath) ? routeDecision.routePath.length : 0)
-        if (cd) _bbState.sessions[_sid].cascade_depth = cd
-        if (routeDecision?.routePath) _bbState.sessions[_sid].route_path = routeDecision.routePath
+      if (_bbState?.sessions?.[_sid]) {
+        _bbState.sessions[_sid].pipeline_root = routeDecision.cascadeRoot
+        _bbState.sessions[_sid].cascade_depth = routeDecision.cascadeDepth
+        _bbState.sessions[_sid].route_path = routeDecision.routePath
         _saveBlackboxState(_bbState)
       }
     } catch (_bbErr) {
-      console.error("[vibeOS] CV persistence error:", _bbErr?.message || _bbErr)
+      if (DEBUG_INTERNALS) console.error("[vibeOS] CV persistence error:", _bbErr?.message || _bbErr)
     }
     const _target = routeDecision?.selectedModel || null
 
-    if (ML_ENABLED && _target) {
-      try {
-        const mlGraphPrediction = predictBestModel(_mlGraph, _firstWord, currentTier)
-        if (mlGraphPrediction && mlGraphPrediction !== currentModel) {
-          const graphNode = _mlGraph.nodes[_firstWord]
-          if (graphNode && graphNode.count >= 3 && DEBUG_INTERNALS) {
-            console.error(`[vibeOS] 🕸 ML graph: ${_firstWord} → ${mlGraphPrediction} (${graphNode.count} samples)`)
-          }
-        }
-        const _cascadeTarget = routeDecision?.cascadeSelectedModel || _target
-        const _mlTier = routeDecision?.cascadeSelectedSlot || routeDecision.selectedSlot || (classify(_cascadeTarget) === "budget" ? "cheap" : classify(_cascadeTarget) === "mid" ? "medium" : classify(_cascadeTarget))
-        addRouteEdge(_mlGraph, _firstWord, _cascadeTarget, _mlTier, true)
-      } catch (mlErr) {
-        console.error(`[vibeOS] ML router error: ${mlErr.message}`)
-      }
-    }
-
-    if (_target) noteTaskRoutingLearning(_firstWord, _target, _exploratoryTarget ? "exploratory" : `tier:${currentTier}`)
+    if (_target) noteTaskRoutingLearning(_firstWord, _target, `tier:${currentTier}`)
     if (_target && (targetArgs?.model !== _target || (routeDecision?.selectedSubagent && targetArgs?.subagent_type !== routeDecision.selectedSubagent))) {
-      const _reason = routeDecision?.reason || (_exploratoryTarget ? `exploratory ('${_firstWord}')` : `tier=${currentTier}`)
+      const _reason = routeDecision?.reason || `tier=${currentTier}`
       const turnId = buildTurnId({
         sessionId: getCurrentSessionId(),
         prompt: String(targetArgs?.prompt || latestUserIntent || ""),
@@ -1002,7 +823,7 @@ export const onToolExecuteBefore = async (input, output) => {
         activePipeline: routeDecision?.cascadeRoot || loadSelection().active_pipeline || [],
         projectFingerprint: currentProjectFingerprint,
         projectName: currentProjectName || "",
-        sourceStrategy: routeDecision?.source || (remoteRouteDecision ? "api-cascade" : "local-cascade"),
+        sourceStrategy: routeDecision?.source || "control-vector",
         routeDecision: enrichedRouteDecision,
         turnId,
       })
@@ -1015,18 +836,6 @@ export const onToolExecuteBefore = async (input, output) => {
       enrichedRouteDecision.contributedToFinalAnswer = false
       if (typeof targetArgs?.prompt === "string" && bridge.prompt_prefix) {
         targetArgs.prompt = `${bridge.prompt_prefix}${targetArgs.prompt}`
-      }
-      // Inject loop_context from pending escalation so the higher tier
-      // model sees what the cheaper model already attempted.
-      const _bbLoopCtx = loadBlackboxState()
-      const _loopCtxVal = _bbLoopCtx?.sessions?.[_OC_SID]?.pending_escalation_loop_context
-      if (typeof targetArgs?.prompt === "string" && _loopCtxVal) {
-        targetArgs.prompt = `[prior escalation context: ${_loopCtxVal}]\n${targetArgs.prompt}`
-        const _bbClr = loadBlackboxState()
-        if (_bbClr?.sessions?.[_OC_SID]) {
-          _bbClr.sessions[_OC_SID].pending_escalation_loop_context = undefined
-          _saveBlackboxState(_bbClr)
-        }
       }
       _setModel(targetArgs)
       _setModel(args)
@@ -1564,12 +1373,12 @@ export const onToolExecuteAfter = async (input, output) => {
                       _writeSelection("pending_escalation_tier", _res.next_tier)
                       _writeSelection("pending_escalation_loop_context", _res.loop_context)
                       _writeSelection("escalation_count", _nextCount)
-                      // Persist to blackbox session state
+                      // Persist only the escalation counter to blackbox (used by the
+                      // uncertainty cap check). pending_escalation_tier /
+                      // loop_context live solely in selection state — the single store.
                       const _bbState = loadBlackboxState()
                       if (_bbState?.sessions?.[_OC_SID]) {
                         _bbState.sessions[_OC_SID].escalation_count = _nextCount
-                        _bbState.sessions[_OC_SID].pending_escalation_tier = _res.next_tier
-                        _bbState.sessions[_OC_SID].pending_escalation_loop_context = _res.loop_context
                         _saveBlackboxState(_bbState)
                       }
                     }

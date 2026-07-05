@@ -187,7 +187,14 @@ async function routeTaskPrompt(hooks, prompt) {
   return args
 }
 
-testCase("real cascade: task hook routes simple prompts to cheap and moderate prompts to medium", async () => {
+function setWorkerSlot(slot) {
+  const path = join(sandbox, ".claude", "model-tiers.json")
+  const j = readJson(path)
+  j.selection = { ...(j.selection || {}), worker_slot: slot, selected_slot: slot }
+  writeFileSync(path, JSON.stringify(j, null, 2))
+}
+
+testCase("real cascade: task hook routes by control-vector worker_slot (single source of truth)", async () => {
   const projectDir = join(sandbox, "task-project")
   mkdirSync(projectDir, { recursive: true })
   writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
@@ -196,9 +203,10 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
   if (!hooks["tool.execute.before"]) return
 
   primeBrain(projectDir)
+  setWorkerSlot("cheap")
 
+  // Prompt wording no longer routes — worker_slot=cheap is the only authority.
   const simplePrompt = "check build status quickly please"
-  assert.equal(mlRouter.computeDifficulty(simplePrompt).level, "simple")
   const simpleArgs = await routeTaskPrompt(hooks, simplePrompt)
   assert.equal(simpleArgs.model, "deepseek/deepseek-chat")
   assert.equal(simpleArgs.modelID, "deepseek/deepseek-chat")
@@ -213,9 +221,9 @@ testCase("real cascade: task hook routes simple prompts to cheap and moderate pr
   assert.equal(Object.values(readActiveJobs())[0]?.prompt?.includes("check build status"), true)
 
   primeBrain(projectDir)
+  setWorkerSlot("medium")
 
   const mediumPrompt = "implement a distributed auth pipeline with database migration and integration tests"
-  assert.equal(mlRouter.computeDifficulty(mediumPrompt).level, "moderate")
   const mediumArgs = await routeTaskPrompt(hooks, mediumPrompt)
   assert.equal(mediumArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(mediumArgs.modelID, "deepseek/deepseek-v4-flash")
@@ -254,7 +262,7 @@ testCase("real cascade: learned graph switches vibeultrax into the deep three-st
   }
 })
 
-testCase("real cascade edge cases: remote route targets win and blank prompts preserve prior job state", async () => {
+testCase("real cascade edge cases: routing ignores per-task remote calls and blank prompts preserve prior job state", async () => {
   const projectDir = join(sandbox, "edge-project")
   mkdirSync(projectDir, { recursive: true })
   writeFileSync(join(projectDir, "opencode.json"), JSON.stringify({ model: "deepseek/deepseek-v4-pro" }, null, 2))
@@ -263,10 +271,14 @@ testCase("real cascade edge cases: remote route targets win and blank prompts pr
   if (!hooks["tool.execute.before"]) return
 
   primeBrain(projectDir)
+  setWorkerSlot("medium")
 
+  // The subagent hook makes NO per-task remote route call — the main turn's
+  // control vector (worker_slot) is the single source of truth. A "remote
+  // target" prompt therefore does NOT win; it follows worker_slot=medium.
   const remoteArgs = await routeTaskPrompt(hooks, "check build status remote target")
-  assert.equal(remoteArgs.model, "deepseek/deepseek-v4-pro")
-  assert.equal(remoteArgs.modelID, "deepseek/deepseek-v4-pro")
+  assert.equal(remoteArgs.model, "deepseek/deepseek-v4-flash")
+  assert.equal(remoteArgs.modelID, "deepseek/deepseek-v4-flash")
   const afterRemoteJobs = readActiveJobs()
   const afterRemoteLearning = readGlobalLearning()
   const activeJobId = Object.keys(afterRemoteJobs).find((id) => afterRemoteJobs[id]?.status === "active") || ""
