@@ -1461,14 +1461,14 @@ test("task routing: mid-tier brain → TRINITY_CHEAP", async () => {
   assert.ok(out.args && out.args.model, "model was set on task args: " + JSON.stringify(out.args))
 })
 
-test("task routing: exploratory first-word routes to TRINITY_CHEAP regardless of tier", async () => {
+test("task routing: subagent follows control-vector worker_slot (single source of truth)", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
       brain:  { oc: "anthropic/claude-opus-4-7" },
       medium: { oc: "anthropic/claude-sonnet-4-6" },
       cheap:  { oc: "anthropic/claude-haiku-4-5" },
     },
-    selection: { enabled: true, active_slot: "brain" },
+    selection: { enabled: true, active_slot: "brain", worker_slot: "cheap" },
     tiers: {
       high:   { regex: "opus" },
       mid:    { regex: "sonnet" },
@@ -1476,29 +1476,30 @@ test("task routing: exploratory first-word routes to TRINITY_CHEAP regardless of
     },
   }))
   const { DelegationEnforcer } = await loadPlugin()
-  const dir = join(sandbox, ".opencode-task-exploratory")
+  const dir = join(sandbox, ".opencode-task-worker-slot")
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify({ model: "anthropic/claude-opus-4-7" }))
   const hooks = await DelegationEnforcer({ client: {}, directory: dir })
 
-  for (const word of ["find", "check", "list", "search", "verify"]) {
+  // worker_slot=cheap is the ONLY authority — prompt wording is irrelevant.
+  for (const word of ["find", "implement", "refactor", "search", "build"]) {
     const args = { model: "anthropic/claude-opus-4-7", prompt: `${word} all usages of X` }
     const out  = { args }
     await hooks["tool.execute.before"]({ tool: "task" }, out)
     assert.equal(out.args.model, "anthropic/claude-haiku-4-5",
-      `exploratory prompt starting with '${word}' routes to cheap slot`)
+      `worker_slot=cheap routes Task to cheap slot for '${word}'`)
     args.model = "anthropic/claude-opus-4-7"  // reset for next iteration
   }
 })
 
-test("task routing: credit < 40% + Task forces cheap slot (not medium)", async () => {
+test("task routing: credit is no longer a routing layer (follows worker_slot)", async () => {
   writeFileSync(join(sandbox, ".claude/model-tiers.json"), JSON.stringify({
     trinity: {
       brain:  { oc: "anthropic/claude-opus-4-7" },
       medium: { oc: "anthropic/claude-sonnet-4-6" },
       cheap:  { oc: "anthropic/claude-haiku-4-5" },
     },
-    selection: { enabled: true, active_slot: "brain" },
+    selection: { enabled: true, active_slot: "brain", worker_slot: "brain" },
     tiers: {
       high:   { regex: "opus" },
       mid:    { regex: "sonnet" },
@@ -1517,8 +1518,8 @@ test("task routing: credit < 40% + Task forces cheap slot (not medium)", async (
   await hooks["tool.execute.before"]({ tool: "task" }, out)
   delete process.env.CLAUDE_CREDIT_PERCENT
 
-  assert.equal(out.args.model, "anthropic/claude-haiku-4-5",
-    "credit<40% + Task forced to cheap slot (bypasses medium)")
+  assert.equal(out.args.model, "anthropic/claude-opus-4-7",
+    "low credit does not force cheap — Task follows worker_slot=brain")
 })
 
 // ── Credit < 40% warn ────────────────────────────────────────────────────────
@@ -1997,11 +1998,13 @@ test("integration: full simulated OC session with sonnet-as-brain", async () => 
   assert.equal(taskArgs.model, "deepseek/deepseek-v4-flash",
     "task routing: high-tier brain routes Task to medium slot (deepseek-v4-flash)")
 
-  // ── 3. Task routing: exploratory prompt → cheap slot ───────────────────
+  // ── 3. Task routing: no worker_slot set → high-tier brain delegates to medium
+  //      (exploratory first-word special-casing was removed; worker tier is the
+  //      single source of truth) ─────────────────────────────────────────────
   const taskArgs2 = { model: null, prompt: "find all usages of this function" }
   await hooks["tool.execute.before"]({ tool: "task" }, { args: taskArgs2 })
-  assert.equal(taskArgs2.model, "deepseek/deepseek-chat",
-    "task routing: exploratory first-word routes to cheap slot")
+  assert.equal(taskArgs2.model, "deepseek/deepseek-v4-flash",
+    "task routing: prompt wording no longer routes — high-tier brain delegates to medium")
 
   // ── 4. Write tool: before sets pendingUiNote, after injects it ──────────
   const writeBeforeOut = { args: {} }

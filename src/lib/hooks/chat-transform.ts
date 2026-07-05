@@ -1369,10 +1369,14 @@ export const onSystemTransform = async (_input, output) => {
         cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
         resolved_tier: cascadeData.resolved_tier || prev.resolved_tier,
         escalation_count: escalationCount,
-        web_search: cascadeData.web_search === true || prev.web_search || false,
-        loop_break: cascadeData.loop_break === true || prev.loop_break || false,
       }
       saveBlackboxStateToCtx(bb)
+      // web_search / loop_break escalate THIS turn through the single escalation
+      // path: set pending_escalation_tier in selection state, consumed by the
+      // re-route below (there is no second store).
+      if (cascadeData.web_search === true || cascadeData.loop_break === true) {
+        writeSelection("pending_escalation_tier", "brain")
+      }
           }
         }
       } catch {}

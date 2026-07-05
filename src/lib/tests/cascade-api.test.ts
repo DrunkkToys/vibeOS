@@ -78,10 +78,11 @@ describe("cascade-api — chat-transform.ts", () => {
 describe("cascade-api — tool-execute.ts", () => {
   const src = readFileSync(join(ROOT, "src", "lib", "hooks", "tool-execute.ts"), "utf-8")
 
-  it("checks escalation pending before forcing cheap", () => {
-    assert.ok(src.includes("_escalationPending"), "must check escalation pending before force-cheap")
-    assert.ok(src.includes("cascade_depth > 0"), "must check cascade_depth > 0 for escalation pending")
-    assert.ok(src.includes("escalation_count > 0"), "must check escalation_count > 0 for escalation pending")
+  it("subagent routing reads the single source of truth (control-vector worker_slot)", () => {
+    assert.ok(src.includes("selection.worker_slot"), "subagent must read worker_slot from selection state")
+    assert.ok(src.includes("ONE source of truth"), "subagent routing must document the single source of truth")
+    assert.ok(!src.includes("creditForceCheap"), "credit force-cheap layer must be removed")
+    assert.ok(!src.includes("cascade-escape"), "final cascade-escape override layer must be removed")
   })
 })
 
