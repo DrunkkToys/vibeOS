@@ -150,51 +150,51 @@ export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string):
   return [icon, label].filter(Boolean).join(" ")
 }
 
+// Shared state resolver — normalizes partial/optional footer state into a complete
+// FooterLineInput with safe defaults. Used by both the rich path and the degrade path
+// so they always produce the same footer line format.
+export function resolveFooterState(partial?: Partial<FooterLineInput> | null): FooterLineInput {
+  const p = partial && typeof partial === "object" ? partial : {}
+  const savingsTotalNum = Number(p.savingsTotal ?? p.ltTotal)
+  return {
+    activeSlot: typeof p.activeSlot === "string" && p.activeSlot ? p.activeSlot : "cheap",
+    sessionSlot: p.sessionSlot,
+    workerSlot: p.workerSlot,
+    providerLabel: typeof p.providerLabel === "string" && p.providerLabel ? p.providerLabel : "Unknown",
+    modelName: typeof p.modelName === "string" && p.modelName ? p.modelName : "unknown",
+    savingsTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
+    ltTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
+    ltTrend: p.ltTrend,
+    vibeBrand: typeof p.vibeBrand === "string" ? p.vibeBrand : "",
+    optMode: typeof p.optMode === "string" ? p.optMode : "",
+    flashIcon: typeof p.flashIcon === "string" ? p.flashIcon : "",
+    enfTags: Array.isArray(p.enfTags) ? p.enfTags : [],
+    subRegime: p.subRegime,
+    stressGauge: p.stressGauge,
+    cascadeIcon: p.cascadeIcon,
+    cascadeLabel: p.cascadeLabel,
+    claimTag: p.claimTag,
+    rewardTag: p.rewardTag,
+    alertTag: p.alertTag,
+  }
+}
+
 // SINGLE SOURCE OF TRUTH degrade path. There is exactly ONE footer line format
 // (buildFooterLine). When the rich path can't gather every field (a sub-call threw,
 // or this is the index.ts safety net), we still render the SAME README line with safe
-// defaults for the missing fields — never a different, shorter, alert-less line. This
-// replaces the old buildFallbackFooterLine, which painted a degraded 3-segment
-// "— ⚡ cheap | OpenCode | Big Pickle —" that dropped savings/mode/brand/ALERT and was
-// all the user ever saw whenever the rich footer threw.
+// defaults for the missing fields — never a different, shorter, alert-less line.
 export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | null): string {
-  const p = partial && typeof partial === "object" ? partial : {}
-  const activeSlot = typeof p.activeSlot === "string" && p.activeSlot ? p.activeSlot : "cheap"
-  const providerLabel = typeof p.providerLabel === "string" && p.providerLabel ? p.providerLabel : "Unknown"
-  const modelName = typeof p.modelName === "string" && p.modelName ? p.modelName : "unknown"
-  const savingsTotalNum = Number(p.savingsTotal ?? p.ltTotal)
-  const savingsTotal = Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0
-  const optMode = typeof p.optMode === "string" ? p.optMode : ""
-  const vibeBrand = typeof p.vibeBrand === "string" && p.vibeBrand ? p.vibeBrand : resolveBrand(optMode, activeSlot)
-  const enfTags = Array.isArray(p.enfTags) ? p.enfTags : []
+  const state = resolveFooterState(partial)
+  if (!state.vibeBrand) {
+    state.vibeBrand = resolveBrand(state.optMode, state.activeSlot)
+  }
   try {
-    return buildFooterLine({
-      activeSlot,
-      sessionSlot: p.sessionSlot,
-      providerLabel,
-      modelName,
-      savingsTotal,
-      ltTotal: savingsTotal,
-      ltTrend: p.ltTrend,
-      vibeBrand,
-      optMode,
-      flashIcon: typeof p.flashIcon === "string" ? p.flashIcon : "",
-      enfTags,
-      subRegime: p.subRegime,
-      stressGauge: p.stressGauge,
-      cascadeIcon: p.cascadeIcon,
-      claimTag: p.claimTag,
-      rewardTag: p.rewardTag,
-      alertTag: p.alertTag,
-    })
+    return buildFooterLine(state)
   } catch {
-    // Absolute last resort: still the README em-dash wrapper + tier icon + brand,
-    // so even a catastrophic failure can never reproduce the bare 3-segment line.
-    const tierIcon = resolveTierIcon(activeSlot)
-    const cascade = formatCascadePulse(p.cascadeIcon, p.cascadeLabel)
-    const alert = typeof p.alertTag === "string" && p.alertTag ? ` | ${p.alertTag}` : ""
+    const cascade = formatCascadePulse(state.cascadeIcon, state.cascadeLabel)
+    const alert = state.alertTag ? ` | ${state.alertTag}` : ""
     const cascadePart = cascade ? ` | ${cascade}` : ""
-    return `— ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName} | VIBE${cascadePart} | ${vibeBrand}${alert} —`
+    return `— ${resolveTierIcon(state.activeSlot)} ${state.activeSlot} | ${state.providerLabel} | ${state.modelName} | VIBE${cascadePart} | ${state.vibeBrand || "vibeOS"}${alert} —`
   }
 }
 

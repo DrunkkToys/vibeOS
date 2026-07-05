@@ -12,8 +12,8 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
-import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, resetPendingLiveSwitch } from "./lib/pricing.js"
+import { isApiConnected, isApiFallback, isApiLatencyDegraded, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
+import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, getPendingLiveSwitch, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { getRuntimeVibeOSHome, setRuntimeVibeOSHome, resetRuntimeStateForTest as _resetRuntimeGlobalStateForTest } from "./lib/runtime-state.js"
@@ -25,7 +25,7 @@ import { writeSessionSlot, writeSessionOptMode, _resetSelectionCacheForTest } fr
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
-import { _appendFooter, didTextCompletePainted, resetFooterRuntimeState } from "./lib/hooks/footer.js"
+import { _appendFooter, buildFooterAlert, didTextCompletePainted, resetFooterRuntimeState } from "./lib/hooks/footer.js"
 import { buildResilientFooterLine } from "./lib/hooks/shared-footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill, resetChatTransformState } from "./lib/hooks/chat-transform.js"
@@ -168,12 +168,37 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
       },
     })
     // SINGLE SOURCE OF TRUTH: the safety net renders the SAME README footer line as the
-    // rich path (buildResilientFooterLine → buildFooterLine), just with fewer populated
-    // fields. It must never paint a different, shorter, alert-less line.
+    // rich path (buildResilientFooterLine → buildFooterLine), with the same alert/cascade
+    // data so a degraded turn still shows model drift, cascade depth, and the enforcement
+    // mode the user configured.
+    let alertTag = ""
+    try {
+      const pendingSwitch = getPendingLiveSwitch()
+      const expected = label === "brain" ? TRINITY_BRAIN : label === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+      alertTag = buildFooterAlert({
+        apiDegraded: isApiFallback(),
+        apiSlow: isApiLatencyDegraded(),
+        liveModel: resolvedModel || undefined,
+        expectedModel: expected || undefined,
+        lastModelError: undefined,
+        pendingLiveModel: pendingSwitch?.model || undefined,
+      })
+    } catch {}
+    const cascadeState = typeof loadBlackboxState === "function" ? loadBlackboxState() : null
+    const cvCt = cascadeState?.control_vector?.cascade_tier
+    const selectedRoutePathDepth = Array.isArray(loadSelection().route_path) ? loadSelection().route_path.length : null
+    const cascadeDepth = Number(
+      cvCt === "medium" ? 2 : cvCt === "brain" ? 3
+        : selectedRoutePathDepth ?? cascadeState?.control_vector?.cascade_depth ?? cascadeState?.cascade_depth ?? 0,
+    ) || 0
     const footer = `${currentText}\n\n${buildResilientFooterLine({
       activeSlot: label,
       providerLabel: fallbackExecution.provider_label || "Unknown",
       modelName: modelDisplayName(fallbackExecution.model || resolvedModel || "unknown"),
+      optMode: String(loadSelection().optimization_mode || ""),
+      flashIcon: typeof isApiConnected === "function" && isApiConnected() ? " ⚡" : "",
+      cascadeIcon: cascadeDepth >= 3 ? "▸▸▸" : cascadeDepth >= 2 ? "▸▸" : cascadeDepth >= 1 ? "▸" : "",
+      alertTag: alertTag || undefined,
     })}`
     try {
         if (sid) {
