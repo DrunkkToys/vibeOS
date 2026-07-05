@@ -246,6 +246,12 @@ const softQuotaCounts: Record<string, number> = {}
 // ── Warning/coalescing state ─────────────────────────────────────────
 const warnLogThrottle = new Map<string, number>()
 const recentToolEvents: Array<{ tool: string, target: string, at: number }> = []
+export function recordRecentToolEvent(tool: string, args: Record<string, unknown>): void {
+  const a = args || {}
+  const target = String(a.filePath || a.file_path || a.path || a.command || a.url || a.pattern || a.query || "")
+  recentToolEvents.push({ tool: String(tool || ""), target, at: Date.now() })
+  if (recentToolEvents.length > 20) recentToolEvents.shift()
+}
 const frictionSessionKeys = new Set<string>()
 const routineSessionKeys = new Set<string>()
 let lastMutationEvent: string | null = null

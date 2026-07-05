@@ -342,23 +342,26 @@ function buildControlHistoryEntry(
   regime: string,
   control: unknown,
   reward: number | null = null,
-): Record<string, unknown> {
+): Record<string, unknown> | null {
+  if (!control || typeof control !== "object" || Object.keys(control).length === 0) return null
+  const entryControl = {
+    enforcement_mode: control.enforcement_mode,
+    flow_mode: control.flow_mode,
+    tdd_mode: control.tdd_mode,
+    tier_bias: control.tier_bias,
+    thinking_mode: control.thinking_mode,
+    stress_multiplier: control.stress_multiplier,
+    context7_urgency: control.context7_urgency,
+    wbp_verbosity: control.wbp_verbosity,
+    cascade_depth: control.cascade_depth,
+    pipeline_root: control.pipeline_root,
+    ultrax_profile: control.ultrax_profile,
+  }
+  if (Object.values(entryControl).every((v) => v === undefined || v === null)) return null
   return {
     turn,
     regime,
-    control: {
-      enforcement_mode: control.enforcement_mode,
-      flow_mode: control.flow_mode,
-      tdd_mode: control.tdd_mode,
-      tier_bias: control.tier_bias,
-      thinking_mode: control.thinking_mode,
-      stress_multiplier: control.stress_multiplier,
-      context7_urgency: control.context7_urgency,
-      wbp_verbosity: control.wbp_verbosity,
-      cascade_depth: control.cascade_depth,
-      pipeline_root: control.pipeline_root,
-      ultrax_profile: control.ultrax_profile,
-    },
+    control: entryControl,
     reward,
   }
 }

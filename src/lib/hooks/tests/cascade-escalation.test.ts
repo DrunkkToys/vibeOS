@@ -43,30 +43,6 @@ describe("cascade escalation — cascadeDecide", () => {
   })
 })
 
-describe("cascade escalation — escalation guard conditions", () => {
-  it("only escalates when _escCount < 3 (max 3 per turn)", () => {
-    const src = (mod.cascadeDecide as Function).toString()
-    assert.ok(true, "escalation count guard is enforced at runtime in tool-execute.ts:1522")
-    assert.ok(
-      mod.cascadeDecide("test", 0.001, 0.005, 0.02, 0.85).useCheap !== undefined,
-      "module loads correctly",
-    )
-  })
-
-  it("entry_tier must be set before cascade can start", () => {
-    const src = String(mod.cascadeDecide)
-    assert.ok(true, "entry_tier gate is enforced in tool-execute.ts:1515 via _session?.entry_tier")
-  })
-
-  it("uncertainty signals are required for escalation trigger", () => {
-    assert.ok(true, "uncertainty_signals gate enforced in tool-execute.ts:1515 via _session?.uncertainty_signals")
-  })
-
-  it("model output is matched against high-pattern uncertainty signals", () => {
-    assert.ok(true, "regex matching against highPatterns at tool-execute.ts:1519")
-  })
-})
-
 describe("cascade escalation — bb resolveOptimizationSlot", () => {
   it("routes vibeultrax to brain root (cascade pipeline starts cheap, resolves brain)", () => {
     assert.equal(bbMod.resolveOptimizationSlot("vibeultrax"), "brain")
