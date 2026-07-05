@@ -966,6 +966,9 @@ function _normalizeVibeUltraXControlVector(control: unknown): boolean {
     control.selected_slot = route[route.length - 1] || "cheap"
     changed = true
   }
+  // NOTE: despite looking like a duplicate of selected_slot, cascade_tier has its
+  // own real reader — src/index.ts's degraded-mode footer path reads
+  // control_vector.cascade_tier directly. Do not remove in a future cleanup pass.
   if (!control.cascade_tier) {
     const route = Array.isArray(control.route_path) && control.route_path.length ? control.route_path : ["cheap"]
     control.cascade_tier = route[route.length - 1] || "cheap"
