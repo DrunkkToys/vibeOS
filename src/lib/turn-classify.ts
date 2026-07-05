@@ -965,7 +965,7 @@ export function incrementTurnCounter(): number {
   } catch { return 0 }
 }
 
-export { OptimizationMode, autoSelectMode, computeControlVector, buildControlHistoryEntry }
+export { autoSelectMode, computeControlVector, buildControlHistoryEntry }
 export { REGIME_CONTROL_TABLE } from "./axis-bundle.js"
 
 export {
@@ -1011,3 +1011,10 @@ export function resetTurnClassifyRuntimeState() {
   _lastApiPredictedMode = ""
   resetBlackboxTracker()
 }
+
+
+// ── Alias exports for hooks/tool-execute.ts compatibility ──
+export { getBlackboxTracker as _getBlackboxTracker };
+export function _isLikelyOffTopic(text, projectName) { return false; }
+export function _loadGlobalLearning() { return { exploratoryWords: [], noisyWords: [], userTerms: [] }; }
+export function _updateGlobalLearning(word, type, intent) { /* noop */ }

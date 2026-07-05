@@ -4,9 +4,9 @@ import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
   currentTier, currentModel, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId,
-  _textCompletePainted, softQuotaCounts, enforcementBlocked,
-  pendingUiNote, _briefedProjects, _OC_SID, _modelLocked, _blackboxEnabled,
-  _autoReportCount, scratchpadHitsSeen, context7AlertedThisSession,
+  _textCompletePainted,
+  _OC_SID, _modelLocked, _blackboxEnabled,
+  scratchpadHitsSeen, 
   loadSelection, _writeSelection, readLifetimeSavings,
   recordCacheSaving, recordMissedContext7, getScratchpadHit,
   recordScratchpadObservation,
@@ -22,7 +22,6 @@ import {
   _loadMLState, saveMLState,
   _readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,
-  _VIBEOS_HOME,
 } from "../state.js"
 import {
   classify, modelCostPerTurn, isModelFree, detectContext7, isDocsTarget,
@@ -98,14 +97,13 @@ const _IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY |
 
 let _activeJob = null
 let projectDirectory = ""
-let pendingUiNote = null
-let enforcementBlocked = false
-let scratchpadHitsSeen = new Set()
-let softQuotaCounts = {}
-let context7AlertedThisSession = false
 let context7Seen = new Set()
 let _prompt = ""
 let _autoReportCount = 0
+let pendingUiNote: string | null = null
+let enforcementBlocked = false
+let softQuotaCounts: Record<string, number> = {}
+let context7AlertedThisSession = false
 let _pendingTodoArgs = null
 let _pendingTelemetryStarts = []
 let _loopGuard = new ToolLoopGuard()

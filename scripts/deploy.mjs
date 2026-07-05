@@ -30,12 +30,18 @@ try {
     if (!existsSync(pluginDir)) {
       mkdirSync(pluginDir, { recursive: true })
     }
-    writeFileSync(destPath, bundle)
-    process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ${home}/plugins/vibeOS.js (${bundle.length} bytes)\n`)
+    const tmpDest = destPath + '.deploying'
+    writeFileSync(tmpDest, bundle)
+    renameSync(tmpDest, destPath)
+    process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ${home}/plugins/vibeOS.js (${bundle.length} bytes) [atomic]\n`)
 
     if (existsSync(assetsPath)) {
-      cpSync(assetsPath, destAssets, { recursive: true, force: true })
-      process.stderr.write(`[vibeOS deploy] dist/assets/ -> ${home}/plugins/assets/\n`)
+      const tmpAssets = destAssets + '.deploying'
+      if (existsSync(tmpAssets)) rmSync(tmpAssets, { recursive: true, force: true })
+      cpSync(assetsPath, tmpAssets, { recursive: true, force: true })
+      if (existsSync(destAssets)) rmSync(destAssets, { recursive: true, force: true })
+      renameSync(tmpAssets, destAssets)
+      process.stderr.write(`[vibeOS deploy] dist/assets/ -> ${home}/plugins/assets/ [atomic]\n`)
     }
     const skill = installVibeSkill(home)
     if (skill.created) {
