@@ -386,17 +386,31 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
       ? latestExecutedRoute.routePath.length
       : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
-    const cascadeModel = displayModel
-      || (ultraResolvedTier === "brain" ? TRINITY_BRAIN
-        : ultraResolvedTier === "medium" ? TRINITY_MEDIUM
-        : TRINITY_CHEAP)
+    // When the tier came from a recorded route_path (source "route" — an actual
+    // Task-delegation escalation happened this turn), the trinity model for that
+    // tier is the source of truth for the model name: the orchestrator's own bound
+    // live model never changes mid-session (Model Switch Contract), so displayModel
+    // would otherwise show a stale pre-escalation name while the icon/label already
+    // moved to "brain"/"medium". When the tier was instead inferred BY classifying
+    // the live model (source "model" — cold start, no escalation recorded), the live
+    // model IS the tier's evidence, so it must stay the one shown.
+    const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
+      : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
+      : null)
+      || displayModel
+      || (ultraResolvedTier === "brain" ? TRINITY_BRAIN : ultraResolvedTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP)
       || ""
     _footerStage = "execution"
     const execution = resolveCurrentExecution({
       directory,
       activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
       currentModel,
-      liveModel: displayModel || liveModel || currentModel || "",
+      // Use cascadeModel (already falls back to the resolved tier's trinity model),
+      // not the raw live model string — resolveCurrentExecution prioritizes liveModel
+      // when set, so passing the raw string here silently discarded the escalated
+      // tier's model name while the tier icon/label still updated, showing e.g.
+      // "brain" with the pre-escalation model name unchanged.
+      liveModel: displayMode === "vibeultrax" ? cascadeModel : (displayModel || liveModel || currentModel || ""),
       tiersData: {
         trinity: {
           brain: { oc: TRINITY_BRAIN || currentModel },

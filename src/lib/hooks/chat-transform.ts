@@ -1369,22 +1369,14 @@ export const onSystemTransform = async (_input, output) => {
       const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
       bb.sessions ??= {}
       const prev = bb.sessions[_OC_SID] || {}
-      const entryTier = cascadeData.entry_tier || prev.entry_tier || "cheap"
-      // escalation_count > 0 tells the credit force-cheap guard (tool-execute.ts:856)
-      // to NOT override the cascade's tier recommendation
-      const escalationCount = entryTier !== "cheap" ? (prev.escalation_count || 0) + 1 : (prev.escalation_count || 0)
       // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
       // signals force brain directly here rather than via a selection-state flag.
       const resolvedTier = cascadeData.resolved_tier
         || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : prev.resolved_tier)
       bb.sessions[_OC_SID] = {
         ...prev,
-        entry_tier: entryTier,
-        pipeline: cascadeData.pipeline || prev.pipeline,
-        uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals,
         cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
         resolved_tier: resolvedTier,
-        escalation_count: escalationCount,
       }
       saveBlackboxStateToCtx(bb)
           }
@@ -1575,9 +1567,6 @@ export const onSystemTransform = async (_input, output) => {
       const bb = loadBlackboxStateFromCtx()
       if (bb?.sessions?.[_OC_SID]) {
         const s = bb.sessions[_OC_SID]
-        if (s.entry_tier) writeSelection("entry_tier", s.entry_tier)
-        if (s.pipeline) writeSelection("pipeline", s.pipeline)
-        writeSelection("escalation_count", 0)
         // Reset the persisted cascade route to THIS turn's entry decision every turn —
         // otherwise a Task delegation's escalated route_path (written by tool-execute.ts
         // on a prior turn) never comes back down once the orchestrator stops delegating,

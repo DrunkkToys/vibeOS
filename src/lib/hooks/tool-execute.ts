@@ -51,7 +51,7 @@ import { saveReport } from "../reporting.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
-import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js"
+import { computeDifficulty, cascadeDecide, hashQuery } from "../../vibeOS-lib/ml-router.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -298,13 +298,6 @@ function _modelForSlot(slot: string | null, trinityCheap: string | null, trinity
   if (slot === "brain") return trinityBrain
   if (slot === "medium") return trinityMedium
   if (slot === "cheap") return trinityCheap
-  return null
-}
-
-export function vibeUltraXSubagentForSlot(slot: string | null): string | null {
-  if (slot === "brain") return "vibe-brain"
-  if (slot === "medium") return "vibe-medium"
-  if (slot === "cheap") return "vibe-cheap"
   return null
 }
 

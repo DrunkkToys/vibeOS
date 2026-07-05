@@ -33,10 +33,7 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
     assert.ok(src.includes("client.classify("), "onSystemTransform must call client.classify()")
   })
 
-  it("stores entry_tier, pipeline, uncertainty_signals, cascade_depth in blackbox session state", () => {
-    assert.ok(src.includes("entry_tier: entryTier"), "must store entry_tier in session")
-    assert.ok(src.includes("pipeline: cascadeData.pipeline || prev.pipeline"), "must store pipeline in session")
-    assert.ok(src.includes("uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals"), "must store uncertainty_signals in session")
+  it("stores cascade_depth in blackbox session state", () => {
     assert.ok(src.includes("cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0"), "must store cascade_depth in session")
   })
 

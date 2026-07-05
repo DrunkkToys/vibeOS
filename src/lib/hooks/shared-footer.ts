@@ -97,6 +97,12 @@ export type CascadeTier = "cheap" | "medium" | "brain"
 export interface CascadeTierResolution {
   tier: CascadeTier
   depth: number
+  // "route": derived from a recorded route_path/pipeline_root — an actual escalation
+  // decision was made this turn (e.g. a Task delegation), independent of what the
+  // orchestrator's own live model is. "model": no recorded routing info (cold start) —
+  // the tier was inferred BY classifying the live model, so the live model IS the
+  // tier's evidence and must stay the one shown, not be replaced by a trinity model.
+  source: "route" | "model"
 }
 
 interface CascadeTierSessionState {
@@ -128,24 +134,24 @@ export function resolveActiveCascadeTier(opts: {
   for (const session of [opts.liveSession, opts.diskSession]) {
     const routePath = Array.isArray(session?.route_path) ? (session!.route_path as unknown[]) : []
     const tier = routePath.length ? _asTier(routePath[routePath.length - 1]) : null
-    if (tier) return { tier, depth: routePath.length }
+    if (tier) return { tier, depth: routePath.length, source: "route" }
   }
   for (const session of [opts.liveSession, opts.diskSession]) {
     const pipelineRoot = Array.isArray(session?.pipeline_root) ? (session!.pipeline_root as unknown[]) : []
     const depth = Number(session?.cascade_depth) || 0
     if (pipelineRoot.length && depth > 0) {
       const tier = _asTier(pipelineRoot[Math.min(depth, pipelineRoot.length) - 1])
-      if (tier) return { tier, depth }
+      if (tier) return { tier, depth, source: "route" }
     }
   }
   const legacyDepth = Number(opts.legacyDepth) || 0
   const m = opts.liveModel || ""
-  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth || 1 }
-  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth || 2 }
-  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth || 3 }
+  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth || 1, source: "model" }
+  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth || 2, source: "model" }
+  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth || 3, source: "model" }
   const c = String((opts.classify ? opts.classify(m) : "") || "").toLowerCase()
   const tier: CascadeTier = c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
-  return { tier, depth: legacyDepth || (tier === "brain" ? 3 : tier === "medium" ? 2 : 1) }
+  return { tier, depth: legacyDepth || (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
 }
 
 export function resolveRegimeIcon(subRegime: string): string {
