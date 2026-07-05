@@ -948,10 +948,27 @@ export const onToolExecuteBefore = async (input, output) => {
         if (routeDecision?.routePath) _bbState.sessions[_sid].route_path = routeDecision.routePath
         _saveBlackboxState(_bbState)
       }
-    } catch (_bbErr) {
-      console.error("[vibeOS] CV persistence error:", _bbErr?.message || _bbErr)
-    }
-    const _target = routeDecision?.selectedModel || null
+     } catch (_bbErr) {
+       console.error("[vibeOS] CV persistence error:", _bbErr?.message || _bbErr)
+     }
+     // Final cascade override: if BE flagged loop_break or web_search,
+     // force routeDecision to brain regardless of control vector / ML graph.
+     if (_sessRoute?.pending_escalation_tier) {
+       const _peTier = _sessRoute.pending_escalation_tier
+       const _peModel = _peTier === "brain" ? TRINITY_BRAIN : _peTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+       if (_peModel) {
+         routeDecision = {
+           selectedModel: _peModel,
+           selectedSlot: _peTier,
+           selectedSubagent: _peTier === "cheap" ? "explore" : _peTier === "medium" ? "general" : "vibe-brain",
+           requiresDelegation: true,
+           shouldOverrideLocal: true,
+           delegationReason: `BE forced ${_peTier} (loop/web-search)`,
+           source: "cascade-escape",
+         }
+       }
+     }
+     const _target = routeDecision?.selectedModel || null
 
     if (ML_ENABLED && _target) {
       try {
