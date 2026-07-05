@@ -219,6 +219,53 @@ test("footer: vibeultrax cascade shows the escalated model name beside the indic
     assert.ok(/\|\s*(?:▸▸▸|▸▸)\s*(?:\||$)/.test(footer), "footer should show cascade arrows without model name suffix: " + footer)
 })
 
+// ── Regression: a Task-subagent escalation (route_path persisted by
+// tool-execute.ts) changes the tier icon/label, but the ORCHESTRATOR's own
+// bound live model never switches mid-session (Model Switch Contract). Before
+// this fix, the footer's model NAME stayed pinned to the live/cheap model
+// string even when the tier resolved to brain — showing e.g.
+// "🧠 brain | Deepseek | V4 Flash" where V4 Flash was actually the cheap-slot
+// model, not the brain-slot one. The model name must follow the resolved
+// tier's trinity model, matching the icon/label, once escalation is real.
+test("footer: model name follows the resolved tier's trinity model, not the frozen live model, once a Task escalated to brain", async () => {
+    writeTiers({
+        active_slot: "cheap",
+        requested_optimization_mode: "vibeultrax",
+        optimization_mode: "vibeultrax",
+    })
+    const tiersPath = join(sandbox, ".claude", "model-tiers.json")
+    const tiers = JSON.parse(readFileSync(tiersPath, "utf8"))
+    tiers.trinity = { brain: { oc: "deepseek/v4-pro" }, medium: { oc: "deepseek/v4-flash" }, cheap: { oc: "opencode/big-pickle" } }
+    writeFileSync(tiersPath, JSON.stringify(tiers))
+
+    const { getCurrentSessionId } = await import("../src/lib/state.js?csid-brain-model=" + Date.now())
+    const sessionId = getCurrentSessionId()
+    // Simulate what tool-execute.ts persists after a Task delegation escalates
+    // to brain THIS turn — the orchestrator's own live model (opencode/big-pickle,
+    // the cheap trinity model) never changes.
+    writeFileSync(join(sandbox, ".claude", "blackbox-state.json"), JSON.stringify({
+        enabled: true,
+        sessions: {
+            [sessionId]: {
+                route_path: ["cheap", "medium", "brain"],
+                pipeline_root: ["cheap", "medium", "brain"],
+                cascade_depth: 3,
+            },
+        },
+    }, null, 2))
+
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?vx-brain-model=" + Date.now())
+    const o = { text: "This message is long enough to trigger the footer after a brain-tier Task escalation this turn." }
+    await _appendFooter({ args: { model: "opencode/big-pickle" } }, o)
+    const footer = o.text.split("\n").pop() || ""
+    assert.ok(footer.includes("🧠 brain"), "footer tier should show the escalated brain tier: " + footer)
+    assert.ok(footer.includes("V4 Pro"), "footer model name should show the brain-slot trinity model, not the frozen cheap live model: " + footer)
+    assert.ok(!footer.includes("Big Pickle"), "footer must not show the stale cheap-slot model name once escalated: " + footer)
+    // Reset the shared sandbox's blackbox-state.json — this file has no per-test
+    // teardown, and a leftover escalated route_path would leak into later tests.
+    writeFileSync(join(sandbox, ".claude", "blackbox-state.json"), JSON.stringify({ enabled: true, sessions: {} }, null, 2))
+})
+
 // ── Regression: streaming rewrites the message text and wipes a footer painted
 // on an earlier (partial) chunk. _appendFooter must REPAINT the rich footer on
 // the final text instead of skipping by messageID — otherwise the basic
