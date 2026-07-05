@@ -2993,3 +2993,24 @@ export {
 // These are defined inline in index.ts but imported from state.js.
 // The import in index.ts evaluates first; index.ts then shadows with its own definitions.
 // These stubs throw if index.ts is not loaded (isolated module test).
+
+
+// ── Alias exports for hooks/tool-execute.ts compatibility ───────────
+export {
+  textCompletePainted as _textCompletePainted,
+  writeSelection as _writeSelection,
+  withFileLock as _withFileLock,
+  safeJsonParse as _safeJsonParse,
+  getSessionIndexPath as _getSessionIndexPath,
+  indexAppend as _indexAppend,
+  loadActiveJobs as _loadActiveJobs,
+  detectTechStack as _detectTechStack,
+  projectFingerprint as _projectFingerprint,
+  loadProjectState as _loadProjectState,
+  saveProjectState as _saveProjectState,
+  ensureProjectBucket as _ensureProjectBucket,
+  mergeProjectBucket as _mergeProjectBucket,
+  loadTodos as _loadTodos,
+  loadMLState as _loadMLState,
+  readJsonOrEmpty as _readJsonOrEmpty,
+}

@@ -47,39 +47,6 @@ function _lockPathFor(filePath) {
   return join(getVibeOSHome(), ".vibeOS-locks", `${hash}.lock`)
 }
 
-function withFileLock(filePath, fn, opts = {}) {
-  const staleMs = Number(opts.staleMs || 30_000)
-  const timeoutMs = Number(opts.timeoutMs || 2_000)
-  const lockPath = _lockPathFor(filePath)
-  const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    try {
-      mkdirSync(join(getVibeOSHome(), ".vibeOS-locks"), { recursive: true })
-      const fd = openSync(lockPath, "wx")
-      try { writeFileSync(fd, `${process.pid}\n${Date.now()}\n`) } catch {}
-      try {
-        return fn()
-      } finally {
-        try { closeSync(fd) } catch {}
-        try { rmSync(lockPath, { force: true }) } catch {}
-      }
-    } catch {
-      try {
-        if (existsSync(lockPath)) {
-          const age = Date.now() - statSync(lockPath).mtimeMs
-          if (age > staleMs) {
-            try { rmSync(lockPath, { force: true }) } catch {}
-          }
-        }
-      } catch {}
-    }
-  }
-  throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`)
-}
-
-// ── Tier classification ─────────────────────────────────────────────
-export let _autoReportCount = 0
-
 export function classify(m) {
   const s = String(m || "").toLowerCase()
   const bare = s.includes("/") ? s.split("/").slice(1).join("/") : s
@@ -1321,3 +1288,9 @@ export function resolveOrchestratorState(projectDir = ""): {
     drift,
   }
 }
+
+
+// ── Internal alias exports for hooks/tool-execute.ts compatibility ──
+export { trendDisplay as _trendDisplay };
+export { formatProviderName as _formatProviderName };
+export { formatQualityName as _formatQualityName };
