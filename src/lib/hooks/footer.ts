@@ -12,8 +12,7 @@ import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, 
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
-import { evaluateClaimVerification } from "../claim-verification.js"
-import { getSessionHealthSnapshot } from "../session-health.js"
+import { evaluateClaimEvidence, getSessionHealthSnapshot } from "../session-health.js"
 import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
@@ -154,7 +153,7 @@ function buildRewardInput({
     writeEditCount: 0,
     isBrainTier,
   })
-  const claimStatus = evaluateClaimVerification({
+  const claimStatus = evaluateClaimEvidence({
     text: assistantText,
     sessionId,
     turnId,
@@ -482,7 +481,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     })
     const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
     _footerStage = "claims"
-    const claimStatus = evaluateClaimVerification({
+    const claimStatus = evaluateClaimEvidence({
       text,
       vibeHome: getVibeOSHome(),
       sessionId: sid,

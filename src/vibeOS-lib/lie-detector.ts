@@ -2,7 +2,7 @@
 // @ts-nocheck
 // Compatibility shim: preserves the old API while routing through the
 // evidence-backed claim verifier. User-facing logic should prefer the
-// terminology from claim-verification/session-health instead of "lie".
+// terminology from session-health.ts instead of "lie".
 
 import { evaluateClaimEvidence } from "../lib/session-health.js"
 

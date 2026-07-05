@@ -4,7 +4,6 @@
 // Features:
 //   1. TF-IDF inspired query difficulty scoring
 //   2. Confidence-aware model cascading (cheap → escalate if uncertain)
-//   3. Interaction graph memory (query → model → outcome tracking)
 //
 // Integrates into src/index.js trinity routing for Task subagent model selection.
 
@@ -31,34 +30,6 @@ export interface DifficultyResult {
   features: QueryFeatures
   confidence: number
   suggestedTier: "cheap" | "medium" | "brain"
-}
-
-export interface RouteEntry {
-  queryHash: string
-  firstWord: string
-  chosenModel: string
-  chosenTier: "cheap" | "medium" | "brain"
-  success: boolean
-  at: string
-  queryWords: string[]
-}
-
-export interface PatternGraphNode {
-  id: string
-  kind: "query" | "model" | "outcome"
-  count: number
-  lastSeen: string
-  edges: Record<string, number>
-}
-
-export interface PatternGraph {
-  nodes: Record<string, PatternGraphNode>
-  tiers: { cheap: string[]; medium: string[]; brain: string[] }
-}
-
-export interface MLError {
-  ok: false
-  error: string
 }
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -302,113 +273,6 @@ export function cascadeDecide(
     estimatedSavings: savings,
     level: diff.level,
   }
-}
-
-// ── Pattern graph memory ────────────────────────────────────────────
-
-export function createPatternGraph(): PatternGraph {
-  return {
-    nodes: {},
-    tiers: { cheap: [], medium: [], brain: [] },
-  }
-}
-
-export function ensureNode(
-  graph: PatternGraph,
-  id: string,
-  kind: "query" | "model" | "outcome",
-): PatternGraphNode {
-  graph.nodes[id] ??= { id, kind, count: 0, lastSeen: "", edges: {} }
-  return graph.nodes[id]
-}
-
-export function addRouteEdge(
-  graph: PatternGraph,
-  queryWord: string,
-  modelName: string,
-  tier: string,
-  success: boolean,
-): void {
-  const now = new Date().toISOString()
-  const key = `${queryWord}::${modelName}`
-  ensureNode(graph, queryWord, "query")
-  ensureNode(graph, modelName, "model")
-  const outcomeNode = ensureNode(graph, `${key}::${success ? "ok" : "fail"}`, "outcome")
-
-  const queryNode = graph.nodes[queryWord]
-  queryNode.count++
-  queryNode.lastSeen = now
-  queryNode.edges[modelName] = (queryNode.edges[modelName] || 0) + 1
-
-  const modelNode = graph.nodes[modelName]
-  modelNode.count++
-  modelNode.lastSeen = now
-  modelNode.edges[outcomeNode.id] = (modelNode.edges[outcomeNode.id] || 0) + 1
-
-  outcomeNode.count++
-  outcomeNode.lastSeen = now
-
-  const normalizedTier: "cheap" | "medium" | "brain" =
-    tier === "budget" || tier === "low" ? "cheap"
-      : tier === "mid" ? "medium"
-        : tier === "high" ? "brain"
-          : (tier as "cheap" | "medium" | "brain")
-  graph.tiers[normalizedTier] ??= []
-  if (!graph.tiers[normalizedTier].includes(modelName)) {
-    graph.tiers[normalizedTier].push(modelName)
-    graph.tiers[normalizedTier].sort()
-  }
-}
-
-export function predictBestModel(
-  graph: PatternGraph,
-  firstWord: string,
-  tierPreference: "cheap" | "medium" | "brain",
-): string | null {
-  const node = graph.nodes[firstWord]
-  if (!node || Object.keys(node.edges).length === 0) return null
-
-  const edges = node.edges
-  let bestModel = ""
-  let bestScore = 0
-  for (const [model, count] of Object.entries(edges)) {
-    const modelNode = graph.nodes[model]
-    if (!modelNode) continue
-    const okEdges = Object.entries(modelNode.edges)
-      .filter(([k]) => k.endsWith("::ok"))
-      .reduce((sum, [, c]) => sum + c, 0)
-    const totalEdges = Object.values(modelNode.edges).reduce((a, b) => a + b, 0) || 1
-    const successRate = totalEdges > 0 ? okEdges / totalEdges : 0.5
-
-    const tierBoost = graph.tiers.brain.includes(model) ? 0.1
-      : graph.tiers.medium.includes(model) ? 0.05 : 0
-
-    const prefBoost = model.includes(tierPreference) ? 0.05 : 0
-    const score = count * 0.3 + successRate * 0.5 + tierBoost + prefBoost
-
-    if (score > bestScore) {
-      bestScore = score
-      bestModel = model
-    }
-  }
-
-  return bestModel || null
-}
-
-// ── Serialization helpers ───────────────────────────────────────────
-
-export function serializeGraph(graph: PatternGraph): string {
-  return JSON.stringify(graph)
-}
-
-export function deserializeGraph(raw: string): PatternGraph {
-  try {
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === "object" && parsed.nodes && parsed.tiers) {
-      return parsed as PatternGraph
-    }
-  } catch {}
-  return createPatternGraph()
 }
 
 // ── Query hashing for dedup ─────────────────────────────────────────

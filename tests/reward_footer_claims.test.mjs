@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 import { buildRewardInput } from "../src/lib/hooks/footer.js"
-import { evaluateClaimVerification } from "../src/lib/claim-verification.js"
+import { evaluateClaimEvidence } from "../src/lib/session-health.js"
 import { computeReward } from "../src/vibeOS-lib/reward-engine.js"
 
 test("footer reward wiring: contradicted completion claim reaches the claim penalty", () => {
@@ -63,9 +63,10 @@ test("footer reward wiring: empty inputs stay safe and only hit laziness", () =>
 
 test("claim verification adds an explicit verify nudge when claims are unsubstantiated", () => {
   const vibeHome = join(tmpdir(), `vibeos-claims-${Date.now()}`)
-  const result = evaluateClaimVerification({
+  const result = evaluateClaimEvidence({
     text: "I fixed the bug and verified the release.",
     vibeHome,
+    sessionId: "",
   })
 
   assert.equal(result.status, "unsupported")

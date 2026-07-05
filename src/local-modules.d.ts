@@ -33,12 +33,6 @@ declare module "./vibeOS-lib/ml-router.js" {
     brainModelCost: number,
     cheapSuccessRate: number,
   ): string
-  export function createPatternGraph(): unknown
-  export function ensureNode(graph: unknown, id: string, kind: string): void
-  export function addRouteEdge(graph: unknown, queryWord: string, modelName: string, tier: string, success: boolean): void
-  export function predictBestModel(graph: unknown, firstWord: string, tierPreference: string): string
-  export function serializeGraph(graph: unknown): unknown
-  export function deserializeGraph(raw: unknown): unknown
   export function hashQuery(prompt: string): string
 }
 
