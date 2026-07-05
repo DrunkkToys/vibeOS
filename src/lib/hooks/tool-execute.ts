@@ -1506,7 +1506,7 @@ export const onToolExecuteAfter = async (input, output) => {
     })
 
     // ── Cascade escalation via uncertainty detection ──
-    if (taskOutput && !isNodeTestRun) {
+    if (taskOutput && !(process.execArgv.includes("--test") || process.argv.includes("--test"))) {
       try {
         const _mode = loadSelection().optimization_mode
         if (_mode === "vibeultrax") {
