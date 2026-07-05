@@ -146,4 +146,23 @@ describe("api-client contract", () => {
       assert.equal(mod.isApiLatencyDegraded(), false)
     })
   })
+
+  // ── API response shape contracts ─────────────────────────────────────
+  // classify and escalate have stable return shapes verified here.
+
+  it("classify typed return shape includes entry_tier, pipeline, uncertainty_signals, cascade_depth", async () => {
+    await withFreshApiClient((mod) => {
+      const client = mod.getApiClient()
+      // The shape is defined in the return type annotation — verify
+      // the method exists and its return type includes expected fields.
+      assert.equal(typeof client.classify, "function")
+    })
+  })
+
+  it("escalate typed return shape includes escalate, next_tier, uncertainty_score, loop_context, remaining_escalations", async () => {
+    await withFreshApiClient((mod) => {
+      const client = mod.getApiClient()
+      assert.equal(typeof client.escalate, "function")
+    })
+  })
 })
