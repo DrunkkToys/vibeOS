@@ -92,3 +92,90 @@ describe("footer SSOT — alert placement in the canonical builder", () => {
     assert.ok(stressIdx > alertIdx, "alert comes before the stress gauge")
   })
 })
+
+describe("footer SSOT — resolveFooterState shared resolver contract", () => {
+  it("resolveFooterState is exported and is a function", () => {
+    assert.equal(typeof (sf as any).resolveFooterState, "function", "resolveFooterState must exist in shared-footer")
+  })
+
+  it("resolveFooterState returns a FooterLineInput-compatible object with defaults for missing fields", () => {
+    const state = (sf as any).resolveFooterState({
+      activeSlot: "cheap",
+      providerLabel: "OpenCode",
+      modelName: "Big Pickle",
+      vibeBrand: "vibeOS",
+    })
+    assert.equal(typeof state, "object")
+    assert.equal(state.activeSlot, "cheap")
+    assert.equal(state.providerLabel, "OpenCode")
+    assert.equal(state.modelName, "Big Pickle")
+    assert.equal(state.vibeBrand, "vibeOS")
+    // Defaults
+    assert.equal(typeof state.savingsTotal, "number")
+    assert.equal(typeof state.optMode, "string")
+    assert.ok(Array.isArray(state.enfTags))
+  })
+
+  it("resolveFooterState preserves overridden fields", () => {
+    const state = (sf as any).resolveFooterState({
+      activeSlot: "brain",
+      providerLabel: "DeepSeek",
+      modelName: "v4-pro",
+      vibeBrand: "VibeQMaX",
+      optMode: "quality",
+      savingsTotal: 12.57,
+      ltTrend: "up",
+      enfTags: ["[ENF ON]"],
+      subRegime: "CONVERGING",
+      cascadeIcon: "▸▸▸",
+      alertTag: "⚠ api slow",
+      stressGauge: "▅",
+    })
+    assert.equal(state.activeSlot, "brain")
+    assert.equal(state.savingsTotal, 12.57)
+    assert.equal(state.optMode, "quality")
+    assert.deepEqual(state.enfTags, ["[ENF ON]"])
+    assert.equal(state.subRegime, "CONVERGING")
+    assert.equal(state.cascadeIcon, "▸▸▸")
+    assert.equal(state.alertTag, "⚠ api slow")
+  })
+
+  it("resolveFooterState output is directly consumable by buildFooterLine and buildResilientFooterLine", () => {
+    const state = (sf as any).resolveFooterState({
+      activeSlot: "medium",
+      providerLabel: "DeepSeek",
+      modelName: "v4-flash",
+      vibeBrand: "VibeUltraX",
+      optMode: "vibeultrax",
+      savingsTotal: 42.0,
+      enfTags: ["[TDD ON]", "[FLOW ON]"],
+      cascadeIcon: "▸▸",
+      alertTag: "⚠ switch pending",
+      stressGauge: "▃",
+    })
+    const richLine = sf.buildFooterLine(state)
+    const resilientLine = sf.buildResilientFooterLine(state)
+    // Both must produce valid README footer lines
+    assert.ok(richLine.startsWith("—"), "rich line opens with em-dash")
+    assert.ok(richLine.trimEnd().endsWith("—"), "rich line closes with em-dash")
+    assert.ok(resilientLine.startsWith("—"), "resilient line opens with em-dash")
+    assert.ok(resilientLine.trimEnd().endsWith("—"), "resilient line closes with em-dash")
+    // Both must carry the alert
+    assert.ok(richLine.includes("⚠ switch pending"), "rich line carries alert")
+    assert.ok(resilientLine.includes("⚠ switch pending"), "resilient line carries alert")
+    // Both must carry enforcement
+    assert.ok(richLine.includes("tests live"), "rich line carries enforcement")
+    assert.ok(resilientLine.includes("tests live"), "resilient line carries enforcement")
+  })
+
+  it("resolveFooterState builds a FooterLineInput that buildFooterLine renders without throwing", () => {
+    const state = (sf as any).resolveFooterState({
+      activeSlot: "cheap",
+      providerLabel: "DeepSeek",
+      modelName: "v4-flash",
+      vibeBrand: "VibeMaX",
+    })
+    assert.doesNotThrow(() => sf.buildFooterLine(state))
+    assert.doesNotThrow(() => sf.buildResilientFooterLine(state))
+  })
+})
