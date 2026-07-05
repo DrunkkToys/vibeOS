@@ -140,6 +140,26 @@ test("syncApiTokenFromDisk else branch also clears fallback (via setApiToken wit
   }
 })
 
+test("isApiFallback self-heals via cooldown even when isApiConnected is never called", async () => {
+  const env = process.env
+  const prevFastCi = env.VIBEOS_FAST_CI
+  env.VIBEOS_FAST_CI = "1" // 5s cooldown instead of 60s, must be set before the module loads
+  const ctx = fresh()
+  const api = await ctx.api
+  try {
+    await api.remoteCall("health", [], () => "fallback_used")
+    assert.equal(api.isApiFallback(), true, "in fallback after failure")
+    // Wait past the fast-CI cooldown WITHOUT ever calling isApiConnected(),
+    // which was the only function that self-healed the fallback flag.
+    await new Promise((resolve) => setTimeout(resolve, 5200))
+    assert.equal(api.isApiFallback(), false, "isApiFallback() must self-heal on its own after cooldown")
+  } finally {
+    if (prevFastCi === undefined) delete env.VIBEOS_FAST_CI
+    else env.VIBEOS_FAST_CI = prevFastCi
+    await restore(ctx)
+  }
+})
+
 test("contract: auth rejection counts as disconnected orchestration", async () => {
   const ctx = fresh()
   const api = await ctx.api

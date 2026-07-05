@@ -971,6 +971,7 @@ export function getApiClient() {
 }
 
 export function isApiFallback() {
+  tryResetFallbackCooldown()
   return _apiFallbackMode || isRuntimeApiFallbackMode() || !isRuntimeApiEnabled()
 }
 
@@ -1014,7 +1015,7 @@ export async function remoteCall(method, args, fallbackFn) {
     if (!client) {
       if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
         _apiFallbackMode = true
-        _apiFallbackSince = new Date().toISOString()
+        _apiFallbackSince = new Date(Date.now()).toISOString()
       }
       if (fallbackFn) return fallbackFn()
       return null
@@ -1051,7 +1052,7 @@ export async function remoteCall(method, args, fallbackFn) {
     const detail = status ? `status=${status} body=${bodyPreview}` : `message=${err?.message || err}`
     if (!_apiFallbackMode) {
       _apiFallbackMode = true
-      _apiFallbackSince = new Date().toISOString()
+      _apiFallbackSince = new Date(Date.now()).toISOString()
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
     markApiDisconnected()
