@@ -966,6 +966,11 @@ function _normalizeVibeUltraXControlVector(control: unknown): boolean {
     control.selected_slot = route[route.length - 1] || "cheap"
     changed = true
   }
+  if (!control.cascade_tier) {
+    const route = Array.isArray(control.route_path) && control.route_path.length ? control.route_path : ["cheap"]
+    control.cascade_tier = route[route.length - 1] || "cheap"
+    changed = true
+  }
   const depth = Array.isArray(control.route_path) && control.route_path.length ? control.route_path.length : 1
   if (control.cascade_depth !== depth) {
     control.cascade_depth = depth

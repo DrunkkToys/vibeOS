@@ -124,6 +124,7 @@ test("live session snapshot persists cv aliases and revives legacy live_control 
       cascade_root: ["cheap", "medium", "brain"],
       route_path: ["cheap", "medium", "brain"],
       selected_slot: "brain",
+      cascade_tier: "brain",
     }
 
     state.recordLiveSessionSnapshot({
