@@ -12,7 +12,7 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, isApiLatencyDegraded, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
+import { getApiClient, isApiConnected, isApiFallback, isApiLatencyDegraded, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, remoteCall, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, getPendingLiveSwitch, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
@@ -1163,6 +1163,31 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         if (res.ok)
           return runtime.baseUrl
       } catch {}
+      // ── Cascade escalation ──
+      try {
+        const _selText = loadSelection()
+        const _escCountText = Number(_selText?.escalation_count || 0)
+        const _bbText = loadBlackboxState()
+        const _sidText = _OC_SID
+        const _sessionText = _bbText?.sessions?.[_sidText]
+        if (_sessionText?.entry_tier && getApiClient) {
+          const _clientText = getApiClient()
+          if (_clientText && !isApiFallback()) {
+            const _userMsg = String(_input?.[_input.length - 1]?.content || "")
+            const _out = String(output || "")
+            const _currTier = String(_selText?.active_slot || "auto")
+            const _subRegime = String(_sessionText?.sub_regime || "")
+            const _prev = Array.isArray(_input) ? _input.slice(0, -1) : []
+            const _res = await _clientText.escalate(_userMsg, _out, _currTier, _escCountText, _subRegime, _prev)
+            if (_res?.escalate) {
+              writeSelection("pending_escalation_tier", _res.next_tier)
+              writeSelection("pending_escalation_loop_context", _res.loop_context)
+              writeSelection("escalation_count", _escCountText + 1)
+            }
+          }
+        }
+      } catch {}
+
       return ""
     },
     ensureMcpServerRunning,
@@ -1304,6 +1329,31 @@ export async function DelegationEnforcer({ client, directory } = {}) {
           _unsubstantiatedClaims = unsub
         }
       } catch {}
+      // ── Cascade escalation ──
+      try {
+        const _selText = loadSelection()
+        const _escCountText = Number(_selText?.escalation_count || 0)
+        const _bbText = loadBlackboxState()
+        const _sidText = _OC_SID
+        const _sessionText = _bbText?.sessions?.[_sidText]
+        if (_sessionText?.entry_tier && getApiClient) {
+          const _clientText = getApiClient()
+          if (_clientText && !isApiFallback()) {
+            const _userMsg = String(_input?.[_input.length - 1]?.content || "")
+            const _out = String(output || "")
+            const _currTier = String(_selText?.active_slot || "auto")
+            const _subRegime = String(_sessionText?.sub_regime || "")
+            const _prev = Array.isArray(_input) ? _input.slice(0, -1) : []
+            const _res = await _clientText.escalate(_userMsg, _out, _currTier, _escCountText, _subRegime, _prev)
+            if (_res?.escalate) {
+              writeSelection("pending_escalation_tier", _res.next_tier)
+              writeSelection("pending_escalation_loop_context", _res.loop_context)
+              writeSelection("escalation_count", _escCountText + 1)
+            }
+          }
+        }
+      } catch {}
+
     },
     "message.updated": async (_input, output) => {
       setVibeOSHomeContext(hookVibeHome)
@@ -1347,6 +1397,31 @@ export async function DelegationEnforcer({ client, directory } = {}) {
           _unsubstantiatedClaims = unsub
         }
       } catch {}
+      // ── Cascade escalation ──
+      try {
+        const _selText = loadSelection()
+        const _escCountText = Number(_selText?.escalation_count || 0)
+        const _bbText = loadBlackboxState()
+        const _sidText = _OC_SID
+        const _sessionText = _bbText?.sessions?.[_sidText]
+        if (_sessionText?.entry_tier && getApiClient) {
+          const _clientText = getApiClient()
+          if (_clientText && !isApiFallback()) {
+            const _userMsg = String(_input?.[_input.length - 1]?.content || "")
+            const _out = String(output || "")
+            const _currTier = String(_selText?.active_slot || "auto")
+            const _subRegime = String(_sessionText?.sub_regime || "")
+            const _prev = Array.isArray(_input) ? _input.slice(0, -1) : []
+            const _res = await _clientText.escalate(_userMsg, _out, _currTier, _escCountText, _subRegime, _prev)
+            if (_res?.escalate) {
+              writeSelection("pending_escalation_tier", _res.next_tier)
+              writeSelection("pending_escalation_loop_context", _res.loop_context)
+              writeSelection("escalation_count", _escCountText + 1)
+            }
+          }
+        }
+      } catch {}
+
     },
     tool: {
       trinity: tool(createTrinityTool(trinityDeps)),

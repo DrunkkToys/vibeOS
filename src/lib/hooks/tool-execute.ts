@@ -851,7 +851,10 @@ export const onToolExecuteBefore = async (input, output) => {
       }
       routeDecision = resolveCascadeRouteDecision(embeddingMode ? { ...cascadeInput, embeddingMode } : cascadeInput)
     }
-    if (creditForceCheap && routeDecision?.source !== "backend" && routeDecision?.source !== "backend-route-model" && routeDecision?.source !== "api-cascade") {
+    const _bbForEscalation = loadBlackboxState()
+    const _sidForEscalation = _OC_SID
+    const _escalationPending = _bbForEscalation?.sessions?.[_sidForEscalation]?.cascade_depth > 0 || _bbForEscalation?.sessions?.[_sidForEscalation]?.escalation_count > 0
+    if (creditForceCheap && !_escalationPending && routeDecision?.source !== "backend" && routeDecision?.source !== "backend-route-model" && routeDecision?.source !== "api-cascade") {
       const creditSlot = "cheap"
       routeDecision = {
         ...(routeDecision || {}),

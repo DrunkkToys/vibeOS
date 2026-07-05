@@ -387,6 +387,43 @@ export class VibeOSApiClient {
     return this.request("/api/v1/mode/classify", { text, state: state || {} })
   }
 
+  async classify(text: string, state?: Record<string, unknown>): Promise<{
+    tier: string
+    source: string
+    entry_tier: string
+    pipeline: string[]
+    cascade: unknown
+    resolved_tier: string
+    uncertainty_signals: unknown
+    cascade_depth: number
+  }> {
+    return this.request("/api/v1/mode/classify", { text, state: state || {} }) as any
+  }
+
+  async escalate(
+    text: string,
+    model_output: string,
+    current_tier: string,
+    escalation_count: number,
+    sub_regime: string,
+    previous_turns: unknown[],
+  ): Promise<{
+    escalate: boolean
+    next_tier: string
+    uncertainty_score: number
+    loop_context: string
+    remaining_escalations: number
+  }> {
+    return this.request("/api/v1/mode/escalate", {
+      text,
+      model_output,
+      current_tier,
+      escalation_count,
+      sub_regime,
+      previous_turns,
+    }) as any
+  }
+
   async classifyTier(model: string, customRegex: string | null = null): Promise<unknown> {
     return this.request("/api/v1/tier/classify", { model, custom_regex: customRegex })
   }
