@@ -280,14 +280,15 @@ async function _seedOrRepairModelTiers(directory) {
   const freeSeeds = _collectFreeSeedModels(discovered)
   const liveModel = String(currentModel || "").trim()
   const liveTier = liveModel ? classify(liveModel) : ""
-  const seedBrain = existingSelection?.active_slot === "brain" && liveModel && liveTier === "high"
+  const trinityFallback = freeSeeds.length === 0 ? buildDeterministicTrinity(discovered) : null
+  const seedBrain = trinityFallback?.brain || (existingSelection?.active_slot === "brain" && liveModel && liveTier === "high"
     ? liveModel
-    : (freeSeeds[0] || DEFAULT_FREE_MODEL)
-  const seedMedium = freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
-  const seedCheap = freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+    : (freeSeeds[0] || DEFAULT_FREE_MODEL))
+  const seedMedium = trinityFallback?.medium || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
+  const seedCheap = trinityFallback?.cheap || freeSeeds[2] || freeSeeds[1] || freeSeeds[0] || DEFAULT_FREE_MODEL
   const keepExistingSlot = (slotRow: any, fallbackModel: string) => {
     const currentOc = String(slotRow?.oc || "").trim()
-    if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc)) {
+    if (currentOc && !PLACEHOLDER_RE.test(currentOc) && !/placeholder/i.test(currentOc) && !isModelFree(currentOc)) {
       return { ...slotRow, cc: slotRow?.cc || modelToCcAlias(currentOc) }
     }
     return { oc: fallbackModel, cc: modelToCcAlias(fallbackModel) }
