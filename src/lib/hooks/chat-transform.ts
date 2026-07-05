@@ -371,13 +371,11 @@ function modeCascadeRoot(mode: unknown, fallbackPipeline: unknown = null, tierBi
 
 // Slices the durable pipeline down to "how far this turn actually escalated" —
 // cheap → ["cheap"], medium → ["cheap","medium"], brain → the full route.
-// The previous `route.includes(slot) ? route : [...route, slot]` check was
-// always true (slot is by definition a member of its own pipeline), so this
-// permanently returned the full 3-tier array regardless of the resolved slot
-// — pinning route_path/cascade_depth at the maximum for every vibeultrax
-// session. See src/lib/hooks/tool-execute.ts's _routePathForSlot for the
-// correct sibling implementation this now matches.
-function normalizeRoutePath(value: unknown, fallbackSlot: unknown): string[] {
+// Also used directly by tool-execute.ts (as the single implementation,
+// replacing its own former duplicate _routePathForSlot) wherever a route
+// array and slot are already in hand — normalizePipelineRoot/normalizeSlot
+// are no-ops on already-clean inputs.
+export function normalizeRoutePath(value: unknown, fallbackSlot: unknown): string[] {
   const route = normalizePipelineRoot(value, fallbackSlot)
   const slot = normalizeSlot(fallbackSlot)
   if (!slot) return route

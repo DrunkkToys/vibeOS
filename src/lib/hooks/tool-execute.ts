@@ -29,7 +29,7 @@ import {
   cacheSavePer1MInputTokens,
   _trendDisplay, modelToSlotLabel, resolveExecutionIdentity, _formatProviderName, _formatQualityName, modelDisplayName,
 } from "../pricing.js"
-import { latestUserIntent } from "./chat-transform.js"
+import { latestUserIntent, normalizeRoutePath } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
 import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon, resolveActiveCascadeTier } from "./shared-footer.js"
@@ -321,15 +321,6 @@ function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | n
   return fallbackSlot ? [fallbackSlot] : []
 }
 
-function _routePathForSlot(root: string[], slot: string | null): string[] {
-  if (!slot) return root.length ? [root[0]] : []
-  const idx = root.indexOf(slot)
-  if (idx >= 0) return root.slice(0, idx + 1)
-  if (slot === "brain") return ["cheap", "medium", "brain"]
-  if (slot === "medium") return ["cheap", "medium"]
-  return ["cheap"]
-}
-
 function _writeCascadeAudit(prompt: string, slot: string | null, model: string | null, decision: unknown, meta: unknown = {}): void {
   try {
     const dir = join(getVibeOSHome(), "cascade-audit")
@@ -412,8 +403,8 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
         selectedSlot,
         selectedModel,
         source,
-        routePath: _routePathForSlot(cascadeRoot, selectedSlot),
-        cascadeDepth: _routePathForSlot(cascadeRoot, selectedSlot).length || 1,
+        routePath: normalizeRoutePath(cascadeRoot, selectedSlot),
+        cascadeDepth: normalizeRoutePath(cascadeRoot, selectedSlot).length || 1,
         executed: true,
       })
   }
@@ -470,8 +461,8 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
         selectedSlot: cascadeSelectedSlot,
         selectedModel: cascadeSelectedModel,
         source: cascadeSource,
-        routePath: _routePathForSlot(cascadeRoot, cascadeSelectedSlot),
-        cascadeDepth: _routePathForSlot(cascadeRoot, cascadeSelectedSlot).length || 1,
+        routePath: normalizeRoutePath(cascadeRoot, cascadeSelectedSlot),
+        cascadeDepth: normalizeRoutePath(cascadeRoot, cascadeSelectedSlot).length || 1,
         executed: true,
       })
     } catch (err) {
@@ -486,8 +477,8 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
     reason = cascadeReason
   }
 
-  const routePath = _routePathForSlot(cascadeRoot, selectedSlot)
-  const cascadeRoutePath = _routePathForSlot(cascadeRoot, cascadeSelectedSlot)
+  const routePath = normalizeRoutePath(cascadeRoot, selectedSlot)
+  const cascadeRoutePath = normalizeRoutePath(cascadeRoot, cascadeSelectedSlot)
   const selectedSubagent = taskSubagentTypeForSlot(selectedSlot)
   const cascadeSelectedSubagent = taskSubagentTypeForSlot(cascadeSelectedSlot)
   const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
@@ -765,7 +756,7 @@ export const onToolExecuteBefore = async (input, output) => {
       ? _rawSlot
       : (currentTier === "high" ? "medium" : "cheap")
     const _cascadeRoot = _normalizeCascadeRoot(selection.active_pipeline, _slot)
-    const _routePath = _routePathForSlot(_cascadeRoot, _slot)
+    const _routePath = normalizeRoutePath(_cascadeRoot, _slot)
     const routeDecision = {
       selectedModel: _modelForSlot(_slot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN),
       selectedSlot: _slot,
