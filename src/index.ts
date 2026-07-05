@@ -185,6 +185,9 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
       })
     } catch {}
     const cascadeState = typeof loadBlackboxState === "function" ? loadBlackboxState() : null
+    // cascade_tier's one real consumer — do not delete this field from state.ts's
+    // control-vector normalization (_normalizeVibeUltraXControlVector) in a future
+    // cleanup pass just because it looks like a duplicate of selected_slot.
     const cvCt = cascadeState?.control_vector?.cascade_tier
     const selectedRoutePathDepth = Array.isArray(loadSelection().route_path) ? loadSelection().route_path.length : null
     const cascadeDepth = Number(
