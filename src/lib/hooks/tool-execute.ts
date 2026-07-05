@@ -782,43 +782,17 @@ export const onToolExecuteBefore = async (input, output) => {
      const _bbRoute = loadBlackboxState()
      const _sessRoute = _bbRoute?.sessions?.[_OC_SID]
      const _pendingEscTier = _sessRoute?.pending_escalation_tier
-     // Override: if BE detected a loop, force brain immediately
-     const _loopBreak = _sessRoute?.loop_break === true
-     const _webSearch = _sessRoute?.web_search === true
-     if (_loopBreak && !_pendingEscTier) {
-       const _escModel = TRINITY_BRAIN
-       if (_escModel) {
-         routeDecision = {
-           selectedModel: _escModel,
-           selectedSlot: "brain",
-           selectedSubagent: "vibe-brain",
-           requiresDelegation: true,
-           shouldOverrideLocal: true,
-           delegationReason: `loop break from ${_sessRoute.entry_tier || "prior tier"}`,
-           reason: `BE detected loop — forcing brain`,
-           source: "cascade-loopbreak",
-           routePath: "escalation",
-           cascadeRoot: selection.active_pipeline || "cheap->medium->brain",
-         }
-       }
-      }
-      // Web-search override: BE detected web-search intent, force brain + enable web search
-      if (_webSearch && !_loopBreak && !_pendingEscTier) {
-        const _webModel = TRINITY_BRAIN
-        if (_webModel) {
-          routeDecision = {
-            selectedModel: _webModel,
-            selectedSlot: "brain",
-            selectedSubagent: "vibe-brain",
-            requiresDelegation: true,
-            shouldOverrideLocal: true,
-            delegationReason: `web-search from BE classify`,
-            reason: `BE detected web search intent`,
-            source: "cascade-websearch",
-            routePath: "escalation",
-            cascadeRoot: selection.active_pipeline || "cheap->medium->brain",
-            web_search: true,
-          }
+      // Override: if BE detected a loop or web-search intent,
+      // write to pending_escalation_tier so the existing escalation handler
+      // (below) correctly overrides the subagent slot.
+      const _loopBreak = _sessRoute?.loop_break === true
+      const _webSearch = _sessRoute?.web_search === true
+      if ((_loopBreak || _webSearch) && !_pendingEscTier) {
+        const _bb2 = loadBlackboxState()
+        if (_bb2?.sessions?.[_OC_SID]) {
+          _bb2.sessions[_OC_SID].pending_escalation_tier = "brain"
+          if (_webSearch) _bb2.sessions[_OC_SID].web_search = true
+          _saveBlackboxState(_bb2)
         }
       }
       if (_pendingEscTier) {
@@ -843,15 +817,15 @@ export const onToolExecuteBefore = async (input, output) => {
           _saveBlackboxState(_bb2)
         }
       }
-      // Clear consumed overrides so they don't re-trigger on next turn
-      if (_loopBreak || _webSearch) {
-        const _bbClr = loadBlackboxState()
-        if (_bbClr?.sessions?.[_OC_SID]) {
-          if (_loopBreak) _bbClr.sessions[_OC_SID].loop_break = false
-          if (_webSearch) _bbClr.sessions[_OC_SID].web_search = false
-          _saveBlackboxState(_bbClr)
-        }
-      }
+     // Clear consumed overrides so they don't re-trigger on next turn
+     if (_loopBreak || _webSearch) {
+       const _bbClr = loadBlackboxState()
+       if (_bbClr?.sessions?.[_OC_SID]) {
+         if (_loopBreak) _bbClr.sessions[_OC_SID].loop_break = false
+         if (_webSearch) _bbClr.sessions[_OC_SID].web_search = false
+         _saveBlackboxState(_bbClr)
+       }
+     }
      }
      const activePipeline = selection.active_pipeline
     const cascadeInput = {
