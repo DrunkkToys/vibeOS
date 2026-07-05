@@ -369,11 +369,21 @@ function modeCascadeRoot(mode: unknown, fallbackPipeline: unknown = null, tierBi
   return normalizePipelineRoot(fallbackPipeline, tierBias)
 }
 
+// Slices the durable pipeline down to "how far this turn actually escalated" —
+// cheap → ["cheap"], medium → ["cheap","medium"], brain → the full route.
+// The previous `route.includes(slot) ? route : [...route, slot]` check was
+// always true (slot is by definition a member of its own pipeline), so this
+// permanently returned the full 3-tier array regardless of the resolved slot
+// — pinning route_path/cascade_depth at the maximum for every vibeultrax
+// session. See src/lib/hooks/tool-execute.ts's _routePathForSlot for the
+// correct sibling implementation this now matches.
 function normalizeRoutePath(value: unknown, fallbackSlot: unknown): string[] {
   const route = normalizePipelineRoot(value, fallbackSlot)
   const slot = normalizeSlot(fallbackSlot)
-  if (!slot || route.includes(slot)) return route
-  return [...route, slot]
+  if (!slot) return route
+  const idx = route.indexOf(slot)
+  if (idx === -1) return [...route, slot]
+  return route.slice(0, idx + 1)
 }
 
 function isVibeUltraXMode(mode: unknown): boolean {
