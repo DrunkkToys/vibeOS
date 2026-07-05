@@ -23,8 +23,9 @@ describe('onShellEnv', () => {
     const input = {};
     const output = { env: {} };
     await onShellEnv(input, output);
-    assert.ok(typeof output.env.OPENCODE_MODEL_TIER === 'string');
-    assert.ok(typeof output.env.OPENCODE_MODEL === 'string');
-    assert.ok(typeof output.env.VIBEOS_SHELL_BADGE === 'string');
+    const env = output.env as Record<string, string>;
+    assert.ok(typeof env.OPENCODE_MODEL_TIER === 'string');
+    assert.ok(typeof env.OPENCODE_MODEL === 'string');
+    assert.ok(typeof env.VIBEOS_SHELL_BADGE === 'string');
   });
 });
