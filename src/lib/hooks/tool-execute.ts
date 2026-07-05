@@ -7,7 +7,7 @@ import {
   _textCompletePainted,
   _OC_SID, _modelLocked, _blackboxEnabled,
   scratchpadHitsSeen, 
-  loadSelection, _writeSelection, readLifetimeSavings,
+  loadSelection, readLifetimeSavings, recordRecentToolEvent,
   recordCacheSaving, recordMissedContext7, getScratchpadHit,
   recordScratchpadObservation,
   recordPrivacyTelemetry,
@@ -48,7 +48,7 @@ import {
   incrementTurnCounter,
 } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
+import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, cascadeDecide, addRouteEdge, predictBestModel, hashQuery } from "../../vibeOS-lib/ml-router.js"
@@ -617,16 +617,18 @@ export const onToolExecuteBefore = async (input, output) => {
   const t = input?.tool ?? ""
   const args = output?.args
   const inArgs = input?.args
+  const _effArgs = args || inArgs || {}
   const telemetryStart = {
     tool: t,
     startedAt: Date.now(),
-    kind: _toolKind(t, args || inArgs || {}),
-    prompt_size_bucket: _argSizeBucket(t, args || inArgs || {}),
+    kind: _toolKind(t, _effArgs),
+    prompt_size_bucket: _argSizeBucket(t, _effArgs),
     slot: loadSelection().active_slot || "unknown",
     tier: currentTier || "unknown",
     cache_hit: false,
   }
   _pendingTelemetryStarts.push(telemetryStart)
+  recordRecentToolEvent(t, _effArgs)
   let _cacheSave = 0
   let _prompt = ""
 
@@ -1208,6 +1210,8 @@ export const onToolExecuteAfter = async (input, output) => {
       // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
       // the tier to cheap while the model name shows a higher tier.
       const _ultraSlot = () => {
+        const _rTier = String(cascadeState?.sessions?.[currentSid]?.resolved_tier || "").toLowerCase()
+        if (_rTier === "cheap" || _rTier === "medium" || _rTier === "brain") return _rTier
         const m = displayModel || resolvedModel || ""
         if (TRINITY_CHEAP && m === TRINITY_CHEAP) return "cheap"
         if (TRINITY_MEDIUM && m === TRINITY_MEDIUM) return "medium"
@@ -1335,63 +1339,6 @@ export const onToolExecuteAfter = async (input, output) => {
       s.lifetime.last_updated = new Date().toISOString()
       return s
     })
-
-    // ── Cascade escalation via uncertainty detection ──
-    if (taskOutput && !(process.execArgv.includes("--test") || process.argv.includes("--test"))) {
-      try {
-        const _mode = loadSelection().optimization_mode
-        if (_mode === "vibeultrax") {
-          const _bb = loadBlackboxState()
-          const _session = _bb?.sessions?.[_OC_SID]
-          if (_session?.entry_tier && _session?.pipeline && _session?.uncertainty_signals) {
-            const us = _session.uncertainty_signals as any
-            const highPatterns = Array.isArray(us?.high) ? us.high : []
-            if (highPatterns.length > 0) {
-              const _matched = highPatterns.some((p: string) => typeof p === "string" && new RegExp(p, "i").test(taskOutput))
-              if (_matched) {
-                const _escCount = Number(_session.escalation_count || 0)
-                if (_escCount < 3) {
-                  const _client = getApiClient()
-                  if (_client && !isApiFallback()) {
-                    const _res = await _client.escalate(
-                      taskPrompt || latestUserIntent || "",
-                      taskOutput,
-                      _session.entry_tier || "cheap",
-                      _escCount,
-                      _session.sub_regime || "",
-                      [],
-                    )
-                    if (_res?.escalate) {
-                      // Do NOT return the cheap model's output
-                      if (output?.result?.length) output.result = ""
-                      if (output?.text?.length) output.text = ""
-                      if (output?.content?.length) output.content = ""
-                      if (output?.state?.result?.length) output.state.result = ""
-                      if (output?.state?.output?.length) output.state.output = ""
-                      // Write escalation state for re-delegation
-                      const _nextCount = _escCount + 1
-                      _writeSelection("pending_escalation_tier", _res.next_tier)
-                      _writeSelection("pending_escalation_loop_context", _res.loop_context)
-                      _writeSelection("escalation_count", _nextCount)
-                      // Persist only the escalation counter to blackbox (used by the
-                      // uncertainty cap check). pending_escalation_tier /
-                      // loop_context live solely in selection state — the single store.
-                      const _bbState = loadBlackboxState()
-                      if (_bbState?.sessions?.[_OC_SID]) {
-                        _bbState.sessions[_OC_SID].escalation_count = _nextCount
-                        _saveBlackboxState(_bbState)
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      } catch (_escErr) {
-        if (DEBUG_INTERNALS) console.error("[vibeOS] cascade escalation error:", _escErr?.message || _escErr)
-      }
-    }
   }
 
   function _payload(obj) {

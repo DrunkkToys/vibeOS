@@ -464,19 +464,22 @@ function buildDirectives(cv, regime, state, action, optimizationMode) {
   return d
 }
 export function buildControlHistoryEntry(turn, regime, control, reward = null) {
+  if (!control || typeof control !== "object" || Object.keys(control).length === 0) return null
+  const entryControl = {
+    enforcement_mode: control.enforcement_mode,
+    flow_mode: control.flow_mode,
+    tdd_mode: control.tdd_mode,
+    tier_bias: control.tier_bias,
+    thinking_mode: control.thinking_mode,
+    stress_multiplier: control.stress_multiplier,
+    context7_urgency: control.context7_urgency,
+    wbp_verbosity: control.wbp_verbosity,
+  }
+  if (Object.values(entryControl).every((v) => v === undefined || v === null)) return null
   return {
     turn,
     regime,
-    control: {
-      enforcement_mode: control.enforcement_mode,
-      flow_mode: control.flow_mode,
-      tdd_mode: control.tdd_mode,
-      tier_bias: control.tier_bias,
-      thinking_mode: control.thinking_mode,
-      stress_multiplier: control.stress_multiplier,
-      context7_urgency: control.context7_urgency,
-      wbp_verbosity: control.wbp_verbosity,
-    },
+    control: entryControl,
     reward,
   }
 }

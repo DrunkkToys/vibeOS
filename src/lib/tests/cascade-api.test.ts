@@ -21,61 +21,46 @@ describe("cascade-api — api-client.ts", () => {
     assert.ok(src.includes("resolved_tier"), "classify response must include resolved_tier")
   })
 
-  it("exports escalate() method with full response shape", () => {
-    assert.ok(src.includes("async escalate("), "escalate() method must exist")
-    assert.ok(src.includes("escalate"), "escalate response must include escalate")
-    assert.ok(src.includes("next_tier"), "escalate response must include next_tier")
-    assert.ok(src.includes("uncertainty_score"), "escalate response must include uncertainty_score")
-    assert.ok(src.includes("loop_context"), "escalate response must include loop_context")
-    assert.ok(src.includes("remaining_escalations"), "escalate response must include remaining_escalations")
-  })
-
   it("classify calls POST /api/v1/mode/classify", () => {
     assert.ok(src.includes('"/api/v1/mode/classify"'), "classify must call /api/v1/mode/classify")
   })
-
-  it("escalate calls POST /api/v1/mode/escalate", () => {
-    assert.ok(src.includes('"/api/v1/mode/escalate"'), "escalate must call /api/v1/mode/escalate")
-  })
 })
 
-describe("cascade-api — chat-transform.ts", () => {
+describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tier", () => {
   const src = readSource(join("hooks", "chat-transform.ts"))
 
   it("calls client.classify() in onSystemTransform", () => {
     assert.ok(src.includes("client.classify("), "onSystemTransform must call client.classify()")
   })
 
-  it("stores entry_tier in blackbox session state", () => {
+  it("stores entry_tier, pipeline, uncertainty_signals, cascade_depth in blackbox session state", () => {
     assert.ok(src.includes("entry_tier: entryTier"), "must store entry_tier in session")
-  })
-
-  it("stores pipeline in blackbox session state", () => {
     assert.ok(src.includes("pipeline: cascadeData.pipeline || prev.pipeline"), "must store pipeline in session")
-  })
-
-  it("stores uncertainty_signals in blackbox session state", () => {
     assert.ok(src.includes("uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals"), "must store uncertainty_signals in session")
-  })
-
-  it("stores cascade_depth in blackbox session state", () => {
     assert.ok(src.includes("cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0"), "must store cascade_depth in session")
   })
 
-  it("writes entry_tier to selection state after syncControlSettings", () => {
-    assert.ok(src.includes('writeSelection("entry_tier"'), "must write entry_tier to selection state")
+  it("stores resolved_tier as the single BE-authoritative tier signal", () => {
+    assert.ok(src.includes("resolved_tier:"), "must store resolved_tier in session")
   })
 
-  it("writes pipeline to selection state after syncControlSettings", () => {
-    assert.ok(src.includes('writeSelection("pipeline"'), "must write pipeline to selection state")
+  it("does NOT write a pending_escalation_tier selection-state flag (single-path collapse)", () => {
+    assert.ok(!src.includes('writeSelection("pending_escalation_tier"'), "pending_escalation_tier producer must be removed")
+    assert.ok(!src.includes('writeSelection("pending_escalation_loop_context"'), "pending_escalation_loop_context producer must be removed")
   })
 
-  it("writes escalation_count: 0 to selection state", () => {
-    assert.ok(src.includes('writeSelection("escalation_count"'), "must write escalation_count to selection state")
+  it("does NOT contain a second escalation re-route/consume block", () => {
+    assert.ok(!src.includes("_pendingEscTier"), "escalation re-route consumer must be removed")
+    assert.ok(!src.includes("Escalation re-route"), "escalation re-route block must be removed")
+  })
+
+  it("does NOT inject [escalation context] into the system prompt (dead producer removed)", () => {
+    assert.ok(!src.includes("_escalationLoopContext"), "escalation loop context variable must be removed")
+    assert.ok(!src.includes("[escalation context]"), "escalation context system-prompt injection must be removed")
   })
 })
 
-describe("cascade-api — tool-execute.ts", () => {
+describe("cascade-api — tool-execute.ts single-source-of-truth routing", () => {
   const src = readFileSync(join(ROOT, "src", "lib", "hooks", "tool-execute.ts"), "utf-8")
 
   it("subagent routing reads the single source of truth (control-vector worker_slot)", () => {
@@ -84,29 +69,31 @@ describe("cascade-api — tool-execute.ts", () => {
     assert.ok(!src.includes("creditForceCheap"), "credit force-cheap layer must be removed")
     assert.ok(!src.includes("cascade-escape"), "final cascade-escape override layer must be removed")
   })
+
+  it("_ultraSlot() reads BE resolved_tier directly instead of only model-string matching", () => {
+    const ultraSlotStart = src.indexOf("const _ultraSlot = ()")
+    assert.ok(ultraSlotStart >= 0, "_ultraSlot function must exist")
+    const ultraSlotBody = src.slice(ultraSlotStart, ultraSlotStart + 600)
+    assert.ok(ultraSlotBody.includes("resolved_tier"), "_ultraSlot must read resolved_tier from blackbox session")
+  })
+
+  it("does NOT contain the duplicate uncertainty-cap escalation producer (second competing writer)", () => {
+    assert.ok(!src.includes("Cascade escalation via uncertainty detection"), "uncertainty-cap escalation block must be removed")
+    assert.ok(!src.includes("_client.escalate("), "duplicate escalate() call in tool-execute.ts must be removed")
+    assert.ok(!src.includes('_writeSelection("pending_escalation_tier"'), "duplicate pending_escalation_tier producer must be removed")
+  })
 })
 
-describe("cascade-api — index.ts (text.complete handler)", () => {
+describe("cascade-api — index.ts no longer has duplicate escalation producers", () => {
   const src = readFileSync(join(ROOT, "src", "index.ts"), "utf-8")
 
-  it("imports getApiClient", () => {
-    assert.ok(src.includes("getApiClient"), "must import getApiClient")
+  it("does NOT call _clientText.escalate() anywhere (3 duplicate copies removed)", () => {
+    assert.ok(!src.includes("_clientText.escalate("), "duplicate escalate() calls in index.ts must be removed")
   })
 
-  it("calls client.escalate() in text.complete handler", () => {
-    assert.ok(src.includes("_clientText.escalate("), "must call escalate() in text.complete")
-  })
-
-  it("writes pending_escalation_tier on escalate", () => {
-    assert.ok(src.includes('writeSelection("pending_escalation_tier"'), "must write pending_escalation_tier")
-  })
-
-  it("writes pending_escalation_loop_context on escalate", () => {
-    assert.ok(src.includes('writeSelection("pending_escalation_loop_context"'), "must write pending_escalation_loop_context")
-  })
-
-  it("increments escalation_count on escalate", () => {
-    assert.ok(src.includes('writeSelection("escalation_count"'), "must increment escalation_count")
+  it("does NOT write pending_escalation_tier/pending_escalation_loop_context from index.ts", () => {
+    assert.ok(!src.includes('writeSelection("pending_escalation_tier"'), "index.ts must not write pending_escalation_tier")
+    assert.ok(!src.includes('writeSelection("pending_escalation_loop_context"'), "index.ts must not write pending_escalation_loop_context")
   })
 })
 
@@ -119,26 +106,5 @@ describe("cascade-api — footer cascade depth", () => {
 
   it("maps cascade_depth to cascadeIcon", () => {
     assert.ok(src.includes("cascadeIcon") && src.includes("cascadeDepthForIcon"), "footer must map cascade_depth to cascadeIcon")
-  })
-})
-
-describe("cascade-api — escalation consumption in onSystemTransform", () => {
-  const src = readFileSync(join(ROOT, "src", "lib", "hooks", "chat-transform.ts"), "utf-8")
-
-  it("reads pending_escalation_tier from selection", () => {
-    assert.ok(src.includes("pending_escalation_tier"), "onSystemTransform must check pending_escalation_tier")
-  })
-
-  it("overrides optimizationDecision.entry_slot with escalation tier", () => {
-    assert.ok(src.includes('entry_slot: _pendingEscTier'), "must set entry_slot from escalation tier")
-  })
-
-  it("clears pending_escalation flags after consumption", () => {
-    assert.ok(src.includes('writeSelection("pending_escalation_tier", null)'), "must clear pending_escalation_tier")
-    assert.ok(src.includes('writeSelection("pending_escalation_loop_context", null)'), "must clear pending_escalation_loop_context")
-  })
-
-  it("injects escalation loop context into system prompt", () => {
-    assert.ok(src.includes("escalation context"), "must inject [escalation context] into system prompt")
   })
 })

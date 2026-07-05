@@ -1029,10 +1029,12 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
         bbState.sub_regime || "INIT",
         cv,
       )
-      entry.fingerprint = cvFingerprint
-      state.sessions[sid].control_history.push(entry)
-      if (state.sessions[sid].control_history.length > 100) {
-        state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+      if (entry) {
+        entry.fingerprint = cvFingerprint
+        state.sessions[sid].control_history.push(entry)
+        if (state.sessions[sid].control_history.length > 100) {
+          state.sessions[sid].control_history = state.sessions[sid].control_history.slice(-100)
+        }
       }
     }
     state.sessions[sid] = {
@@ -1361,22 +1363,20 @@ export const onSystemTransform = async (_input, output) => {
       // escalation_count > 0 tells the credit force-cheap guard (tool-execute.ts:856)
       // to NOT override the cascade's tier recommendation
       const escalationCount = entryTier !== "cheap" ? (prev.escalation_count || 0) + 1 : (prev.escalation_count || 0)
+      // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
+      // signals force brain directly here rather than via a selection-state flag.
+      const resolvedTier = cascadeData.resolved_tier
+        || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : prev.resolved_tier)
       bb.sessions[_OC_SID] = {
         ...prev,
         entry_tier: entryTier,
         pipeline: cascadeData.pipeline || prev.pipeline,
         uncertainty_signals: cascadeData.uncertainty_signals || prev.uncertainty_signals,
         cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
-        resolved_tier: cascadeData.resolved_tier || prev.resolved_tier,
+        resolved_tier: resolvedTier,
         escalation_count: escalationCount,
       }
       saveBlackboxStateToCtx(bb)
-      // web_search / loop_break escalate THIS turn through the single escalation
-      // path: set pending_escalation_tier in selection state, consumed by the
-      // re-route below (there is no second store).
-      if (cascadeData.web_search === true || cascadeData.loop_break === true) {
-        writeSelection("pending_escalation_tier", "brain")
-      }
           }
         }
       } catch {}
@@ -1432,23 +1432,12 @@ export const onSystemTransform = async (_input, output) => {
       _controlVector = optimizationDecision?.control_vector || _controlVector
       optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
     }
-    // ── Escalation re-route: consume pending_escalation_tier from previous turn ──
-    const _pendingSel = loadSelection()
-    const _pendingEscTier = _pendingSel?.pending_escalation_tier
-    const _pendingEscCtx = _pendingSel?.pending_escalation_loop_context
-    let _escalationLoopContext = null
-    if (_pendingEscTier) {
-      optimizationMode = _pendingEscTier
-      optimizationDecision = {
-        ...(optimizationDecision || {}),
-        optimization_mode: _pendingEscTier,
-        entry_slot: _pendingEscTier,
-        tier_bias: _pendingEscTier,
-        source: "escalation",
-      }
-      if (_pendingEscCtx) _escalationLoopContext = _pendingEscCtx
-      writeSelection("pending_escalation_tier", null)
-      writeSelection("pending_escalation_loop_context", null)
+    // ── BE-authoritative tier: resolved_tier from client.classify() is the single
+    // source of truth for the applied slot this turn, overriding the separately
+    // computed control vector so BE's decision and the applied slot never diverge.
+    const _resolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
+    if (_resolvedTier && _controlVector) {
+      _controlVector = { ..._controlVector, selected_slot: _resolvedTier, tier_bias: _resolvedTier }
     }
     if (_controlVector) {
       const fullState = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
@@ -1481,9 +1470,11 @@ export const onSystemTransform = async (_input, output) => {
         const controlHistory = Array.isArray(existingSession?.control_history) ? [...existingSession.control_history] : []
         if (_controlVector) {
           const entry = buildControlHistoryEntry(turnCounter, sessionState.sub_regime || "INIT", _controlVector)
-          const lastEntry = controlHistory[controlHistory.length - 1]
-          if (!lastEntry || JSON.stringify(lastEntry) !== JSON.stringify(entry)) {
-            controlHistory.push(entry)
+          if (entry) {
+            const lastEntry = controlHistory[controlHistory.length - 1]
+            if (!lastEntry || JSON.stringify(lastEntry) !== JSON.stringify(entry)) {
+              controlHistory.push(entry)
+            }
           }
         }
         blackboxState.sessions ??= {}
@@ -1798,9 +1789,6 @@ export const onSystemTransform = async (_input, output) => {
       // Persistent project knowledge tree — decisions/blockers/facts that survive across
       // sessions, condensed to one line per topic branch. null when nothing recorded yet.
       pushSystem(output, projectTreeDirective(fp))
-    }
-    if (_escalationLoopContext) {
-      pushSystem(output, "[escalation context] " + _escalationLoopContext + " ")
     }
     // WRITER: capture the turn's user intent into the knowledge tree under a branch keyed
     // by the current sub-regime, so the tree accumulates real, deduped project context
