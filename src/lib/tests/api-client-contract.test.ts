@@ -146,4 +146,11 @@ describe("api-client contract", () => {
       assert.equal(mod.isApiLatencyDegraded(), false)
     })
   })
+
+  it("classify and escalate methods exist on VibeOSApiClient prototype", async () => {
+    const mod = await import("../api-client.js?m=" + Date.now())
+    const instance = new mod.VibeOSApiClient()
+    assert.equal(typeof instance.classify, "function")
+    assert.equal(typeof instance.escalate, "function")
+  })
 })
