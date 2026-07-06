@@ -27,6 +27,14 @@ const DIAGNOSE_BUDGET_LINES = 50
 const CREDIT_MIN_OK = 40
 const VIBEULTRAX_ROOT = ["cheap", "medium", "brain"]
 
+function isByteStringSafeModelId(modelId): boolean {
+  const raw = String(modelId || "")
+  for (const ch of raw) {
+    if ((ch.codePointAt(0) || 0) > 255) return false
+  }
+  return true
+}
+
 function sameJson(a, b): boolean {
   try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false }
 }
@@ -572,6 +580,9 @@ export function createTrinityTool(deps) {
           return `\u274c Provide slot: brain | medium | cheap`
         }
         if (model) {
+          if (!isByteStringSafeModelId(model)) {
+            return `\u274c Unsupported model id: use ASCII / Latin-1 characters only.`
+          }
           try {
             const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
             if (!tiers.trinity) tiers.trinity = {}
@@ -1368,6 +1379,10 @@ export function createTrinityTool(deps) {
         for (const slot of ["brain", "medium", "cheap"]) {
           const candidate = probed[slot]
           if (!candidate?.id) continue
+          if (!isByteStringSafeModelId(candidate.id)) {
+            failed.push(`${slot}: ${candidate.id} (unsupported characters)`)
+            continue
+          }
           const ok = await deps.probeModel(candidate.id, auth, providers)
           if (!ok) failed.push(`${slot}: ${candidate.id}`)
         }

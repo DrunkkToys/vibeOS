@@ -51,6 +51,14 @@ describe("modelToCcAlias", () => {
   })
 })
 
+describe("isByteStringSafeModelId", () => {
+  it("accepts latin-1-safe ids and rejects higher code points", async () => {
+    const { isByteStringSafeModelId } = await import("../trinity-rebuild.js")
+    assert.equal(isByteStringSafeModelId("deepseek/deepseek-v4-flash"), true)
+    assert.equal(isByteStringSafeModelId("deepseek/deepseek-v4-flash\u010d"), false)
+  })
+})
+
 describe("classifyAndRankModels", () => {
   it("returns null for empty / null input", async () => {
     const { classifyAndRankModels } = await import("../trinity-rebuild.js")
