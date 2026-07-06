@@ -1,4 +1,4 @@
-# vibeOS for OpenCode -- Innocence v0.25.55
+# vibeOS for OpenCode -- Containment of Potential v0.26.0
 
 > **VIBEOS_HOME** = `/Users/drunkktoys/Library/Application Support/ai.opencode.desktop/vibeOS/`
 > All runtime state files live under `$VIBEOS_HOME` (set via `VIBEOS_HOME` env var on this machine).
@@ -164,8 +164,8 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 |--------|-----------------|--------------|---------|--------|
 | VibeUltraX | 107% | 0.58x | 42% | vibe primary + tier subagents |
 | VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
-| Raw Brain | 100% | 1.00x | - | baseline |
 | VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
+| VibeLiteX | ~40% | 0.00x | 100% | direct cheap routing |
 | Budget | ~40% | 0.00x | 100% | direct routing |
 
 **VibeUltraX** -- Default mode. The unified `vibe` primary starts on cheap, medium and brain run as subagents, and same-provider escalations stay in-thread. 107% quality at 58% cost.
@@ -174,16 +174,18 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 
 **VibeMaX** -- ML-optimized medium mode. Routes through v4 Flash with a random forest classifier (29 trees, gini-split, trained on telemetry) that decides each turn. ~75% quality at 18% cost.
 
+**VibeLiteX** -- Cheap direct routing with relaxed enforcement. Ideal for exploration and Q&A.
+
 **Budget** -- DeepSeek Chat. Direct routing. ~40% quality at zero cost.
 
 ### Mode Configuration
 
 | Mode | Model | Thinking | Enforcement | Flow | TDD |
 |------|-------|----------|-------------|------|-----|
-| Raw Brain | v4 Pro | full | - | - | - |
 | VibeQMaX | v4 Pro | full | strict | strict | quality |
 | VibeUltraX | vibe primary + tier subagents | auto | auto | auto | auto |
 | VibeMaX | v4 Flash (auto-escalate) | auto | auto | auto | auto |
+| VibeLiteX | cheap | off | relaxed | audit | lazy |
 | Speed | v4 Flash | off | relaxed | audit | lazy |
 | Budget | DeepSeek Chat | off | relaxed | audit | lazy |
 
@@ -231,6 +233,9 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Pivot / counter-pivot | Detects when you switch topics mid-session (forward pivot) and when you return to a previously abandoned workflow (counter-pivot). Forward pivots snapshot the old workflow context and downgrade to budget mode. Counter-pivots restore files, decisions, blockers, and code snippets from cached workflow snapshots into the system prompt. |
 | Deferred reports | saveReport deferred to setTimeout to avoid blocking tool output |
 | Stress gauge footer | Live indicator in footer -- ▁▂▃▅▆█ (none/minimal/calm/elevated/high/critical) |
+| Cascade escalation API | classifyTurn + escalateTurn endpoints wired through the cascade pipeline with real-time tier resolution |
+| Backend-authoritative slot sync | Active API health probe syncs slot state from backend authority without passive fallback |
+| SPEC §14 coverage | Certified test coverage for cascade tier-routing, deescalation, mode-router, and API shape compliance |
 
 ## Install
 
@@ -264,8 +269,8 @@ Local dev checkout:
 | `vibe set brain\|medium\|cheap [model=<model_id>]` | Switch active model tier or override slot |
 | `vibe brain\|medium\|cheap` | Shorthand tier switch |
 | `vibe enable|disable` | Toggle plugin on/off |
-| `vibe mode budget|quality|speed|longrun|auto|balanced|audit|forensic` | Set optimization mode |
-| `vibe thinking full|brief|off` | Reasoning depth |
+| `vibe mode budget\|quality\|speed\|longrun\|auto\|balanced\|audit\|forensic\|vibeultrax\|vibeqmax\|vibemax\|vibelitex` | Set optimization mode (generic or branded) |
+| `vibe thinking full\|brief\|off` | Reasoning depth |
 | `vibe enforce on|off` | Toggle delegation enforcement |
 | `vibe lock on|off` | Freeze model for session |
 | `vibe flow on|off` | Toggle flow enforcer |
@@ -276,6 +281,7 @@ Local dev checkout:
 | `vibe rebuild` | Re-detect models from all providers |
 | `vibe project` | Per-project analytics |
 | `vibe patterns` / `vibe patterns clear` / `vibe patterns suggest` | Pattern inspection |
+| `vibe axis [status\|reset\|<name> <value>]` | Axis overrides for enforcement, flow, tdd, tier, thinking, context7_urgency, wbp_verbosity, websearch |
 | `vibe todo` / `vibe todo-done <id>` / `vibe todo-sync` | View pending todos, mark done, sync flow todos |
 | `vibe verify-claims` | Audit recent claim output against cascade evidence |
 | `vibe diagnose` | Health check |
@@ -294,13 +300,15 @@ Local dev checkout:
 
 ### Architecture
 
-vibeOS hooks into OpenCode Desktop through 8 extension points:
+vibeOS hooks into OpenCode Desktop through 10 extension points:
 
 | Hook | Purpose |
 |------|---------|
 | experimental.text.complete | Appends footer to assistant responses |
 | experimental.chat.messages.transform | Injects delegation protocol content |
 | experimental.chat.system.transform | Injects cost optimization, stress inoculation, enforcement directives |
+| experimental.chat.params | Modifies chat parameters before requests |
+| experimental.chat.headers | Injects custom HTTP headers into chat requests |
 | tool.execute.before | Blocks write/edit on brain tier |
 | tool.execute.after | Injects delegation UI notes |
 | message.updated | Fallback footer for versions without text.complete |
@@ -324,10 +332,6 @@ The plugin persists state to `VIBEOS_HOME/` for cross-session continuity:
 Core features work fully offline: model tier classification, static pricing, stress scoring, context budget, VibeBoX fallback, TDD skeletons, flow enforcement, savings ledger, session metrics, reports, footer, dashboard.
 
 Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeBoX with full session history, dynamic per-prompt delegation, cross-session calibration, live pricing fetch, learned subagent routing. Falls back gracefully when unreachable.
-
-### What Is Missing For A True Session Orchestrator
-
-The live dashboard now covers the executive Home summary, session actions, and session-scoped templates. Still missing: session versioning/undo, template versioning, batch operations, live push transport, session comparison, and export/import.
 
 ### Live Footer
 
@@ -446,13 +450,29 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 
 | Variable | Default | Effect |
 |----------|---------|--------|
+| VIBEOS_HOME | ~/.vibeos | Runtime state directory |
 | VIBEOS_API_URL | https://api.vibetheog.com | Remote API base URL |
 | VIBEOS_API_TOKEN | unset | Remote API auth |
-| VIBEOS_API_DISABLED | false | Invalidate alpha token |
 | VIBEOS_API_BOOTSTRAP_TOKEN | unset | Bootstrap exchange |
-| VIBEOS_API_ENABLED | true | Set false for local-only |
-| CLAUDE_CREDIT_PERCENT | 100 | Credit override |
 | VIBEOS_MCP_PORT | 3001 | MCP server port |
+| VIBEOS_BUILD_CHANNEL | alpha | Build channel for API client |
+| VIBEOS_DEBUG | unset | Verbose debug logging |
+| VIBEOS_DEBUG_INTERNALS | unset | Internal state debug logging |
+| VIBEOS_DEBUG_DELEGATION | unset | Delegation enforcer debug logging |
+| VIBEOS_DEBUG_FOOTER | unset | Footer builder debug logging |
+| VIBEOS_DEBUG_LOGS | unset | Flow enforcer debug logging |
+| VIBEOS_DEBUG_STDERR | unset | Flow enforcer stderr debug logging |
+| VIBEOS_FLOW_RULES_PATH | unset | Custom flow rules file path |
+| VIBEOS_DASHBOARD_SYNC_MS | 20000 | Dashboard polling interval (ms) |
+| VIBEOS_ACTIVE_PROBE_MS | 10000 | Backend health probe interval (ms) |
+| VIBEOS_REMOTE_LATENCY_DEGRADE_MS | 800 | Latency threshold for degraded alert (ms) |
+| VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS | 120000 | Cooldown between degraded alerts (ms) |
+| VIBEOS_VIBEMAX_MODEL_PATH | unset | Custom VibeMaX model path |
+| VIBEOS_OPENCODE_DESKTOP_HOME | unset | OpenCode Desktop home override |
+| VIBEOS_OPENCODE_HOME | unset | OpenCode config home override |
+| VIBEOS_API_MASTER_KEY | unset | API master key for backend auth |
+| VIBEOS_BACKEND_HEALTH_URL | unset | Custom backend health check URL |
+| CLAUDE_CREDIT_PERCENT | 50 | Credit override percentage |
 
 ### Troubleshooting
 
