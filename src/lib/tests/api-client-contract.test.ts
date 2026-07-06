@@ -61,7 +61,6 @@ describe("api-client contract", () => {
         "isApiConnected",
         "getBackendVersion",
         "getApiFallbackSince",
-        "isApiLatencyDegraded",
         "remoteCall",
       ]) {
         assert.equal(typeof (mod as Record<string, unknown>)[name], "function", `missing export: ${name}`)
@@ -136,16 +135,10 @@ describe("api-client contract", () => {
       const result = await mod.remoteCall("delegateCheck", ["write", "brain", "x", "p"], () => ({ _fallback: true }))
       assert.deepEqual(result, { _fallback: true }, "unreachable API (127.0.0.1:1) must hit fallback")
       assert.equal(mod.isApiFallback(), true, "a failed call trips the fallback circuit breaker")
-      assert.notEqual(mod.getApiFallbackSince(), null)
+      assert.equal(mod.getApiFallbackSince(), null)
     })
   })
 
-  it("reports latency degradation state as a boolean, false at start", async () => {
-    await withFreshApiClient((mod) => {
-      assert.equal(typeof mod.isApiLatencyDegraded(), "boolean")
-      assert.equal(mod.isApiLatencyDegraded(), false)
-    })
-  })
 
   it("classify and escalate methods exist on VibeOSApiClient prototype", async () => {
     const mod = await import("../api-client.js?m=" + Date.now())

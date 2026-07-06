@@ -56,6 +56,14 @@ function resolveProviderModel(modelId, providers) {
   return null
 }
 
+export function isByteStringSafeModelId(modelId) {
+  const raw = String(modelId || "")
+  for (const ch of raw) {
+    if ((ch.codePointAt(0) || 0) > 255) return false
+  }
+  return true
+}
+
 function providerApiBaseURL(providerName, providerCfg) {
   const options = providerCfg?.options || {}
   const baseURL = String(options?.baseURL || options?.baseUrl || providerCfg?.baseURL || providerCfg?.baseUrl || providerCfg?.url || "").trim()
@@ -375,6 +383,10 @@ export async function probeModel(modelId, auth, providers = null) {
   if (!modelId || !auth) return true
 
   const id = String(modelId || "")
+  if (!isByteStringSafeModelId(id)) {
+    console.error("[vibeOS] probeModel: unsupported model id characters in " + id)
+    return false
+  }
   if (id.startsWith("opencode/")) return true
 
   const provider = resolveProviderModel(id, providers)

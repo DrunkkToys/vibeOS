@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 import { postTrinity, type StatusPayload } from "../api"
 import RealityCheckPanel from "./RealityCheck"
-import { getBrandedModes } from "../../../mode-router"
+import { getBrandedModes } from "../../../mode-table"
 
 const dashboardModes = getBrandedModes()
 

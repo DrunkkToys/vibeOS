@@ -12,9 +12,9 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, isApiLatencyDegraded, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
+import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, getPendingLiveSwitch, resetPendingLiveSwitch } from "./lib/pricing.js"
-import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/turn-classify.js"
+import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/cascade.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
 import { getRuntimeVibeOSHome, setRuntimeVibeOSHome, resetRuntimeStateForTest as _resetRuntimeGlobalStateForTest } from "./lib/runtime-state.js"
 import { researchAudit } from "./lib/research-audit.js"
@@ -26,7 +26,7 @@ import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter, buildFooterAlert, didTextCompletePainted, resetFooterRuntimeState } from "./lib/hooks/footer.js"
-import { buildResilientFooterLine } from "./lib/hooks/shared-footer.js"
+import { buildResilientFooterLine } from "./lib/hooks/footer.js"
 import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill, resetChatTransformState } from "./lib/hooks/chat-transform.js"
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
@@ -34,7 +34,7 @@ import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { installVibeTierAgents, readDefaultAgent } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
-import { resetTurnClassifyRuntimeState } from "./lib/turn-classify.js"
+import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 import { getSessionDelegationSavings } from "./lib/session-savings.js"
@@ -179,7 +179,7 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
       const expected = label === "brain" ? TRINITY_BRAIN : label === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
       alertTag = buildFooterAlert({
         apiDegraded: isApiFallback(),
-        apiSlow: isApiLatencyDegraded(),
+        apiSlow: false,
         liveModel: resolvedModel || undefined,
         expectedModel: expected || undefined,
         lastModelError: undefined,
@@ -1513,7 +1513,7 @@ export { _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 export { _setPendingUiNoteForTest, _setEnforcementBlockedForTest } from "./lib/hooks/tool-execute.js"
 export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
-export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/turn-classify.js"
+export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/cascade.js"
 export { loadMcpPort as _loadMcpPort }
 export { _resetCostAnomalyDetectorForTest } from "./lib/cost-anomaly.js"
 export { remoteCall } from "./lib/api-client.js"

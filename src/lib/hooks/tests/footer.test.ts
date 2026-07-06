@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFooterAlert } from '../shared-footer.js';
+import { buildFooterAlert } from '../footer.js';
 
 describe('buildFooterAlert', () => {
   it('all-clear: returns empty string when nothing is wrong', () => {

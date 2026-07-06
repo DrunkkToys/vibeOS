@@ -3,7 +3,7 @@
 
 import { For, Show, createMemo, createSignal } from "solid-js"
 import { postTrinity, type CapabilitiesPayload, type DashboardHomePayload, type OrchSession, type SavingsPayload, type StatusPayload } from "../api"
-import { getBrandedModes, getMode, normalizeLegacyMode } from "../../../mode-router"
+import { getBrandedModes, getMode, normalizeLegacyMode } from "../../../mode-table"
 
 const modeCards = getBrandedModes()
 

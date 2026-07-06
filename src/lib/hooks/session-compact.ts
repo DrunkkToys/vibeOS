@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { readFileSync, existsSync } from "node:fs"
 import { loadSelection, _OC_SID, updateState, getSessionScratchpadDir, getSessionIndexPath } from "../state.js"
-import { getTurnCounter } from "../turn-classify.js"
+import { getTurnCounter } from "../cascade.js"
 import { sessionCompact as semanticSessionCompact, getCurrentSid } from "../../vibeOS-lib/semantic-observer.js"
 
 export const onSessionCompacting = async (_input, output) => {

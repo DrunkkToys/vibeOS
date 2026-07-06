@@ -12,7 +12,7 @@ import {
   type StatusPayload,
   type CapabilitiesPayload,
 } from "../api"
-import { getMode, normalizeLegacyMode } from "../../../mode-router"
+import { getMode, normalizeLegacyMode } from "../../../mode-table"
 import { fetchSessionDetail } from "../api"
 
 function StepRow(props: { r: OrchStepResult }) {
