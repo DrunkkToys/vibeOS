@@ -52,10 +52,10 @@
 - **Test**: `tests/cascade_route_contract.test.mjs` — "normalizer keeps vibeultrax active_pipeline durable when backend route is cheap"
 - **Module**: `src/lib/mode-router.ts`
 
-### 1.8 Remote API Verdict Overrides Local Cascade
-- **Contract**: When the remote API (`routeModel`) sets a target, the local ML cascade (`cascadeDecide` + `computeDifficulty`) is bypassed. The remote API is authoritative.
-- **Test**: `tests/blackbox_api_authoritative.test.mjs` — "API verdict ALWAYS overrides local tracker"
-- **Module**: `src/lib/hooks/tool-execute.ts` (around line 575)
+### 1.8 Remote Route Wins Only When Explicit; Otherwise Local Cascade Escalation Can Outrank It
+- **Contract**: When the remote API (`routeModel`) sets a `backendRoute.target` marked `explicit: true` (or `allow_local_upgrade: false`), that route is authoritative and local cascade is bypassed. When the backend route is not explicit, local cascade (`cascadeDecide` + `computeDifficulty`) is still evaluated, and if it resolves to a higher-ranked slot (brain > medium > cheap) than the backend's implied slot, the local cascade result wins instead.
+- **Test**: `tests/cascade_route_contract.test.mjs` — "route resolver lets local cascade escalation outrank a non-explicit backend target", "route resolver keeps an explicit backend target even when local cascade escalates higher"
+- **Module**: `src/lib/hooks/tool-execute.ts` (`resolveCascadeRouteDecision`, around line 390-475)
 
 ### 1.9 Remote API Unavailable → Local Fallback
 - **Contract**: When the remote API times out (>3000ms) or errors, the local cascade decision engine is used as fallback.
