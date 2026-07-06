@@ -2,7 +2,7 @@ import { For, Show } from "solid-js"
 import type { DashboardHomePayload, OrchFlow, OrchProject, OrchSession, StatusPayload } from "../api"
 import { postTrinity } from "../api"
 import { resolveFlowSummary } from "../home-model"
-import { getBrandedModes, getMode, normalizeLegacyMode } from "../../../mode-router"
+import { getBrandedModes, getMode, normalizeLegacyMode } from "../../../mode-table"
 
 function fmtUsd(value: number | null | undefined): string {
   return `$${Number(value || 0).toFixed(2)}`

@@ -32,7 +32,7 @@ import {
 import { latestUserIntent, normalizeRoutePath } from "./chat-transform.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { loadCredit, refreshCreditSnapshot } from "../credit-api.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon, resolveActiveCascadeTier } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, resolveTierIcon, resolveActiveCascadeTier, buildSessionBridge, recordSessionBridge, scoreTaskQuality } from "./footer.js"
 import { getVibeOSHome } from "../state.js"
 
 function isGreetingLike(text: string): boolean {
@@ -46,7 +46,7 @@ import {
   _loadGlobalLearning, _updateGlobalLearning,
   noteTaskRoutingLearning,
   incrementTurnCounter,
-} from "../turn-classify.js"
+} from "../cascade.js"
 import { saveReport } from "../reporting.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
@@ -55,9 +55,7 @@ import { computeDifficulty, cascadeDecide, hashQuery } from "../../vibeOS-lib/ml
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
-import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
 import { buildTurnId, recordTurnRoute } from "../turn-ledger.js"
-import { scoreTaskQuality } from "./footer.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 import { runtimeTierCoherence } from "../runtime-config.js"
 import { ToolLoopGuard } from "../loop-guard.js"

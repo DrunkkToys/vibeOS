@@ -25,7 +25,7 @@ import {
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
   _OC_SID,
 } from "../state.js"
-import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
+import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../cascade.js"
 import { shouldSuppressLoopNotice } from "../loop-state.js"
 import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimEvidence } from "../session-health.js"
@@ -38,26 +38,26 @@ import {
 } from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, classifyTurnRemote, loadOptimizationMode,
-  _saveOptimizationMode,
+  saveOptimizationMode,
   computeControlVector,
-  getBlackboxTracker, _getBlackboxResolution,
+  getBlackboxTracker, getBlackboxResolution,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
-  _resolveEnforcementMode, extractLastUserText,
-  _isUserAskingForTests, isLikelyOffTopic,
+  resolveEnforcementMode, extractLastUserText,
+  isUserAskingForTests, isLikelyOffTopic,
   updateGlobalLearning as _updateGlobalLearning,
-  _noteTaskRoutingLearning,
+  noteTaskRoutingLearning,
   fetchBlackboxEnrichment,
   estimateContextBudget,
   buildControlHistoryEntry,
   setBlackboxEnabled,
-} from "../turn-classify.js"
-import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../mode-router.js"
+  BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode,
+} from "../cascade.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
-import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
+import { buildSessionBridge, recordSessionBridge } from "./footer.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"

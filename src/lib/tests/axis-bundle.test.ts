@@ -1,7 +1,7 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { computeAxisBundle, buildAxisDirectives, isAxisName, REGIME_AXIS_BASE, MODE_AXIS_DEFAULTS } from "../axis-bundle.js"
-import { MODES, isMode } from "../mode-router.js"
+import { computeAxisBundle, buildAxisDirectives, isAxisName, REGIME_AXIS_BASE, MODE_AXIS_DEFAULTS } from "../cascade.js"
+import { MODES, isMode } from "../cascade.js"
 
 describe("axis-bundle: mode identity", () => {
   it("recognizes exactly the 5 canonical modes", () => {

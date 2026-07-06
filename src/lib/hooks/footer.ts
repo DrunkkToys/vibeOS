@@ -1,19 +1,675 @@
+// DOC: Auto-merged from footer.ts, shared-footer.ts, session-bridge.ts
 // @ts-nocheck
-import { appendFileSync, mkdirSync } from "node:fs"
+// SPDX-License-Identifier: MIT
+
+// ── Imports ──
+
+import { createHash } from "node:crypto"
+import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
-import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
+import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../cascade.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
-import { loadSelection, loadSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiConnected, isApiLatencyDegraded, isApiFallback } from "../api-client.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, resolveActiveCascadeTier } from "./shared-footer.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
+import { loadSessionSlot } from "../selection-manager.js"
+import { remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { evaluateClaimEvidence, getSessionHealthSnapshot } from "../session-health.js"
 import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
+import { extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
+import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
+
+// ── Footer Line Types (from shared-footer) ──
+
+export interface FooterLineInput {
+  activeSlot: string
+  sessionSlot?: string
+  workerSlot?: string
+  providerLabel: string
+  modelName: string
+  savingsTotal?: number
+  ltTotal?: number
+  ltTrend?: string
+  vibeBrand: string
+  optMode: string
+  flashIcon: string
+  enfTags: string[]
+  subRegime?: string
+  stressGauge?: string
+  cascadeIcon?: string
+  cascadeLabel?: string
+  claimTag?: string
+  rewardTag?: string
+  alertTag?: string
+}
+
+const REGIME_TAG: Record<string, string> = {
+  INIT: "Starting",
+  DIVERGENT: "Off-track",
+  EXPLORING: "Exploring",
+  REFINING: "Refining",
+  IMPLEMENTING: "Building",
+  RESEARCH: "Researching",
+  REVIEWING: "Reviewing",
+  DESIGNING: "Designing",
+  CONVERGING: "Converging",
+  CLOSED: "Closed",
+  LOOPING: "Looping",
+  AUDIT: "Auditing",
+  FORENSIC: "Deep dive",
+}
+
+const REGIME_ICON: Record<string, string> = {
+  INIT: "◌",
+  DIVERGENT: "⇄",
+  EXPLORING: "⌕",
+  REFINING: "✎",
+  IMPLEMENTING: "⚙",
+  RESEARCH: "⌁",
+  REVIEWING: "✓",
+  DESIGNING: "◫",
+  CONVERGING: "⟲",
+  CLOSED: "◆",
+  LOOPING: "↻",
+  AUDIT: "☑",
+  FORENSIC: "⟁",
+}
+
+const BRAND_MAP: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MODE_TABLE).flatMap(([, mode]) => {
+    const aliases = [mode.id]
+    if (mode.id === "vibelitex") aliases.push("litex")
+    return aliases.map((alias) => [alias, mode.name])
+  })),
+  ...Object.fromEntries(RUNTIME_MODES.map(m => [m.id, m.name])),
+}
+
+const TIER_ICON: Record<string, string> = {
+  brain: "\u{1F9E0}",
+  medium: "\u25D0",
+  cheap: "\u26A1",
+  free: "\u{1F381}",
+}
+
+// ── Footer Formatters (from shared-footer) ──
+
+export function resolveBrand(optMode: string, _activeSlot: string): string {
+  const raw = String(optMode || "").trim().toLowerCase()
+  if (!raw || raw === "auto") return "vibeOS"
+  if (raw === "raw") return MODE_TABLE.raw.name
+  const isKnownMode = BRANDED_MODES.some((mode) => mode.id === raw) || RUNTIME_MODES.some((mode) => mode.id === raw)
+  const isKnownAlias = raw === "litex"
+  if (!isKnownMode && !isKnownAlias) return "vibeOS"
+  try {
+    const canonical = normalizeLegacyMode(raw)
+    return MODE_TABLE[canonical]?.name || "vibeOS"
+  } catch {
+    return "vibeOS"
+  }
+}
+
+export function resolveTierIcon(slot: string): string {
+  return TIER_ICON[slot] || "\u26A1"
+}
+
+export type CascadeTier = "cheap" | "medium" | "brain"
+
+export interface CascadeTierResolution {
+  tier: CascadeTier
+  depth: number
+  source: "route" | "model"
+}
+
+interface CascadeTierSessionState {
+  route_path?: unknown
+  pipeline_root?: unknown
+  cascade_depth?: unknown
+}
+
+function _asTier(value: unknown): CascadeTier | null {
+  return value === "cheap" || value === "medium" || value === "brain" ? value : null
+}
+
+export function resolveActiveCascadeTier(opts: {
+  liveSession?: CascadeTierSessionState
+  diskSession?: CascadeTierSessionState
+  legacyDepth?: number
+  liveModel?: string
+  trinityCheap?: string
+  trinityMedium?: string
+  trinityBrain?: string
+  classify?: (model: string) => string
+}): CascadeTierResolution {
+  for (const session of [opts.liveSession, opts.diskSession]) {
+    const routePath = Array.isArray(session?.route_path) ? (session!.route_path as unknown[]) : []
+    const tier = routePath.length ? _asTier(routePath[routePath.length - 1]) : null
+    if (tier) return { tier, depth: routePath.length, source: "route" }
+  }
+  for (const session of [opts.liveSession, opts.diskSession]) {
+    const pipelineRoot = Array.isArray(session?.pipeline_root) ? (session!.pipeline_root as unknown[]) : []
+    const depth = Number(session?.cascade_depth) || 0
+    if (pipelineRoot.length && depth > 0) {
+      const tier = _asTier(pipelineRoot[Math.min(depth, pipelineRoot.length) - 1])
+      if (tier) return { tier, depth, source: "route" }
+    }
+  }
+  const legacyDepth = Number(opts.legacyDepth) || 0
+  const m = opts.liveModel || ""
+  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth || 1, source: "model" }
+  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth || 2, source: "model" }
+  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth || 3, source: "model" }
+  const c = String((opts.classify ? opts.classify(m) : "") || "").toLowerCase()
+  const tier: CascadeTier = c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
+  return { tier, depth: legacyDepth || (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
+}
+
+export function resolveRegimeIcon(subRegime: string): string {
+  return REGIME_ICON[String(subRegime || "").toUpperCase()] || "◦"
+}
+
+export function formatModeLabel(optMode: string): string {
+  const normalized = String(optMode || "").toLowerCase()
+  if (!normalized) return ""
+  if (normalized === "vibemax") return "VibeMaX"
+  if (normalized === "vibelitex" || normalized === "litex") return "VibeLiteX"
+  if (normalized === "vibeqmax") return "VibeQMaX"
+  if (normalized === "vibeultrax") return "VibeUltraX"
+  if (normalized === "speed") return "Speed"
+  if (normalized === "longrun") return "Longrun"
+  if (normalized === "audit") return "Audit"
+  if (normalized === "forensic") return "Forensic"
+  if (normalized === "balanced") return "Balanced"
+  if (normalized === "budget") return "Budget"
+  if (normalized === "quality") return "Quality"
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+export function formatEnforcementPulse(enfTags: string[]): string {
+  const tags = new Set(enfTags || [])
+  const parts: string[] = []
+
+  if (tags.has("[Q&A]")) {
+    parts.push("quiet mode")
+  } else {
+    if (tags.has("[ENF ON]") || tags.has("[STRICT]")) parts.push("guarded")
+    if (tags.has("[FLOW ON]")) parts.push("flow steady")
+    if (tags.has("[TDD ON]")) parts.push("tests live")
+  }
+
+  if (tags.has("[LOCK ON]")) parts.push("locked")
+
+  return parts.join(" · ")
+}
+
+export function trendGlyph(trend?: string): string {
+  if (trend === "up") return "↗"
+  if (trend === "down") return "↘"
+  return "→"
+}
+
+export function formatSavingsPulse(amountUsd: number, trend?: string): string {
+  const amount = Number(amountUsd || 0)
+  if (!Number.isFinite(amount) || amount <= 0) return ""
+  const arrow = trendGlyph(trend)
+  return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
+}
+
+export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string): string {
+  const icon = String(cascadeIcon || "").trim()
+  const label = String(cascadeLabel || "").trim()
+  if (!icon && !label) return ""
+  return [icon, label].filter(Boolean).join(" ")
+}
+
+export function resolveFooterState(partial?: Partial<FooterLineInput> | null): FooterLineInput {
+  const p = partial && typeof partial === "object" ? partial : {}
+  const savingsTotalNum = Number(p.savingsTotal ?? p.ltTotal)
+  return {
+    activeSlot: typeof p.activeSlot === "string" && p.activeSlot ? p.activeSlot : "cheap",
+    sessionSlot: p.sessionSlot,
+    workerSlot: p.workerSlot,
+    providerLabel: typeof p.providerLabel === "string" && p.providerLabel ? p.providerLabel : "Unknown",
+    modelName: typeof p.modelName === "string" && p.modelName ? p.modelName : "unknown",
+    savingsTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
+    ltTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
+    ltTrend: p.ltTrend,
+    vibeBrand: typeof p.vibeBrand === "string" ? p.vibeBrand : "",
+    optMode: typeof p.optMode === "string" ? p.optMode : "",
+    flashIcon: typeof p.flashIcon === "string" ? p.flashIcon : "",
+    enfTags: Array.isArray(p.enfTags) ? p.enfTags : [],
+    subRegime: p.subRegime,
+    stressGauge: p.stressGauge,
+    cascadeIcon: p.cascadeIcon,
+    cascadeLabel: p.cascadeLabel,
+    claimTag: p.claimTag,
+    rewardTag: p.rewardTag,
+    alertTag: p.alertTag,
+  }
+}
+
+export function buildResilientFooterLine(partial?: Partial<FooterLineInput> | null): string {
+  const state = resolveFooterState(partial)
+  if (!state.vibeBrand) {
+    state.vibeBrand = resolveBrand(state.optMode, state.activeSlot)
+  }
+  try {
+    return buildFooterLine(state)
+  } catch {
+    const cascade = formatCascadePulse(state.cascadeIcon, state.cascadeLabel)
+    const alert = state.alertTag ? ` | ${state.alertTag}` : ""
+    const cascadePart = cascade ? ` | ${cascade}` : ""
+    return `— ${resolveTierIcon(state.activeSlot)} ${state.activeSlot} | ${state.providerLabel} | ${state.modelName} | VIBE${cascadePart} | ${state.vibeBrand || "vibeOS"}${alert} —`
+  }
+}
+
+export function buildEnforcementTags(opts: {
+  delegationEnforce: boolean
+  flowEnforce: boolean
+  tddEnforce: boolean
+  bbMode: string
+  modelLocked: boolean
+  quietIntent?: boolean
+}): string[] {
+  const tags: string[] = []
+  if (opts.quietIntent || opts.bbMode === "relaxed") {
+    tags.push("[Q&A]")
+  } else {
+    if (opts.delegationEnforce) tags.push("[ENF ON]")
+    if (opts.flowEnforce) tags.push("[FLOW ON]")
+    if (opts.tddEnforce) tags.push("[TDD ON]")
+    if (opts.bbMode === "strict") tags.push("[STRICT]")
+  }
+  if (opts.modelLocked) tags.push("[LOCK ON]")
+  return tags
+}
+
+export function buildFooterAlert(opts: {
+  apiDegraded?: boolean
+  apiSlow?: boolean
+  liveModel?: string
+  expectedModel?: string
+  lastModelError?: string
+  pendingLiveModel?: string
+} | null = {}): string {
+  opts = opts || {}
+  const alerts: string[] = []
+  if (opts.apiSlow) alerts.push("⚠ api slow")
+  if (opts.apiDegraded && String(opts.lastModelError || "").trim()) alerts.push("⚠ api degraded")
+  const expectedToCompare = opts.pendingLiveModel || opts.expectedModel
+  if (opts.liveModel && expectedToCompare && opts.liveModel !== expectedToCompare) {
+    if (opts.pendingLiveModel) {
+      alerts.push("⚠ switch pending")
+    } else {
+      alerts.push("⚠ model drift")
+    }
+  }
+  const err = String(opts.lastModelError || "")
+  if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
+    alerts.push("⚠ model unreachable")
+  }
+  return alerts.join(" · ")
+}
+
+export function buildFooterLine(input: FooterLineInput): string {
+  const { activeSlot, providerLabel, modelName, ltTrend, vibeBrand, optMode, flashIcon, enfTags, subRegime } = input
+  const savingsTotal = Number.isFinite(Number(input.savingsTotal ?? input.ltTotal)) ? Number(input.savingsTotal ?? input.ltTotal) : 0
+
+  const tierIcon = resolveTierIcon(activeSlot)
+  const regimeTag = subRegime ? REGIME_TAG[subRegime] || subRegime.slice(0, 4) : null
+  const regimeIcon = subRegime ? resolveRegimeIcon(subRegime) : null
+  const modeLabel = formatModeLabel(optMode)
+  const workerSuffix = input.workerSlot ? ` [${input.workerSlot}]` : ""
+  let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${workerSuffix}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
+
+  if (savingsTotal > 0) {
+    const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend)
+    if (savingsPulse) line += ` | ${savingsPulse}`
+  } else {
+    line += " | VIBE"
+  }
+
+  if (vibeBrand) {
+    line += ` | ${vibeBrand}${flashIcon}`
+  } else if (flashIcon.trim()) {
+    line += ` | ${flashIcon.trim()}`
+  }
+
+  const cascadePulse = formatCascadePulse(input.cascadeIcon, input.cascadeLabel)
+  if (cascadePulse) {
+    line += ` | ${cascadePulse}`
+  }
+
+  const enforcementPulse = formatEnforcementPulse(enfTags)
+  if (enforcementPulse) {
+    line += ` | ${enforcementPulse}`
+  }
+
+  if (input.alertTag) {
+    line += ` | ${input.alertTag}`
+  }
+
+  if (input.stressGauge) {
+    line += ` | ${input.stressGauge}`
+  }
+
+  if (input.claimTag) {
+    line += ` | ${input.claimTag}`
+  }
+
+  if (input.rewardTag) {
+    line += ` | ${input.rewardTag}`
+  }
+
+  line += " \u2014"
+
+  return line
+}
+
+// ── Session Bridge (from session-bridge) ──
+
+function compactText(value: unknown, max = 900): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  if (text.length <= max) return text
+  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
+function normalizePipeline(pipeline: unknown): string[] {
+  return Array.isArray(pipeline)
+    ? pipeline.map((tier) => String(tier || "").trim()).filter(Boolean)
+    : []
+}
+
+function computeSessionBridgeKey(input: {
+  sessionId?: string
+  fromModel?: string
+  fromTier?: string
+  toModel?: string
+  toTier?: string
+  reason?: string
+  prompt?: string
+  userText?: string
+  activePipeline?: unknown
+  projectFingerprint?: string
+  projectName?: string
+  sourceStrategy?: string
+} = {}): string {
+  const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown"
+  const fromModel = String(input.fromModel || "").trim()
+  const fromTier = String(input.fromTier || "").trim()
+  const toModel = String(input.toModel || "").trim()
+  const toTier = String(input.toTier || "").trim()
+  const reason = String(input.reason || "cascade handoff").trim()
+  const prompt = compactText(input.prompt || "")
+  const pipelineRoot = normalizePipeline(input.activePipeline)
+  const projectFingerprint = String(input.projectFingerprint || currentProjectFingerprint || "").trim()
+  const projectName = String(input.projectName || currentProjectName || "").trim()
+  const sourceStrategy = String(input.sourceStrategy || "").trim()
+  return createHash("sha1").update([
+    sessionId,
+    fromModel,
+    fromTier,
+    toModel,
+    toTier,
+    reason,
+    prompt,
+    pipelineRoot.join(","),
+    projectFingerprint,
+    projectName,
+    sourceStrategy,
+  ].join("|")).digest("hex").slice(0, 16)
+}
+
+function hasRecordedSessionBridge(sessionId: string, bridgeKey: string, bridgeId: string): boolean {
+  try {
+    const orchestration = loadSessionOrchestration(sessionId)
+    const history = Array.isArray(orchestration?.history) ? orchestration.history : []
+    return history.some((entry: unknown) => {
+      const actions = Array.isArray(entry?.payload?.actions) ? entry.payload.actions : []
+      return actions.some((action: unknown) => {
+        const payload = action?.payload && typeof action.payload === "object" ? action.payload : {}
+        const note = String(payload.note || "").trim()
+        const tags = Array.isArray(payload.tags) ? payload.tags.map((tag: unknown) => String(tag || "").trim()) : []
+        return note.includes(`bridge_key=${bridgeKey}`) || tags.includes(`bridge_key:${bridgeKey}`) || tags.includes(`bridge:${bridgeId}`)
+      })
+    })
+  } catch {
+    return false
+  }
+}
+
+function summarizeSelection(selection: unknown): Record<string, unknown> {
+  const sel = selection && typeof selection === "object" ? selection : {}
+  return {
+    enabled: sel.enabled !== false,
+    active_slot: sel.active_slot || null,
+    slot_locked: Boolean(sel.slot_locked),
+    optimization_mode: sel.optimization_mode || null,
+    thinking_level: sel.thinking_level || "off",
+    flow_enabled: sel.flow_enabled !== false,
+    flow_enforce: Boolean(sel.flow_enforce),
+    delegation_enforce: sel.delegation_enforce !== false,
+    tdd_enforce: Boolean(sel.tdd_enforce),
+    tdd_strict: Boolean(sel.tdd_strict),
+    tdd_quality: sel.tdd_quality !== false,
+    requested_optimization_mode: sel.requested_optimization_mode || null,
+    previous_default_agent: sel.previous_default_agent || null,
+    previous_optimization_mode: sel.previous_optimization_mode || null,
+  }
+}
+
+function summarizeOrchestration(orchestration: unknown): Record<string, unknown> {
+  const orch = orchestration && typeof orchestration === "object" ? orchestration : {}
+  const notes = Array.isArray(orch.notes) ? orch.notes : []
+  const history = Array.isArray(orch.history) ? orch.history : []
+  const lastNote = notes.at(-1)
+  const lastHistory = history.at(-1)
+  return {
+    status: orch.status || "active",
+    locked: Boolean(orch.locked),
+    archived: Boolean(orch.archived),
+    version: Number(orch.version || 1) || 1,
+    tags: Array.isArray(orch.tags) ? orch.tags.map((tag) => String(tag || "").trim()).filter(Boolean) : [],
+    notes_count: notes.length,
+    last_note: lastNote?.text || null,
+    last_action: lastHistory?.action || null,
+    template_id: orch.template?.id || null,
+    template_label: orch.template?.label || null,
+    template_signature: orch.template?.signature || null,
+  }
+}
+
+function summarizeCache(cacheDb: unknown): Record<string, unknown> {
+  const db = cacheDb && typeof cacheDb === "object" ? cacheDb : {}
+  const entries = Array.isArray(db.entries) ? db.entries : []
+  const stats = db.stats && typeof db.stats === "object" ? db.stats : {}
+  const toolStats = Object.values(stats).slice(0, 6).map((stat: unknown) => ({
+    tool: stat?.tool || null,
+    hits: Number(stat?.hits || 0),
+    total: Number(stat?.total || 0),
+    hitRate: Number(stat?.hitRate || 0),
+    bytesSaved: Number(stat?.bytesSaved || 0),
+  }))
+  return {
+    entries: entries.length,
+    tool_stats: toolStats,
+    recent_outputs: extractRecentCacheOutputs(db, 5),
+  }
+}
+
+export function buildSessionBridge(input: {
+  sessionId?: string
+  turnId?: string
+  fromModel?: string
+  fromTier?: string
+  toModel?: string
+  toTier?: string
+  reason?: string
+  prompt?: string
+  userText?: string
+  activePipeline?: unknown
+  projectFingerprint?: string
+  projectName?: string
+  sourceStrategy?: string
+  routeDecision?: unknown
+} = {}) {
+  const sessionId = String(input.sessionId || getCurrentSessionId() || _OC_SID || "unknown").trim() || "unknown"
+  const fromModel = String(input.fromModel || "").trim()
+  const fromTier = String(input.fromTier || "").trim()
+  const toModel = String(input.toModel || "").trim()
+  const toTier = String(input.toTier || "").trim()
+  const reason = String(input.reason || "cascade handoff").trim()
+  const prompt = compactText(input.prompt || input.userText || "")
+  const pipelineRoot = normalizePipeline(input.activePipeline)
+  const projectFingerprint = String(input.projectFingerprint || currentProjectFingerprint || "").trim()
+  const projectName = String(input.projectName || currentProjectName || "").trim()
+  const activeJob = getActiveJobForProject(projectFingerprint)
+  const activeJobPrompt = compactText(activeJob?.prompt || activeJob?.text || "")
+  const selectionSnapshot = summarizeSelection(loadSelection())
+  const orchestrationSnapshot = summarizeOrchestration(loadSessionOrchestration(sessionId))
+  const cacheSnapshot = summarizeCache(_cacheDb)
+  const carryForward = [prompt, activeJobPrompt].filter(Boolean).join("\n")
+  const verifiedDifficulty = computeDifficulty(prompt)
+  const routeDecisionSnapshot = input.routeDecision && typeof input.routeDecision === "object"
+    ? input.routeDecision
+    : {
+        source: String(input.sourceStrategy || "local-cascade"),
+        reason,
+        from_tier: fromTier || null,
+        from_model: fromModel || null,
+        to_tier: toTier || null,
+        to_model: toModel || null,
+        verified: true,
+      }
+  const createdAt = new Date().toISOString()
+  const bridgeId = createHash("sha1").update([
+    sessionId,
+    fromModel,
+    fromTier,
+    toModel,
+    toTier,
+    reason,
+    createdAt,
+  ].join("|")).digest("hex").slice(0, 16)
+  const bridgeKey = computeSessionBridgeKey(input)
+
+  const promptPrefix = [
+    "[session bridge]",
+    `bridge_id=${bridgeId}`,
+    `source_session=${sessionId}`,
+    `from=${fromTier || "unknown"}:${fromModel || "unset"}`,
+    `to=${toTier || "unknown"}:${toModel || "unset"}`,
+    `reason=${reason}`,
+    pipelineRoot.length > 0 ? `pipeline=${pipelineRoot.join(" -> ")}` : null,
+    input.sourceStrategy ? `source_strategy=${input.sourceStrategy}` : null,
+    `selection=${JSON.stringify(selectionSnapshot)}`,
+    `orchestration=${JSON.stringify(orchestrationSnapshot)}`,
+    `cache=${JSON.stringify(cacheSnapshot)}`,
+    carryForward ? `carry_forward=${carryForward}` : null,
+    "",
+  ].filter(Boolean).join("\n")
+
+  const auditNote = [
+    `bridge ${fromTier || "?"}->${toTier || "?"}`,
+    `${fromModel || "unset"} -> ${toModel || "unset"}`,
+    reason,
+  ].join(" | ")
+
+  const tags = [
+    `bridge:${bridgeId}`,
+    `bridge:${toTier || "unknown"}`,
+    `model:${toModel || "unset"}`,
+    ...pipelineRoot.map((tier) => `pipeline:${tier}`),
+  ]
+
+  return {
+    bridge_id: bridgeId,
+    bridge_key: bridgeKey,
+    session_id: sessionId,
+    turn_id: String(input.turnId || "").trim() || null,
+    created_at: createdAt,
+    from_model: fromModel,
+    from_tier: fromTier,
+    to_model: toModel,
+    to_tier: toTier,
+    reason,
+    project_fingerprint: projectFingerprint,
+    project_name: projectName,
+    pipeline_root: pipelineRoot,
+    source_strategy: String(input.sourceStrategy || "").trim() || null,
+    route_decision: routeDecisionSnapshot,
+    verified_difficulty: {
+      score: verifiedDifficulty.score,
+      level: verifiedDifficulty.level,
+      confidence: verifiedDifficulty.confidence,
+      suggested_tier: verifiedDifficulty.suggestedTier,
+    },
+    selection: selectionSnapshot,
+    orchestration: orchestrationSnapshot,
+    cache: cacheSnapshot,
+    active_job: activeJob || null,
+    carry_forward: carryForward,
+    prompt_prefix: promptPrefix,
+    audit_note: auditNote,
+    tags,
+  }
+}
+
+export function recordSessionBridge(bridge: unknown): boolean {
+  if (!bridge || typeof bridge !== "object") return false
+  const sessionId = String(bridge.session_id || getCurrentSessionId() || _OC_SID || "unknown").trim()
+  if (!sessionId) return false
+  const bridgeKey = String(bridge.bridge_key || bridge.bridge_id || sessionId).trim()
+  if (!bridgeKey) return false
+  const bridgeId = String(bridge.bridge_id || "").trim()
+  if (bridgeId && hasRecordedSessionBridge(sessionId, bridgeKey, bridgeId)) return false
+  try {
+    updateSessionOrchestration(sessionId, "batch", {
+      actions: [
+        { action: "annotate", payload: { note: `bridge_key=${bridgeKey} ${bridge.audit_note || "session bridge"}` } },
+        { action: "retag", payload: { tags: Array.isArray(bridge.tags) ? ["bridge_key:" + bridgeKey, ...bridge.tags] : ["bridge_key:" + bridgeKey], replace: false } },
+      ],
+      bridge,
+    })
+  } catch {}
+  try {
+    saveJobRecord(bridge.bridge_id || sessionId, {
+      kind: "session-bridge",
+      status: "completed",
+      completedAt: new Date().toISOString(),
+      ...bridge,
+    })
+  } catch {}
+  try { removeJobRecord(bridge.bridge_id || sessionId) } catch {}
+  try {
+    const dir = getVibeOSHome()
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, ".session-bridges.jsonl"), JSON.stringify({ _ts: new Date().toISOString(), ...bridge }) + "\n")
+  } catch {}
+  return true
+}
+
+export function loadLatestSessionBridge(projectFingerprint: string): unknown {
+  const fp = String(projectFingerprint || "").trim()
+  if (!fp) return null
+  try {
+    const file = join(getVibeOSHome(), ".session-bridges.jsonl")
+    if (!existsSync(file)) return null
+    const lines = readFileSync(file, "utf-8").trim().split("\n").filter(Boolean)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i])
+        if (entry && String(entry.project_fingerprint || "").trim() === fp) return entry
+      } catch {}
+    }
+  } catch {}
+  return null
+}
+
+// ── Footer Hook (from footer.ts) ──
 
 const IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 const IS_TEST_RUNTIME = process.env.VIBEOS_MCP_PORT === "0" || process.env.NODE_ENV === "test" || process.env.CI === "true"
@@ -88,10 +744,6 @@ async function apiAutoSelectMode(regime, stress) {
 
 let _prevOutputText = ""
 let _autoReportCount = 0
-// messageID -> length of the message text we last painted a footer onto.
-// Used for streaming-aware dedup: a redundant re-call for the same message has
-// the same-or-shorter text (skip), but a streaming update that GREW the text
-// and wiped our footer must be re-painted (see the guard in _appendFooter).
 const textCompletePainted = new Map()
 let _lastStrippedText = ""
 
@@ -180,7 +832,6 @@ function buildRewardInput({
   }
 }
 
-// Footer content cache — reuse same footer text across hooks within 1s
 let _footerCacheText = ""
 let _footerCacheTs = 0
 
@@ -220,11 +871,6 @@ function recordFooterProbe(input: {
   } catch {}
 }
 
-// Surface a swallowed footer exception into the per-session jsonl. For ~10 PRs the
-// rich footer threw every turn and the catch only wrote to stderr (which the OpenCode
-// desktop app discards), so the failure was invisible and the degraded fallback won
-// silently. This records WHICH stage threw so the exact cause is visible on the next
-// live turn instead of being guessed at.
 function recordFooterError(input: { stage: string; message: string; stack?: string; hook?: string }) {
   try {
     const sid = getSessionId()
@@ -244,7 +890,6 @@ function recordFooterError(input: { stage: string; message: string; stack?: stri
 
 async function _appendFooter(input, output, directory, lastModelError?: string, hookName = "experimental.text.complete") {
   _refreshModel(directory)
-  // Tracks how far the rich path got, so a throw names the failing stage in the jsonl.
   let _footerStage = "init"
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
@@ -274,14 +919,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       liveBlackboxState = diskBlackboxState
     }
   } catch {}
-  // The footer MUST display the model the turn actually ran on = the live OpenCode
-  // default (project opencode.json `model`), which is exactly the dropdown the user
-  // and VibeUltraX drive. This used to probe client.config.get("model") (the MERGED /
-  // global config) and fall through to readConfig()'s remembered workspace-session
-  // model — both of which drift to a stale brain default, so the footer showed brain
-  // while a cheap turn ran (the footer↔dropdown↔VibeUltraX incoherence). Reading the
-  // SAME file the dropdown writes keeps them coherent by construction, and drops an
-  // async client probe that could stall the turn.
   let liveModelSetting = readLiveOpenCodeModel(directory) || ""
   const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
   if (hookModel) liveModelSetting = hookModel
@@ -299,13 +936,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
-    // NOTE: we deliberately do NOT short-circuit on textCompletePainted here.
-    // OpenCode rewrites the assistant message text on every streaming update,
-    // which wipes any footer we painted on an earlier (partial) chunk. Skipping
-    // by messageID left the *final* message footer-less, so the basic
-    // ensureFooterFallback() footer (raw live model, no brand/savings) won.
-    // The `hasExistingFooter` guard below is the correct idempotency check:
-    // it repaints when the footer was wiped and skips when it is still present.
 
     function _payload(obj) {
       if (obj?.message && typeof obj.message === "object") return obj.message
@@ -332,12 +962,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const latestExecutedRoute = latestTurnTruth?.executedRoute || null
     const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
     const latestFinalized = latestTurnTruth?.finalized || null
-    // Slot and depth must read from the SAME source with the SAME priority: the
-    // depth icon below prefers the executed route's routePath (when it drove the
-    // visible answer) over the finalized snapshot. If slot preferred finalized
-    // first instead, a turn with both records present could show a tier label
-    // from one source and a depth icon from the other, disagreeing with each
-    // other (e.g. "brain" label with a "medium" ▸▸ depth icon).
     const turnTruthSlot = (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || latestFinalized?.finalVisibleSlot || ""
     const sessionSlot = turnTruthSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
@@ -367,18 +991,10 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       : (isApiConnected()
         ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
         : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
-    // VibeUltraX is a cascade: show the LIVE running model and the tier that
-    // model actually occupies in the user's trinity (cheap → medium → brain).
-    // At the cascade entry this reads "⚡ cheap | Big Pickle"; once it escalates
-    // to e.g. deepseek-v4-flash (the medium slot) it reads "◐ medium | V4 Flash"
-    // — tier and model stay coherent instead of a pinned "⚡ cheap | V4 Flash".
-    // resolveActiveCascadeTier reads route_path — the same persisted array the
-    // depth icon uses — so the tier label and the icon can never disagree.
     const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
     const ultraCascadeResolution = resolveActiveCascadeTier({
       liveSession: liveBlackboxState?.sessions?.[sid],
       diskSession: diskBlackboxState?.sessions?.[sid],
-      // Legacy pre-session-scoped schema fallback (root-level cascade_depth).
       legacyDepth: liveBlackboxState?.control_vector?.cascade_depth ?? liveBlackboxState?.cascade_depth
         ?? diskBlackboxState?.control_vector?.cascade_depth ?? diskBlackboxState?.cascade_depth ?? 0,
       liveModel: ultraLiveModel,
@@ -391,14 +1007,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
       ? latestExecutedRoute.routePath.length
       : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
-    // When the tier came from a recorded route_path (source "route" — an actual
-    // Task-delegation escalation happened this turn), the trinity model for that
-    // tier is the source of truth for the model name: the orchestrator's own bound
-    // live model never changes mid-session (Model Switch Contract), so displayModel
-    // would otherwise show a stale pre-escalation name while the icon/label already
-    // moved to "brain"/"medium". When the tier was instead inferred BY classifying
-    // the live model (source "model" — cold start, no escalation recorded), the live
-    // model IS the tier's evidence, so it must stay the one shown.
     const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
       : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
       : null)
@@ -410,11 +1018,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       directory,
       activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
       currentModel,
-      // Use cascadeModel (already falls back to the resolved tier's trinity model),
-      // not the raw live model string — resolveCurrentExecution prioritizes liveModel
-      // when set, so passing the raw string here silently discarded the escalated
-      // tier's model name while the tier icon/label still updated, showing e.g.
-      // "brain" with the pre-escalation model name unchanged.
       liveModel: displayMode === "vibeultrax" ? cascadeModel : (displayModel || liveModel || currentModel || ""),
       tiersData: {
         trinity: {
@@ -453,7 +1056,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
             cacheSavings: ltCache,
             delegationSavingsUsd: sesTasks,
             taskDelegationCount: sesTaskDelegations,
-            // Backward compatibility (legacy field historically misnamed)
             tasksDelegated: sesTaskDelegations,
             model: resolvedModel || currentModel,
             slot: loadSelection().active_slot || "unknown",
@@ -467,11 +1069,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
     }
 
-    // NOTE: do NOT re-import selection-manager with a cache-busting query string here.
-    // esbuild cannot resolve a runtime template-literal import inside the bundle
-    // (`dist/vibeOS.js`); it throws SYNCHRONOUSLY (so `.catch` never fires), which killed
-    // the rich footer on every live turn and let the degraded fallback win. loadSelection()
-    // already reads fresh from disk each call, so the plain import is sufficient.
     const selNowFooter = loadSelection()
     const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
     const currentSubRegime = quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || normalizedIntent)
@@ -511,12 +1108,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
     const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
     const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
-    // SINGLE SOURCE OF TRUTH: the tier icon must describe the model that ACTUALLY ran
-    // this turn, so the icon and the model name shown can never disagree. ultraResolvedTier
-    // (resolveActiveCascadeTier above) is that one source, applied to every mode — no
-    // separate re-derivation for non-vibeultrax modes. The intended/next slot is surfaced
-    // separately via the "switch pending" alert (pendingLiveModel below), not by
-    // pre-painting the future tier here.
     const activeSlot = turnTruthSlot || ultraResolvedTier
     const flashIcon = isApiConnected() ? " \u26A1" : ""
     const rawMode = displayMode
@@ -539,7 +1130,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           const outcome = detectOutcomeSignal(_prevOutputText)
           const regime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
           const stress = _footerStress
-          // Passive negative outcome: LOOPING regime + elevated stress = auto-negative
           const isLooping = String(regime || "").toUpperCase() === "LOOPING"
           const isStressed = Number(stress || 0) > 0.3
           const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
@@ -549,7 +1139,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
             const tracker = getBlackboxTracker()
             tracker.recordOutcome(finalOutcome)
             try { syncOutcomeToApi(finalOutcome) } catch {}
-            // Reward engine: compute credits based on outcome, claims, laziness, savings
             try {
               const curOutput = _prevOutputText || ""
               const rewardInput = buildRewardInput({
@@ -575,7 +1164,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
                 }
               }
             } catch {}
-            // Write outcome to calibration log
             try {
               mkdirSync(getVibeOSHome(), { recursive: true })
               appendFileSync(
@@ -650,10 +1238,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     }
 
     const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
-    // In a cascade (VibeUltraX) the live model legitimately escalates across the
-    // pipeline tiers (cheap → medium → brain), so a live model that differs from
-    // the cheap entry slot is expected, not drift. Only flag drift when the live
-    // model falls outside the known cascade tiers.
     const _cascadeTierModels = new Set([TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean))
     const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting)
       ? liveModelSetting
@@ -664,7 +1248,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       const pendingSwitch = getPendingLiveSwitch()
       _alertTag = buildFooterAlert({
         apiDegraded: isApiFallback(),
-        apiSlow: isApiLatencyDegraded(),
+        apiSlow: false,
         liveModel: liveModelSetting || undefined,
         expectedModel: _expectedForAlert || undefined,
         lastModelError,
@@ -715,12 +1299,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       footerLine: vibeLine,
     })
     if (stripped === _lastStrippedText && !claimTag) return
-    // Streaming-aware dedup. We already painted this messageID once; skip the
-    // re-call UNLESS the message text has grown — which means OpenCode streamed
-    // more text and wiped the footer we painted on an earlier chunk, so the
-    // final text must be re-painted (otherwise the basic ensureFooterFallback
-    // footer with the raw live model wins). A redundant duplicate call carries
-    // the same-or-shorter text and is correctly skipped here.
     if (messageID && textCompletePainted.has(messageID)) {
       const paintedLen = textCompletePainted.get(messageID)
       if (stripped.length <= paintedLen && !claimTag) return
@@ -799,7 +1377,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     _setFooter(output, footerText)
     _lastStrippedText = stripped
 
-    // CLI/pipe mode: stdout is already rendered, write footer to stderr
     if (!process.stdout?.isTTY) {
       console.error(`\n${vibeLine} —`)
     }
@@ -819,4 +1396,6 @@ function didTextCompletePainted(messageID: string): boolean {
   return textCompletePainted.has(messageID)
 }
 
-export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput, buildFooterAlert, didTextCompletePainted }
+// ── Exports ──
+
+export { _appendFooter, scoreTaskQuality, readRewardSignals, buildRewardInput, didTextCompletePainted }

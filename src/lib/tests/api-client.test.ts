@@ -44,7 +44,6 @@ describe("api-client", () => {
 
   it("exports the expected surface", async () => {
     await withFreshApiClient(async (mod) => {
-      assert.equal(typeof mod.setAnomalyDetection, "function")
       assert.equal(typeof mod.setApiToken, "function")
       assert.equal(typeof mod.invalidateApiToken, "function")
       assert.equal(typeof mod.setApiBootstrapToken, "function")
@@ -55,13 +54,6 @@ describe("api-client", () => {
       assert.equal(typeof mod.getBackendVersion, "function")
       assert.equal(typeof mod.remoteCall, "function")
       assert.equal(typeof mod.VIBEOS_API_URL, "string")
-    })
-  })
-
-  it("toggles anomaly detection without throwing", async () => {
-    await withFreshApiClient(async (mod) => {
-      assert.doesNotThrow(() => mod.setAnomalyDetection(false))
-      assert.doesNotThrow(() => mod.setAnomalyDetection(true))
     })
   })
 

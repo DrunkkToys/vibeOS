@@ -5,7 +5,7 @@ import { currentTier, currentModel } from "../state.js"
 import { loadSelection } from "../selection-manager.js"
 import { resolveTrinityDisplayModel, classify, _refreshModel } from "../pricing.js"
 import { getVibeOSHome, safeJsonParse } from "../state.js"
-import { resolveTierIcon } from "./shared-footer.js"
+import { resolveTierIcon } from "./footer.js"
 
 let directory = ""
 

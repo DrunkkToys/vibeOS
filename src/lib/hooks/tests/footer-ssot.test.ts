@@ -10,7 +10,7 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 
-const sf = await import("../shared-footer.js")
+const sf = await import("../footer.js")
 
 describe("footer SSOT — exactly one renderer", () => {
   it("the alert-less second builder buildFallbackFooterLine is gone", () => {

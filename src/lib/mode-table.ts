@@ -1,6 +1,9 @@
+// @ts-nocheck
 // Mode Router — canonical 5-mode table + legacy compat shims.
-// MODE_TABLE / normalizeLegacyMode are the new canonical API.
-// BRANDED_MODES / RUNTIME_MODES are kept for backward-compat with existing tests.
+// Pure data — no Node.js dependencies. Safe for dashboard (Vite browser build).
+// DOC: Extracted from cascade.ts for dashboard consumption.
+// SPDX-License-Identifier: MIT
+
 export type Mode = "vibemax" | "vibeqmax" | "vibeultrax" | "vibelitex" | "raw"
 export const MODES: readonly Mode[] = ["vibemax", "vibeqmax", "vibeultrax", "vibelitex", "raw"]
 export function isMode(v: unknown): v is Mode {
@@ -148,7 +151,6 @@ export const RUNTIME_MODES: ModeEntry[] = [
 ]
 
 export const RAW_MODE: ModeEntry = MODE_TABLE.raw
-
 export const ALL_MODES: ModeEntry[] = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE]
 
 export function getMode(id: string): ModeEntry {

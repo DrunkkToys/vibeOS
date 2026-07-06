@@ -1,4 +1,5 @@
 // @ts-nocheck
+// DOC: Flattened from state/global-learning.ts, state/todos.ts, state/project-memory.ts
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
@@ -33,19 +34,296 @@ import {
   saveScrapbookIndex,
   rebuildScrapbookIndex,
 } from "./state/scratchpad-cache.js"
-import { loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords } from "./state/global-learning.js"
-import { loadTodos, saveTodos, upsertTodo, markTodoDone, getTodos } from "./state/todos.js"
-import {
-  projectFingerprint,
-  loadProjectState,
-  saveProjectState,
-  detectTechStack,
-  ensureProjectBucket,
-  touchProjectBucket,
-  promotedProjectPatterns,
-  projectPatternRows,
-  clearProjectPatterns,
-} from "./state/project-memory.js"
+
+// ── Global Learning (inlined from state/global-learning.ts) ──
+
+export function loadGlobalLearning(): unknown {
+  const globalLearningFile = join(getVibeOSHome(), "global-learning.json")
+  try {
+    if (!existsSync(globalLearningFile)) return DFLT_GL
+    const st = statSync(globalLearningFile)
+    if (st.size > 10485760) { _handleStateCorruption(globalLearningFile); return DFLT_GL }
+    const j = safeJsonParse(readFileSync(globalLearningFile, "utf-8"))
+    if (!j || typeof j !== "object") return DFLT_GL
+    j.exploratory_words ??= {}
+    j.task_first_words ??= {}
+    j.context7_bypasses ??= 0
+    j.context7_missed_usd ??= 0
+    j.context7_last_seen ??= null
+    return j
+  } catch {
+    _handleStateCorruption(globalLearningFile)
+    return DFLT_GL
+  }
+}
+
+export function updateGlobalLearning(mutator: (gl: unknown) => unknown): unknown {
+  const globalLearningFile = join(getVibeOSHome(), "global-learning.json")
+  return withFileLock(globalLearningFile, () => {
+    const s = loadGlobalLearning()
+    const next = mutator(s) ?? s
+    next.updatedAt = new Date().toISOString()
+    mkdirSync(dirname(globalLearningFile), { recursive: true })
+    const tmp = globalLearningFile + ".tmp"
+    writeFileSync(tmp, JSON.stringify(next, null, 2))
+    renameSync(tmp, globalLearningFile)
+    return next
+  })
+}
+
+export function getLearnedExploratoryWords(): Set<string> {
+  const out = new Set<string>()
+  try {
+    const gl = loadGlobalLearning()
+    for (const [w, meta] of Object.entries(gl.exploratory_words || {})) {
+      if ((meta as unknown)?.count >= 1) out.add(String(w))
+    }
+  } catch {}
+  return out
+}
+
+// ── Todos persistence (inlined from state/todos.ts) ──
+
+type TodoEntry = {
+  id: string
+  content: string
+  status: "pending" | "done" | "wontfix"
+  filePath: string
+  priority: "low" | "medium" | "high" | "critical"
+  source: "manual" | "flow" | "intercepted"
+  createdAt: string
+  updatedAt: string
+}
+
+function getTodosFile(): string { return join(getVibeOSHome(), "todos.json") }
+
+export function loadTodos(): TodoEntry[] {
+  try {
+    const todosFile = getTodosFile()
+    if (!existsSync(todosFile)) return []
+    const raw = readFileSync(todosFile, "utf-8")
+    const parsed = safeJsonParse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+export function saveTodos(todos: TodoEntry[]): void {
+  try {
+    const todosFile = getTodosFile()
+    mkdirSync(dirname(todosFile), { recursive: true })
+    const tmp = todosFile + ".tmp." + Date.now()
+    writeFileSync(tmp, JSON.stringify(todos, null, 2), "utf-8")
+    renameSync(tmp, todosFile)
+  } catch {}
+}
+
+export function upsertTodo(entry: Partial<TodoEntry> & { content: string }): void {
+  const todos = loadTodos()
+  const existing = todos.findIndex(t =>
+    t.content === entry.content &&
+    (entry.filePath ? t.filePath === entry.filePath : true),
+  )
+  const newEntry: TodoEntry = {
+    id: entry.id || crypto.randomUUID?.() || "todo-" + Date.now(),
+    content: entry.content,
+    status: (entry.status as TodoEntry["status"]) || "pending",
+    filePath: entry.filePath || "",
+    priority: (entry.priority as TodoEntry["priority"]) || "medium",
+    source: (entry.source as TodoEntry["source"]) || "manual",
+    createdAt: entry.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  if (existing >= 0) {
+    todos[existing] = { ...todos[existing], ...newEntry, updatedAt: new Date().toISOString() }
+  } else {
+    todos.push(newEntry)
+  }
+  saveTodos(todos)
+}
+
+export function markTodoDone(id: string): void {
+  const todos = loadTodos()
+  const found = todos.find(t => t.id === id)
+  if (found) { found.status = "done"; found.updatedAt = new Date().toISOString(); saveTodos(todos) }
+}
+
+export function getTodos(): TodoEntry[] {
+  return loadTodos()
+}
+
+// ── Project Memory (inlined from state/project-memory.ts) ──
+
+export function projectFingerprint(dir: string): string {
+  if (!dir) return "unknown"
+  return createHash("sha256").update(dir).digest("hex").slice(0, 12)
+}
+
+export function loadProjectState(): unknown {
+  const projectStateFile = join(getVibeOSHome(), "project-states.json")
+  try {
+    const state = readJsonOrEmpty(projectStateFile)
+    if (state && typeof state === "object") {
+      state.project_hashes ??= {}
+      return state
+    }
+  } catch {}
+  return { project_hashes: {} }
+}
+
+export function saveProjectState(state: unknown): void {
+  const projectStateFile = join(getVibeOSHome(), "project-states.json")
+  try {
+    withFileLock(projectStateFile, () => {
+      mkdirSync(dirname(projectStateFile), { recursive: true })
+      const _tmp = projectStateFile + ".tmp." + Date.now()
+      writeFileSync(_tmp, JSON.stringify(state, null, 2) + "\n", "utf-8")
+      renameSync(_tmp, projectStateFile)
+    })
+  } catch (err) {
+    console.error(`[vibeOS] project state write failed: ${err.message}`)
+  }
+}
+
+// ── Tech stack detection ─────────────────────────────────────────────
+export function detectTechStack(dir: string): string[] {
+  const stacks: string[] = []
+  try {
+    const pkg = safeJsonParse(readFileSync(join(dir, "package.json"), "utf-8"))
+    if (pkg) {
+      if (pkg.devDependencies?.typescript || pkg.dependencies?.typescript || existsSync(join(dir, "tsconfig.json"))) stacks.push("typescript")
+      if (pkg.dependencies?.react || pkg.devDependencies?.react) stacks.push("react")
+      stacks.push("javascript")
+    }
+  } catch {}
+  try {
+    if (existsSync(join(dir, "Cargo.toml"))) stacks.push("rust")
+  } catch {}
+  try {
+    if (existsSync(join(dir, "go.mod"))) stacks.push("go")
+  } catch {}
+  try {
+    if (existsSync(join(dir, "requirements.txt"))) stacks.push("python")
+    if (existsSync(join(dir, "setup.py"))) stacks.push("python")
+    if (existsSync(join(dir, "pyproject.toml"))) stacks.push("python")
+  } catch {}
+  return [...new Set(stacks)]
+}
+
+export function ensureProjectBucket(state: unknown, fp: string): unknown {
+  state.project_hashes ??= {}
+  if (!state.project_hashes[fp]) {
+    state.project_hashes[fp] = {
+      totalSessions: 0,
+      researchChains: 0,
+      context7Bypasses: 0,
+      commonTopics: [],
+      sessions: [],
+      reports: [],
+      updatedAt: null,
+      lastSeen: null,
+      techStack: detectTechStack(process.cwd()),
+    }
+  }
+  return state.project_hashes[fp]
+}
+
+export function touchProjectBucket(state: unknown, fp: string, meta: { sessionId?: string; reportId?: string; topic?: string; projectName?: string } = {}): unknown {
+  if (!fp || fp === "unknown") return null
+  const bucket = ensureProjectBucket(state, fp)
+  const now = new Date().toISOString()
+  bucket.updatedAt = now
+  bucket.lastSeen = now
+  if (typeof meta.projectName === "string" && meta.projectName.trim()) {
+    bucket.projectName = meta.projectName.trim()
+  }
+  if (typeof meta.sessionId === "string" && meta.sessionId.trim()) {
+    bucket.sessions ??= []
+    if (!bucket.sessions.includes(meta.sessionId)) {
+      bucket.sessions.push(meta.sessionId)
+      bucket.sessions = bucket.sessions.slice(-30)
+      bucket.totalSessions = Number(bucket.totalSessions || 0) + 1
+    }
+    bucket.totalSessions = Math.max(Number(bucket.totalSessions || 0), bucket.sessions.length, 1)
+  }
+  if (typeof meta.reportId === "string" && meta.reportId.trim()) {
+    bucket.reports ??= []
+    if (!bucket.reports.includes(meta.reportId)) {
+      bucket.reports.push(meta.reportId)
+      bucket.reports = bucket.reports.slice(-50)
+    }
+  }
+  if (typeof meta.topic === "string" && meta.topic.trim()) {
+    bucket.commonTopics ??= []
+    if (!bucket.commonTopics.includes(meta.topic)) {
+      bucket.commonTopics.push(meta.topic)
+      bucket.commonTopics = bucket.commonTopics.slice(-20)
+    }
+  }
+  return bucket
+}
+
+// ── Pattern learning ─────────────────────────────────────────────────
+export function promotedProjectPatterns(fp: string): unknown[] {
+  try {
+    const p = loadProjectState().project_hashes?.[fp]
+    const out: unknown[] = []
+    const collect = (rows: unknown, label: string) => {
+      for (const row of Object.values(rows || {})) {
+        const r = row as unknown
+        const sessions = new Set(r?.sessions || [])
+        const minSessions = label === "routine" ? 2 : 3
+        if (sessions.size >= minSessions) out.push({ label, summary: r.summary, sessions: sessions.size, lastSeen: r.lastSeen || "" })
+      }
+    }
+    collect(p?.userPatterns?.friction, "friction")
+    collect(p?.userPatterns?.routines, "routine")
+    out.sort((a, b) => b.sessions - a.sessions || String(b.lastSeen).localeCompare(String(a.lastSeen)))
+    return out.slice(0, 3)
+  } catch {
+    return []
+  }
+}
+
+export function projectPatternRows(fp: string): unknown[] {
+  try {
+    const p = loadProjectState().project_hashes?.[fp]
+    const rows: unknown[] = []
+    for (const [kind, label] of [["friction", "friction"], ["routines", "routine"]]) {
+      for (const [key, row] of Object.entries(p?.userPatterns?.[kind] || {})) {
+        const r = row as unknown
+        const sessions = new Set(r?.sessions || [])
+        rows.push({
+          key,
+          label,
+          summary: r?.summary || key,
+          count: Number(r?.count || 0),
+          sessions: sessions.size,
+          lastSeen: r?.lastSeen || "",
+        })
+      }
+    }
+    rows.sort((a, b) => b.sessions - a.sessions || b.count - a.count || String(b.lastSeen).localeCompare(String(a.lastSeen)))
+    return rows
+  } catch {
+    return []
+  }
+}
+
+export function clearProjectPatterns(fp: string): number {
+  try {
+    const pstate = loadProjectState()
+    const bucket = pstate.project_hashes?.[fp]
+    if (!bucket?.userPatterns) return 0
+    const count = Object.keys(bucket.userPatterns.friction || {}).length + Object.keys(bucket.userPatterns.routines || {}).length
+    bucket.userPatterns = { friction: {}, routines: {} }
+    bucket.lastSeen = new Date().toISOString()
+    saveProjectState(pstate)
+    return count
+  } catch (err) {
+    console.error(`[vibeOS] pattern learner clear failed: ${err.message}`)
+    return 0
+  }
+}
 
 type AnyObject = Record<string, any>
 
@@ -2299,12 +2577,6 @@ export {
   loadSelection,
   writeSelection,
 
-  // Global learning
-  DFLT_GL,
-  loadGlobalLearning,
-  updateGlobalLearning,
-  getLearnedExploratoryWords,
-
   // Blackbox state
   _blackboxTracker,
   _blackboxEnabled,
@@ -2368,20 +2640,6 @@ export {
   removeJobRecord,
   loadJobRecord,
 
-  // Project memory
-  projectFingerprint,
-  loadProjectState,
-  saveProjectState,
-  ensureProjectBucket,
-  touchProjectBucket,
-  mergeProjectBucket,
-  detectTechStack,
-
-  // Pattern learning
-  promotedProjectPatterns,
-  projectPatternRows,
-  clearProjectPatterns,
-
   // Log rotation
   _rotateLog,
   getLastLines,
@@ -2397,11 +2655,6 @@ export {
   recordDelegation,
   recordCacheSaving,
   recordMissedContext7,
-  loadTodos,
-  saveTodos,
-  upsertTodo,
-  markTodoDone,
-  getTodos,
   readLedgerTotals,
   reconcileStateFromLedger,
   readLifetimeSavings,
@@ -2439,7 +2692,7 @@ export {
   loadProjectState as _loadProjectState,
   saveProjectState as _saveProjectState,
   ensureProjectBucket as _ensureProjectBucket,
-  mergeProjectBucket as _mergeProjectBucket,
+  mergeProjectBucket,
   loadTodos as _loadTodos,
   loadMLState as _loadMLState,
   readJsonOrEmpty as _readJsonOrEmpty,
