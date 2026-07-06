@@ -70,6 +70,16 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
     assert.ok(!src.includes("_escalationLoopContext"), "escalation loop context variable must be removed")
     assert.ok(!src.includes("[escalation context]"), "escalation context system-prompt injection must be removed")
   })
+
+  it("still writes a resolved_tier while the API is in fallback mode (local cascade estimate)", () => {
+    assert.ok(src.includes("computeDifficulty"), "must import/use computeDifficulty for a local resolved_tier estimate")
+    const gateStart = src.indexOf("if (latestUserIntent && isApiConnected() && !isApiFallback())")
+    assert.ok(gateStart >= 0, "BE classify gate must exist")
+    const afterGate = src.slice(gateStart, gateStart + 2600)
+    assert.ok(/else if\s*\(latestUserIntent\)/.test(afterGate), "must have a fallback branch that still runs when the BE classify path is gated off")
+    assert.ok(afterGate.includes("suggestedTier"), "fallback branch must derive a tier from computeDifficulty's suggestedTier")
+    assert.ok(afterGate.includes("resolved_tier:"), "fallback branch must still persist resolved_tier so it never stays frozen at None")
+  })
 })
 
 describe("cascade-api — tool-execute.ts single-source-of-truth routing", () => {
