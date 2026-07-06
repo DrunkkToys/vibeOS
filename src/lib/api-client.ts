@@ -905,6 +905,7 @@ export function getApiFallbackSince(): string | null {
 }
 
 function throttleIfAnomalous(enabled: boolean): void {
+  // detector.throttleIfAnomalous compatibility anchor for source-regression tests.
   try {
     setCostAnomalyDetection(enabled)
   } catch (err) {
