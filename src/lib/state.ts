@@ -9,6 +9,28 @@ import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from ".
 import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
 import { USER_HOME, getVibeOSHome as runtimeGetVibeOSHome, getOpenCodeHome as runtimeGetOpenCodeHome, getOpenCodeHomes as runtimeGetOpenCodeHomes, resolveVibeOSHome, resolveOpenCodeHome, setVibeOSHomeContext as runtimeSetVibeOSHomeContext } from "./runtime-paths.js"
+import {
+  getSessionRoot,
+  getSessionScratchpadDir,
+  getSessionIndexPath,
+  getGlobalIndexPath,
+  ensureSessionScratchpadDirs,
+  safeCopyIntoSession,
+  cleanupCurrentSessionScratchpad,
+  indexAppend,
+  scratchpadHitsSeen,
+  scanRecentScratchpad,
+  getScratchpadHit,
+  recordScratchpadObservation,
+  _pruneScratchpadDir,
+  runDecadenceCycle,
+  applyDecadence,
+  cleanupStaleSessionScratchpads,
+  pruneScratchpadOnce,
+  _sessionCacheCleaned,
+  prunedThisProcess,
+  _lastDecadenceRun,
+} from "./state/scratchpad-cache.js"
 
 type AnyObject = Record<string, any>
 
@@ -309,9 +331,6 @@ const _patternFiredKeys = new Set<string>()
 // ── One-shot flags ──────────────────────────────────────────────────
 let context7AlertedThisSession = false
 let _sessionCleanupRegistered = false
-let _sessionCacheCleaned = false
-let prunedThisProcess = false
-let _lastDecadenceRun = 0
 let _lastGlobalDecadenceRun = 0
 let enforcementBlocked = false
 let taskSlotRestore: unknown = null
@@ -1368,41 +1387,6 @@ function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { r
   return { record: next, changed }
 }
 
-// ── Session scratchpad helpers ──────────────────────────────────────
-function getSessionRoot(): string { return join(SCRATCHPAD_SESSIONS_DIR, _OC_SID) }
-function getSessionScratchpadDir(): string { return join(getSessionRoot(), "by-hash") }
-function getSessionIndexPath(): string { return join(getSessionRoot(), "index.jsonl") }
-function getGlobalIndexPath(): string { return join(SCRATCHPAD_ROOT, "index.jsonl") }
-function ensureSessionScratchpadDirs(): boolean {
-  try {
-    mkdirSync(getSessionScratchpadDir(), { recursive: true })
-    return true
-  } catch { return false }
-}
-
-function safeCopyIntoSession(hash: string, fromPath: string, targetScratchpadDir: string = getSessionScratchpadDir()): void {
-  try {
-    mkdirSync(targetScratchpadDir, { recursive: true })
-    const sessionPath = join(targetScratchpadDir, `${hash}.txt`)
-    if (!existsSync(sessionPath)) {
-      copyFileSync(fromPath, sessionPath)
-      const globalSummary = join(SCRATCHPAD_GLOBAL_DIR, `${hash}.summary.txt`)
-      const sessionSummary = join(targetScratchpadDir, `${hash}.summary.txt`)
-      if (existsSync(globalSummary) && !existsSync(sessionSummary)) {
-        copyFileSync(globalSummary, sessionSummary)
-      }
-    }
-  } catch {}
-}
-
-function cleanupCurrentSessionScratchpad(): void {
-  if (_sessionCacheCleaned) return
-  _sessionCacheCleaned = true
-  try {
-    rmSync(getSessionRoot(), { recursive: true, force: true })
-  } catch {}
-}
-
 function registerSessionCleanupHandlers(): void {
   if (_sessionCleanupRegistered) return
   _sessionCleanupRegistered = true
@@ -1620,233 +1604,6 @@ function _readHead(fullPath: string): string {
     closeSync(fd)
     return buf.toString("utf-8", 0, bytesRead)
   } catch { return "" }
-}
-
-function indexAppend(hash: string, tool: string, size: number, extra?: unknown): void {
-  try {
-    const entryObj: unknown = {
-      ts: new Date().toISOString(),
-      hash, tool, size,
-      pid: process.pid || 0,
-      session: _OC_SID,
-      source: "opencode",
-      ...extra,
-    }
-    const entry = JSON.stringify(entryObj) + "\n"
-    const globalIndex = getGlobalIndexPath()
-    const sessionIndex = getSessionIndexPath()
-    mkdirSync(dirname(globalIndex), { recursive: true })
-    mkdirSync(dirname(sessionIndex), { recursive: true })
-    appendFileSync(globalIndex, entry)
-    appendFileSync(sessionIndex, entry)
-  } catch (err) {
-    console.error(`[vibeOS] index write failed: ${err.message}`)
-  }
-}
-
-// ── Scratchpad hit detection ─────────────────────────────────────────
-const scratchpadHitsSeen = new Set<string>()
-
-function scanRecentScratchpad(dir: string, titleCase: string, maxScan: number = 2000): unknown {
-  try {
-    if (!existsSync(dir)) return null
-    const entries = readdirSync(dir)
-    const ptrFiles = entries.filter(e => e.endsWith(".ptr"))
-    const ptrCandidates: Array<{ ptrPath: string, mtimeMs: number }> = []
-    for (const pf of ptrFiles) {
-      if (ptrCandidates.length >= MAX_PTR_CANDIDATES) break
-      try {
-        const st = statSync(join(dir, pf))
-        ptrCandidates.push({ ptrPath: join(dir, pf), mtimeMs: st.mtimeMs })
-      } catch {}
-    }
-    ptrCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
-    let scanned = 0
-    for (const { ptrPath } of ptrCandidates) {
-      if (scanned++ >= maxScan) break
-      try {
-        const ptrData = safeJsonParse(readFileSync(ptrPath, "utf-8"))
-        if (!ptrData?.contentHash) continue
-        const ptrTool = typeof ptrData.tool === "string" ? (TOOL_NAME_NORMALIZE[ptrData.tool] || ptrData.tool) : null
-        if (titleCase && ptrTool && ptrTool !== titleCase) continue
-        const contentHash = String(ptrData.contentHash)
-        const f = join(dir, `${contentHash}.txt`)
-        if (!existsSync(f)) continue
-        const st = statSync(f)
-        const ageSec = (Date.now() - st.mtimeMs) / 1000
-        if (ageSec > SCRATCHPAD_MAX_AGE_SEC) continue
-        const sumPath = join(dir, `${contentHash}.summary.txt`)
-        return { hash: contentHash, fullPath: f, sizeBytes: st.size, ageSec: Math.round(ageSec), summaryPath: existsSync(sumPath) ? sumPath : null }
-      } catch {}
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function getScratchpadHit(toolLower: string, args: unknown, baseDir: string | null = null): unknown {
-  if (!SCRATCHPAD_TOOLS.has(toolLower)) return null
-  const titleCase = TOOL_NAME_NORMALIZE[toolLower]
-  const inputJson = stableJson(args ?? {})
-  const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
-  const sessionDir = baseDir || getSessionScratchpadDir()
-  const sessionPath = join(sessionDir, `${hash}.txt`)
-  let fullPath = existsSync(sessionPath) ? sessionPath : null
-  if (!fullPath) {
-    // Try pointer files (created by compressToolOutputs mapping input hash -> content hash)
-    const ptrSessionPath = join(sessionDir, `${hash}.ptr`)
-    const ptrPath = existsSync(ptrSessionPath) ? ptrSessionPath : null
-    let resolvedHash = hash
-    if (ptrPath) {
-      try {
-        const ptrData = safeJsonParse(readFileSync(ptrPath, "utf-8"))
-        if (ptrData?.contentHash) {
-          resolvedHash = ptrData.contentHash
-          const rSessionPath = join(sessionDir, `${resolvedHash}.txt`)
-          fullPath = existsSync(rSessionPath) ? rSessionPath : null
-        }
-      } catch {}
-    }
-    if (!fullPath) return null
-  }
-  try {
-    const st = statSync(fullPath)
-    const ageSec = (Date.now() - st.mtimeMs) / 1000
-    if (ageSec > SCRATCHPAD_MAX_AGE_SEC) return null
-    const summaryPath = join(sessionDir, `${hash}.summary.txt`)
-    const finalSummary = existsSync(summaryPath) ? summaryPath : null
-    return {
-      hash, fullPath, sizeBytes: st.size, ageSec: Math.round(ageSec),
-      summaryPath: finalSummary,
-    }
-  } catch { return null }
-}
-
-function recordScratchpadObservation(toolLower: string, args: unknown, fileSize: number, meta: unknown = {}): void {
-  if (!SCRATCHPAD_TOOLS.has(toolLower)) return
-  try {
-    const titleCase = TOOL_NAME_NORMALIZE[toolLower]
-    const inputJson = stableJson(args ?? {})
-    const hash = createHash("sha256").update(`${titleCase}\n${inputJson}\n`).digest("hex").slice(0, 16)
-    const dedupeKey = `${toolLower}:${hash}`
-    if (scratchpadHitsSeen.has(dedupeKey)) return
-    scratchpadHitsSeen.add(dedupeKey)
-    indexAppend(hash, toolLower, fileSize, { ...meta, input: inputJson.slice(0, 200) })
-  } catch {}
-}
-
-// ── Scratchpad decadence pruning ──────────────────────────────────────────
-function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number, maxBytes?: number, rotate?: boolean } = {}): { dataFiles: number, totalBytes: number, deleted: number, rotated: number } {
-  const { _maxFiles = MAX_SCRATCHPAD_FILES, _maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
-  const now = Date.now()
-  if (!existsSync(targetDir)) return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 }
-  const entries = readdirSync(targetDir)
-  let dataFiles = 0; let totalBytes = 0; let deleted = 0; let rotated = 0
-  for (const entry of entries) {
-    if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
-    const fullPath = join(targetDir, entry)
-    let st: unknown
-    try { st = statSync(fullPath) } catch { continue }
-    const age = now - st.mtimeMs
-    const hash = entry.replace(/\.txt$/, "")
-    if (age > DECADENCE_EXPIRE_MS) {
-      try { rmSync(fullPath) } catch {}
-      const meta = join(targetDir, hash + ".meta.json")
-      if (existsSync(meta)) try { rmSync(meta) } catch {}
-      const summary = join(targetDir, hash + ".summary.txt")
-      if (existsSync(summary)) try { rmSync(summary) } catch {}
-      deleted++; continue
-    }
-    dataFiles++; totalBytes += st.size
-    if (!rotate) continue
-    if (age > DECADENCE_COLD_MS) {
-      const summaryPath = join(targetDir, hash + ".summary.txt")
-      if (!existsSync(summaryPath)) try {
-        const content = readFileSync(fullPath, "utf-8")
-        writeFileSync(summaryPath, content.slice(0, 200).replace(/\n+/g, " ").trim() + (content.length > 200 ? "…" : ""))
-      } catch {}
-      const head = _readHead(fullPath)
-      if (!head.includes("[cold-storage]")) try {
-        writeFileSync(fullPath, `[cold-storage] ${st.size}B original → ${hash}.summary.txt`)
-        rotated++
-      } catch {}
-      continue
-    }
-    if (age > DECADENCE_FRESH_MS && st.size > 1024) {
-      const summaryPath = join(targetDir, hash + ".summary.txt")
-      if (!existsSync(summaryPath)) try {
-        const content = readFileSync(fullPath, "utf-8")
-        writeFileSync(summaryPath, content.slice(0, SUMMARY_HEAD_TRUNCATE).replace(/\n+/g, " ").trim() + (content.length > SUMMARY_HEAD_TRUNCATE ? "…" : ""))
-      } catch {}
-      const head = _readHead(fullPath)
-      if (!head.includes("[warm-storage]") && !head.includes("[cold-storage]")) try {
-        writeFileSync(fullPath, `[warm-storage] ${st.size}B original at ${hash}.summary.txt`)
-        rotated++
-      } catch {}
-    }
-  }
-  return { dataFiles, totalBytes, deleted, rotated }
-}
-
-function runDecadenceCycle(): void {
-  const now = Date.now()
-  if (now - _lastDecadenceRun < DECADENCE_THROTTLE_MS) return
-  _lastDecadenceRun = now
-  try {
-    const sessionDir = getSessionScratchpadDir()
-    _pruneScratchpadDir(sessionDir, { maxFiles: MAX_SESSION_SCRATCHPAD_FILES, maxBytes: MAX_SESSION_SCRATCHPAD_BYTES, rotate: true })
-  } catch {}
-}
-function applyDecadence() {
-  const now = Date.now()
-  if (now - _lastDecadenceRun >= DECADENCE_THROTTLE_MS) {
-    _lastDecadenceRun = now
-    try {
-      const ses = _pruneScratchpadDir(getSessionScratchpadDir(), {
-        maxFiles: MAX_SESSION_SCRATCHPAD_FILES,
-        maxBytes: MAX_SESSION_SCRATCHPAD_BYTES,
-        rotate: false,
-      })
-      if (ses.deleted > 0) {
-        console.error(`[vibeOS] session-decadence: deleted=${ses.deleted} (${ses.dataFiles} files, ${Math.round(ses.totalBytes / 1024)}KB)`)
-      }
-    } catch (err) {
-      console.error(`[vibeOS] session decadence error: ${err.message}`)
-    }
-  }
-}
-
-// ── Cleanup stale session scratchpads ──────────────────────────────────────
-function cleanupStaleSessionScratchpads(): void {
-  try {
-    if (!existsSync(SCRATCHPAD_SESSIONS_DIR)) return
-    const dirs = readdirSync(SCRATCHPAD_SESSIONS_DIR)
-    const now = Date.now()
-    for (const d of dirs) {
-      const full = join(SCRATCHPAD_SESSIONS_DIR, d)
-      try {
-        const st = statSync(full)
-        if (now - st.mtimeMs > SCRATCHPAD_SESSION_TTL_MS) {
-          rmSync(full, { recursive: true, force: true })
-        }
-      } catch {}
-    }
-  } catch {}
-}
-
-// ── Plugin scratchpad prune ───────────────────────────────────────────────
-function pruneScratchpadOnce(): void {
-  if (prunedThisProcess) return
-  prunedThisProcess = true
-  try {
-    const script = join(VIBEOS_HOME, "hooks/scratchpad-prune.sh")
-    if (existsSync(script)) {
-      const child = spawn("bash", [script], { detached: true, stdio: "ignore" })
-      child.unref()
-    }
-  } catch { /* prune is best-effort */ }
-  cleanupStaleSessionScratchpads()
 }
 
 // ── Active jobs ──────────────────────────────────────────────────────
