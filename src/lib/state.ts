@@ -2695,5 +2695,11 @@ export {
   mergeProjectBucket,
   loadTodos as _loadTodos,
   loadMLState as _loadMLState,
+  saveMLState as _saveMLState,
+  mergeProjectBucket as _mergeProjectBucket,
   readJsonOrEmpty as _readJsonOrEmpty,
+  getLearnedExploratoryWords as _getLearnedExploratoryWords,
+  updateState as _updateState,
+  scratchpadHitsSeen as _scratchpadHitsSeen,
+  readLifetimeSavings as _readLifetimeSavings,
 }

@@ -1294,3 +1294,10 @@ export function resolveOrchestratorState(projectDir = ""): {
 export { trendDisplay as _trendDisplay };
 export { formatProviderName as _formatProviderName };
 export { formatQualityName as _formatQualityName };
+export { classify as _classify };
+export { shortModelName as _shortModelName };
+export { formatUsd as _formatUsd };
+export { modelCostPerTurn as _modelCostPerTurn };
+export { isModelFree as _isModelFree };
+export { detectContext7 as _detectContext7 };
+export { isDocsTarget as _isDocsTarget };

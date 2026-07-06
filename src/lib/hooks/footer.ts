@@ -224,6 +224,18 @@ export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string):
   return [icon, label].filter(Boolean).join(" ")
 }
 
+export function formatStressGauge(stress: unknown): string {
+  const value = Number(stress)
+  if (!Number.isFinite(value)) return ""
+  const clamped = Math.max(0, Math.min(1, value))
+  if (clamped > 0.85) return "█"
+  if (clamped > 0.7) return "▆"
+  if (clamped > 0.5) return "▅"
+  if (clamped > 0.3) return "▃"
+  if (clamped > 0.1) return "▂"
+  return "▁"
+}
+
 export function resolveFooterState(partial?: Partial<FooterLineInput> | null): FooterLineInput {
   const p = partial && typeof partial === "object" ? partial : {}
   const savingsTotalNum = Number(p.savingsTotal ?? p.ltTotal)
@@ -1278,7 +1290,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       flashIcon,
       enfTags,
       subRegime: currentSubRegime,
-      stressGauge: _footerStress > 0.85 ? "█" : _footerStress > 0.7 ? "▆" : _footerStress > 0.5 ? "▅" : _footerStress > 0.3 ? "▃" : _footerStress > 0.1 ? "▂" : "▁",
+      stressGauge: formatStressGauge(_footerStress),
       cascadeIcon: cascadeDepthForIcon >= 3 ? "▸▸▸" : cascadeDepthForIcon >= 2 ? "▸▸" : cascadeDepthForIcon >= 1 ? "▸" : "",
       cascadeLabel: "",
       claimTag: claimTag || undefined,
