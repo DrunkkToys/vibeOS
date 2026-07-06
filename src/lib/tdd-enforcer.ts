@@ -171,6 +171,18 @@ export function enforceTestFile(filePath) {
       sourceContent = readFileSync(filePath, "utf-8")
     }
   } catch {}
+  // Skip re-export shims (compatibility layers that just re-export from another file)
+  if (sourceContent && !sourceContent.includes("\n")) {
+    const trimmed = sourceContent.trim()
+    if (/^export\s+\*\s+from\s+["']/.test(trimmed) || /^export\s*\{[^}]*\}\s*from\s+["']/.test(trimmed)) return null
+  } else if (sourceContent) {
+    const nonCommentLines = sourceContent.split("\n").filter(l => {
+      const t = l.trim()
+      return t && !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*")
+    })
+    const exportLines = nonCommentLines.filter(l => /export\s+\*\s+from\s+["']/.test(l.trim()) || /export\s*\{[^}]*\}\s*from\s+["']/.test(l.trim()))
+    if (nonCommentLines.length > 0 && exportLines.length === nonCommentLines.length) return null
+  }
   const sel = loadSelection()
   const skeleton = buildTestSkeleton(filePath, sourceContent, { strict: sel.tdd_strict !== false, quality: sel.tdd_quality !== false })
   if (!skeleton) return null

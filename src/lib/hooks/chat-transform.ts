@@ -645,6 +645,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
 
     writeIf("enabled", true)
+    writeIf("route_path", routePath)
     if (isUltraX) {
       ensureVibeUltraXSubagents(null, syncDirectory)
       writeIf("entry_slot", entrySlot || "cheap")
@@ -652,7 +653,6 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       writeIf("selected_slot", workerSlot || null)
       writeIf("worker_model", workerModel || null)
       writeIf("selected_subagent", selectedSubagent || null)
-      writeIf("route_path", routePath)
       writeIf("requires_delegation", requiresDelegation)
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
