@@ -141,4 +141,45 @@ describe('reconcileStickyLoopState', () => {
     assert.equal(result.sub_regime, 'LOOPING')
     assert.equal(result.is_looping, true)
   })
+
+  it('footer source alone does not trigger a new sticky loop entry (is_looping/authority untouched)', () => {
+    const result = reconcileStickyLoopState({}, { source: 'footer', sub_regime: 'LOOPING' })
+    assert.equal(result.is_looping, undefined, 'footer-sourced signal must not flip is_looping true itself')
+    assert.equal(result.loop_authority, null, 'footer alone carries no loop authority')
+    assert.equal(result.loop_hold_until, null)
+  })
+
+  it('authoritative-local authority enters LOOPING with local decision_source', () => {
+    const result = reconcileStickyLoopState({}, { loop_authority: 'authoritative-local', sub_regime: 'LOOPING' })
+    assert.equal(result.sub_regime, 'LOOPING')
+    assert.equal(result.is_looping, true)
+    assert.equal(result.decision_source, 'local')
+    assert.equal(result.loop_hold_until, null)
+  })
+
+  it('sticky api loop does not release when hold expired but streak has not reached 2', () => {
+    const now = 1_000_000_000
+    const existing = {
+      loop_authority: 'api',
+      sub_regime: 'LOOPING',
+      is_looping: true,
+      loop_hold_until: new Date(now - 1).toISOString(),
+      loop_release_streak: 0,
+      decision_source: 'api',
+    }
+    const incoming = { source: 'api', sub_regime: 'REFINING' }
+    const result = reconcileStickyLoopState(existing, incoming, { now })
+    assert.equal(result.sub_regime, 'LOOPING', 'still looping, streak only at 1 after this signal')
+    assert.equal(result.loop_release_streak, 1)
+  })
+
+  it('default branch (no loop, not sticky, not advisory) passes through with normalized decision_source', () => {
+    const existing = { sub_regime: 'REFINING', decision_source: 'local' }
+    const incoming = { sub_regime: 'CONVERGING', source: 'local' }
+    const result = reconcileStickyLoopState(existing, incoming)
+    assert.equal(result.sub_regime, 'CONVERGING')
+    assert.equal(result.decision_source, 'local')
+    assert.equal(result.loop_hold_until, null)
+    assert.equal(result.loop_release_streak, 0)
+  })
 })
