@@ -4,6 +4,17 @@
 const LOOP_HOLD_MS = 10 * 60 * 1000
 const LOOP_RELEASE_STREAK_REQUIRED = 2
 
+const CLEARED_NOTICE_FIELDS = {
+  loop_notice_signature: null,
+  loop_notice_at: null,
+  loop_notice_hold_until: null,
+  loop_notice_count: 0,
+  live_loop_notice_signature: null,
+  live_loop_notice_at: null,
+  live_loop_notice_hold_until: null,
+  live_loop_notice_count: 0,
+}
+
 type AnyObject = Record<string, any>
 
 function normalizeText(value: unknown): string {
@@ -71,14 +82,7 @@ function clearLocalLoopState(current: AnyObject, next: AnyObject, incomingSource
     loop_hold_until: null,
     loop_release_streak: 0,
     decision_source: incomingSource || normalizeSource(current.decision_source || current.source) || "local",
-    loop_notice_signature: null,
-    loop_notice_at: null,
-    loop_notice_hold_until: null,
-    loop_notice_count: 0,
-    live_loop_notice_signature: null,
-    live_loop_notice_at: null,
-    live_loop_notice_hold_until: null,
-    live_loop_notice_count: 0,
+    ...CLEARED_NOTICE_FIELDS,
   }
 }
 
@@ -211,14 +215,7 @@ export function reconcileStickyLoopState(
       loop_detector_kind: normalizeLoopKind(next.loop_detector_kind) || normalizeLoopKind(current.loop_detector_kind),
       loop_detector_confidence: normalizeLoopConfidence(next.loop_detector_confidence ?? current.loop_detector_confidence),
       loop_source_reason: String(next.loop_source_reason || current.loop_source_reason || "api recovery"),
-      loop_notice_signature: null,
-      loop_notice_at: null,
-      loop_notice_hold_until: null,
-      loop_notice_count: 0,
-      live_loop_notice_signature: null,
-      live_loop_notice_at: null,
-      live_loop_notice_hold_until: null,
-      live_loop_notice_count: 0,
+      ...CLEARED_NOTICE_FIELDS,
     }
   }
 
@@ -248,14 +245,7 @@ export function reconcileStickyLoopState(
       loop_hold_until: null,
       loop_release_streak: 0,
       loop_consecutive: Math.max(nextLoopConsecutive, 0),
-      loop_notice_signature: null,
-      loop_notice_at: null,
-      loop_notice_hold_until: null,
-      loop_notice_count: 0,
-      live_loop_notice_signature: null,
-      live_loop_notice_at: null,
-      live_loop_notice_hold_until: null,
-      live_loop_notice_count: 0,
+      ...CLEARED_NOTICE_FIELDS,
     }
   }
 
@@ -270,13 +260,6 @@ export function reconcileStickyLoopState(
     loop_hold_until: null,
     loop_release_streak: 0,
     loop_consecutive: Math.max(nextLoopConsecutive, 0),
-    loop_notice_signature: null,
-    loop_notice_at: null,
-    loop_notice_hold_until: null,
-    loop_notice_count: 0,
-    live_loop_notice_signature: null,
-    live_loop_notice_at: null,
-    live_loop_notice_hold_until: null,
-    live_loop_notice_count: 0,
+    ...CLEARED_NOTICE_FIELDS,
   }
 }
