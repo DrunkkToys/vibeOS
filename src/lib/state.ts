@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
-import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
@@ -129,8 +128,6 @@ const LEDGER_ROTATE_MAX_BYTES = 256 * 1024
 const LEDGER_ROTATE_MAX_LINES = 10_000
 const LEDGER_ROTATE_MAX_AGE_MS = 48 * 60 * 60 * 1000
 const ACTIVE_JOBS_STALE_MS = 72 * 60 * 60 * 1000
-const MAX_PTR_CANDIDATES = 50
-const SUMMARY_HEAD_TRUNCATE = 500
 
 export function getVibeOSHome(): string {
   return runtimeGetVibeOSHome()
@@ -2759,7 +2756,6 @@ export {
 // These are defined inline in index.ts but imported from state.js.
 // The import in index.ts evaluates first; index.ts then shadows with its own definitions.
 // These stubs throw if index.ts is not loaded (isolated module test).
-
 
 // ── Alias exports for hooks/tool-execute.ts compatibility ───────────
 export {
