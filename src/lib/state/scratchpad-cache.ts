@@ -10,7 +10,7 @@
 // stale module instance. getVibeOSHome()/getOcSessionId() are stateless
 // (read process.env / globalThis fresh on every call), so path/session
 // values are computed fresh here instead, matching that behavior exactly.
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, rmSync, copyFileSync } from "node:fs"
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, rmSync, copyFileSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -308,3 +308,70 @@ export function pruneScratchpadOnce(): void {
 }
 
 export { _sessionCacheCleaned, prunedThisProcess, _lastDecadenceRun }
+
+// ── Scrapbook index ──────────────────────────────────────────────────
+interface ScrapbookIndexEntry {
+  hash: string
+  tool: string
+  size: number
+  ts: string
+  session?: string
+  [key: string]: unknown
+}
+
+export function loadScrapbookIndex(): ScrapbookIndexEntry[] {
+  try {
+    const path = getGlobalIndexPath()
+    if (!existsSync(path)) return []
+    const raw = readFileSync(path, "utf-8")
+    if (!raw.trim()) return []
+    const entries: ScrapbookIndexEntry[] = []
+    for (const line of raw.split("\n")) {
+      const ln = line.trim()
+      if (!ln) continue
+      try {
+        const rec = JSON.parse(ln)
+        if (rec && typeof rec === "object" && rec.hash) entries.push(rec)
+      } catch {}
+    }
+    return entries
+  } catch { return [] }
+}
+
+export function saveScrapbookIndex(index: ScrapbookIndexEntry[]): void {
+  try {
+    const path = getGlobalIndexPath()
+    mkdirSync(dirname(path), { recursive: true })
+    const tmp = path + ".tmp"
+    writeFileSync(tmp, index.map(e => JSON.stringify(e)).join("\n") + "\n")
+    renameSync(tmp, path)
+  } catch {}
+}
+
+function _scanScrubpadDir(dir: string): ScrapbookIndexEntry[] {
+  const entries: ScrapbookIndexEntry[] = []
+  try {
+    if (!existsSync(dir)) return entries
+    const files = readdirSync(dir).filter((f: string) => f.endsWith(".txt") && !f.endsWith(".summary.txt"))
+    for (const f of files) {
+      const hash = f.replace(/\.txt$/, "")
+      const full = join(dir, f)
+      try {
+        const st = statSync(full)
+        const head = _readHead(full)
+        entries.push({ hash, tool: "unknown", size: st.size, ts: new Date(st.mtimeMs).toISOString(), head: head.slice(0, 100) })
+      } catch {}
+    }
+  } catch {}
+  return entries
+}
+
+export function rebuildScrapbookIndex(): ScrapbookIndexEntry[] {
+  try {
+    const sessionDir = getSessionScratchpadDir()
+    const sessionEntries = _scanScrubpadDir(sessionDir)
+    const index = Array.from(new Map(sessionEntries.map(e => [e.hash, e])).values())
+    saveScrapbookIndex(index)
+    return index
+  } catch { return [] }
+}
