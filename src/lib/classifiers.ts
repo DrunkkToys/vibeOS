@@ -6,4 +6,5 @@ export {
   detectOutcomeSignal,
   scoreStress,
   estimateContextBudget,
+  classifyTurnSimple,
 } from "./cascade.js"

@@ -2,8 +2,18 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
-import { isApiEnabled as isRuntimeApiEnabled, setApiEnabled } from "./runtime-state.js"
+import {
+  isApiEnabled as isRuntimeApiEnabled,
+  setApiEnabled,
+  markApiConnected,
+  markApiDisconnected,
+  resetApiConnection,
+  isApiConnected as isRuntimeApiConnected,
+  isApiFallbackMode as isRuntimeApiFallbackMode,
+  getApiFallbackSince as getRuntimeApiFallbackSince,
+} from "./runtime-state.js"
 import { getVibeOSHome } from "./state.js"
+import { setCostAnomalyDetection } from "./cost-anomaly.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
 // Alpha-only onboarding token: intentionally embedded so fresh installs work
@@ -16,6 +26,9 @@ const BASE_RETRY_DELAY = 1000
 const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase()
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
+const FALLBACK_COOLDOWN_MS = String(process.env.VIBEOS_FAST_CI || "").trim() === "1" ? 5_000 : 60_000
+const LATENCY_DEGRADE_THRESHOLD_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 0) || 0)
+const LATENCY_DEGRADE_COOLDOWN_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 60_000) || 60_000)
 
 type ApiClientOptions = {
   baseUrl?: string
@@ -653,6 +666,9 @@ export function setApiToken(newToken) {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
+    _apiFallbackSourceMethod = ""
+    clearLatencyGuard()
+    markApiConnected()
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
     console.error("[vibeOS] API token updated via setApiToken")
   } catch(e) {
@@ -668,6 +684,9 @@ export function invalidateApiToken() {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
     _apiFallbackMode = false
+    _apiFallbackSourceMethod = ""
+    clearLatencyGuard()
+    resetApiConnection()
     persistBootstrapToken("")
     persistPrimaryApiEnvState({ token: "" })
     console.error("[vibeOS] API token invalidated and remote API disabled")
@@ -691,12 +710,62 @@ export function setApiBootstrapToken(newToken) {
 let _apiClientHolder: { client: VibeOSApiClient | null; gen: number; tokenSnapshot: string } = { client: null, gen: 0, tokenSnapshot: "" }
 let _apiClientGen = 0
 let _apiFallbackMode = false
+let _apiFallbackSourceMethod = ""
+let _apiLatencyDegradedUntil = 0
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
 
-export function getApiFallbackSince(): string | null {
-  return null
+function parseFallbackSince(): number {
+  const since = getRuntimeApiFallbackSince()
+  if (!since) return 0
+  const parsed = Date.parse(since)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isFallbackCooldownExpired(now = Date.now()): boolean {
+  const since = parseFallbackSince()
+  return !!since && now - since >= FALLBACK_COOLDOWN_MS
+}
+
+function isLatencyGuardExpired(now = Date.now()): boolean {
+  return !!_apiLatencyDegradedUntil && now >= _apiLatencyDegradedUntil
+}
+
+function clearLatencyGuard(): void {
+  _apiLatencyDegradedUntil = 0
+}
+
+function markLatencyGuard(): void {
+  if (LATENCY_DEGRADE_THRESHOLD_MS > 0 && LATENCY_DEGRADE_COOLDOWN_MS > 0) {
+    _apiLatencyDegradedUntil = Date.now() + LATENCY_DEGRADE_COOLDOWN_MS
+  }
+}
+
+function clearFallbackState(): void {
+  _apiFallbackMode = false
+  _apiFallbackSourceMethod = ""
+  markApiConnected()
+}
+
+function markFallbackState(sourceMethod: string): void {
+  _apiFallbackMode = true
+  _apiFallbackSourceMethod = String(sourceMethod || "")
+  markApiDisconnected()
+}
+
+function getFallbackGate(): boolean {
+  if (!isRuntimeApiEnabled()) return true
+  const now = Date.now()
+  if (_apiFallbackMode || isRuntimeApiFallbackMode()) {
+    if (!isFallbackCooldownExpired(now)) return true
+    if (!isLatencyGuardExpired(now)) return false
+  }
+  if (_apiLatencyDegradedUntil && !isLatencyGuardExpired(now)) return true
+  if (_apiLatencyDegradedUntil && isLatencyGuardExpired(now)) {
+    clearLatencyGuard()
+  }
+  return false
 }
 
 function recordBackendVersion(payload: unknown): void {
@@ -761,11 +830,17 @@ function syncApiTokenFromDisk(): void {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
+    _apiFallbackSourceMethod = ""
+    clearLatencyGuard()
+    markApiConnected()
     console.error("[vibeOS] API token synced from disk (disk is newer)")
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     _apiFallbackMode = false
+    _apiFallbackSourceMethod = ""
+    clearLatencyGuard()
+    markApiConnected()
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)")
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
@@ -774,6 +849,9 @@ function syncApiTokenFromDisk(): void {
   } else if (envToken && !diskToken && !VIBEOS_API_TOKEN) {
     VIBEOS_API_TOKEN = envToken
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
+    _apiFallbackSourceMethod = ""
+    clearLatencyGuard()
+    markApiConnected()
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
     VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN
@@ -802,15 +880,40 @@ export function getApiClient() {
 }
 
 export function isApiFallback() {
-  return _apiFallbackMode || !isRuntimeApiEnabled()
+  if (!isRuntimeApiEnabled()) return true
+  if (_apiFallbackMode || isRuntimeApiFallbackMode()) {
+    if (!isFallbackCooldownExpired()) return true
+    clearFallbackState()
+    return false
+  }
+  return false
 }
 
 export function isApiConnected() {
-  return isRuntimeApiEnabled() && !_apiFallbackMode
+  return isRuntimeApiConnected()
 }
 
 export function getBackendVersion(): string {
   return _backendVersion
+}
+
+export function getApiFallbackSince(): string | null {
+  if (_apiFallbackSourceMethod !== "health" && _apiFallbackSourceMethod !== "probe") {
+    return null
+  }
+  return getRuntimeApiFallbackSince()
+}
+
+function throttleIfAnomalous(enabled: boolean): void {
+  try {
+    setCostAnomalyDetection(enabled)
+  } catch (err) {
+    console.error("[vibeOS] Cost anomaly toggle failed:", (err as Error)?.message || err)
+  }
+}
+
+export function setAnomalyDetection(enabled: boolean): void {
+  throttleIfAnomalous(enabled)
 }
 
 export async function remoteCall(method, args, fallbackFn) {
@@ -818,7 +921,7 @@ export async function remoteCall(method, args, fallbackFn) {
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
     await ensureBootstrapExchange()
   }
-  if (!isRuntimeApiEnabled() || _apiFallbackMode) {
+  if (getFallbackGate()) {
     if (fallbackFn) return fallbackFn()
     return null
   }
@@ -826,20 +929,35 @@ export async function remoteCall(method, args, fallbackFn) {
     const client = getApiClient()
     if (!client) {
       if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
-        _apiFallbackMode = true
+        markFallbackState(method)
         console.error(`[vibeOS] API fallback activated (${method}): no client available`)
       }
       if (fallbackFn) return fallbackFn()
       return null
     }
-    if (method === "health") {
-      const h = await client.health()
-      return h
+    if (_apiFallbackMode || isRuntimeApiFallbackMode()) {
+      const recovered = await probeApiHealth(client)
+      if (!recovered) {
+        markFallbackState("health")
+        if (fallbackFn) return fallbackFn()
+        return null
+      }
+      clearFallbackState()
+      if (method === "health") {
+        const healthResult = await client.health()
+        recordBackendVersion(healthResult)
+        return healthResult
+      }
     }
+    const startedAt = Date.now()
     const result = await client[method](...args)
-    if (_apiFallbackMode) {
-      _apiFallbackMode = false
+    const elapsed = Date.now() - startedAt
+    if (LATENCY_DEGRADE_THRESHOLD_MS > 0 && elapsed > LATENCY_DEGRADE_THRESHOLD_MS) {
+      markLatencyGuard()
+    } else if (_apiLatencyDegradedUntil && isLatencyGuardExpired()) {
+      clearLatencyGuard()
     }
+    clearFallbackState()
     if (method === "health" && result) recordBackendVersion(result)
     return result
   } catch (err) {
@@ -849,6 +967,7 @@ export async function remoteCall(method, args, fallbackFn) {
       _apiFallbackMode = true
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
     }
+    markFallbackState(method)
     if (status === 401 || status === 403) {
       console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected`)
     }
@@ -857,4 +976,13 @@ export async function remoteCall(method, args, fallbackFn) {
     }
     return null
   }
+}
+
+export function isApiLatencyDegraded(): boolean {
+  if (!_apiLatencyDegradedUntil) return false
+  if (isLatencyGuardExpired()) {
+    clearLatencyGuard()
+    return false
+  }
+  return true
 }
