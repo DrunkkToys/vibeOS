@@ -187,3 +187,48 @@ test("footer projects the latest executed turn truth instead of stale blackbox s
   assert.ok(line.includes("▸▸▸"), "footer should show executed cascade depth from turn truth: " + line)
   assert.ok(!line.includes("🧠 brain"), "footer should not fall back to stale brain slot: " + line)
 })
+
+test("footer tier label and depth icon agree even when executedRoute and finalized disagree", async () => {
+  const state = await import("../src/lib/state.js")
+  const ledger = await import("../src/lib/turn-ledger.js")
+  const footer = await import("../src/lib/hooks/footer.js?footer-slot-depth-consistency=" + Date.now())
+  state.setCurrentSessionId("sid-turn-truth")
+  // Contrived but real-world-reachable fixture: the executed route (which drove
+  // the visible answer) escalated only to medium, but the finalized snapshot
+  // for the same turn was written with a stale "brain" slot/depth-3. Before the
+  // fix, the tier label read finalized first (brain) while the depth icon read
+  // executedRoute first (medium depth 2) -> "brain" label with a "▸▸" icon.
+  ledger.recordTurnRoute({
+    sessionId: "sid-turn-truth",
+    turnId: "turn-mismatch",
+    prompt: "debug this function",
+    executedRoute: {
+      selectedModel: "deepseek/v4-flash",
+      selectedSlot: "medium",
+      source: "cascade",
+      routePath: ["cheap", "medium"],
+      cascadeDepth: 2,
+      status: "completed",
+      contributedToFinalAnswer: true,
+    },
+  })
+  ledger.recordTurnFinalize({
+    sessionId: "sid-turn-truth",
+    turnId: "turn-mismatch",
+    finalized: {
+      finalVisibleModel: "deepseek/v4-pro",
+      finalVisibleSlot: "brain",
+      finalVisibleProvider: "deepseek",
+      finalVisibleProviderLabel: "Deepseek",
+      finalVisibleModelName: "V4 Pro",
+      cascadeDepth: 3,
+    },
+  })
+
+  const output = { text: "This message is long enough to trigger the footer and check that the tier label and cascade depth icon never disagree." }
+  await footer._appendFooter({ args: { model: "deepseek/v4-pro" } }, output)
+  const line = output.text.split("\n").pop() || ""
+  assert.ok(!line.includes("🧠 brain"), "tier label must not show brain when the depth icon reflects medium: " + line)
+  assert.ok(!line.includes("▸▸▸"), "depth icon must not show 3 arrows when the tier label reflects medium: " + line)
+  assert.ok(line.includes("◐ medium") && line.includes("▸▸"), "tier label and depth icon must both agree on medium: " + line)
+})

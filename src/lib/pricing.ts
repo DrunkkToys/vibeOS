@@ -20,7 +20,7 @@ export function _resetTrinitySlotsForTest(): void {
  * context7 detection, per-turn cost estimation, and slot management.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync, openSync, closeSync, rmSync, readdirSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync, readdirSync } from "node:fs"
 import { join, dirname, resolve } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { createHash } from "node:crypto"

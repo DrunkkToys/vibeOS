@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 
 import { getCurrentSessionId, getVibeOSHome } from "./state.js"
-import { getLatestTurnTruth, loadTurnTruth } from "./turn-ledger.js"
+import { loadTurnTruth } from "./turn-ledger.js"
 
 export type SessionHealthRisk = "low" | "moderate" | "high"
 export type ClaimEvidenceStatus = "supported" | "unsupported" | "contradicted" | "not_applicable"

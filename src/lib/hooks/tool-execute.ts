@@ -43,7 +43,7 @@ import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode, resolveOptimizationSlot,
   isUserAskingForTests, _isLikelyOffTopic, resolveEnforcementMode,
   _getBlackboxTracker, loadBlackboxState, saveBlackboxState as _saveBlackboxState,
-  _loadGlobalLearning, _updateGlobalLearning, getLearnedExploratoryWords,
+  _loadGlobalLearning, _updateGlobalLearning,
   noteTaskRoutingLearning,
   incrementTurnCounter,
 } from "../turn-classify.js"
