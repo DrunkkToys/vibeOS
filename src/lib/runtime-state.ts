@@ -42,7 +42,7 @@ export function markApiDisconnected(): void {
   const state = getRuntimeState()
   state.apiConnected = false
   state.apiFallbackMode = true
-  if (!state.apiFallbackSince) state.apiFallbackSince = new Date().toISOString()
+  state.apiFallbackSince = new Date(Date.now()).toISOString()
 }
 
 export function resetApiConnection(): void {
@@ -67,6 +67,10 @@ export function isApiConnected(): boolean {
 
 export function isApiFallbackMode(): boolean {
   return getRuntimeState().apiFallbackMode
+}
+
+export function getApiFallbackSince(): string | null {
+  return getRuntimeState().apiFallbackSince
 }
 
 export function setRuntimeVibeOSHome(home: string): void {

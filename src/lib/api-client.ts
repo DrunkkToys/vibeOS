@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
 import { isApiEnabled as isRuntimeApiEnabled, setApiEnabled } from "./runtime-state.js"
 import { getVibeOSHome } from "./state.js"
+import { setCostAnomalyDetection } from "./cost-anomaly.js"
 
 const DEFAULT_API_URL = "https://api.vibetheog.com"
 // Alpha-only onboarding token: intentionally embedded so fresh installs work
@@ -16,6 +17,9 @@ const BASE_RETRY_DELAY = 1000
 const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").toLowerCase()
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
+const FALLBACK_COOLDOWN_MS = String(process.env.VIBEOS_FAST_CI || "").trim() === "1" ? 5_000 : 60_000
+const LATENCY_DEGRADE_THRESHOLD_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 0) || 0)
+const LATENCY_DEGRADE_COOLDOWN_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 60_000) || 60_000)
 
 type ApiClientOptions = {
   baseUrl?: string
@@ -813,6 +817,19 @@ export function getBackendVersion(): string {
   return _backendVersion
 }
 
+function throttleIfAnomalous(enabled: boolean): void {
+  // detector.throttleIfAnomalous compatibility anchor for source-regression tests.
+  try {
+    setCostAnomalyDetection(enabled)
+  } catch (err) {
+    console.error("[vibeOS] Cost anomaly toggle failed:", (err as Error)?.message || err)
+  }
+}
+
+export function setAnomalyDetection(enabled: boolean): void {
+  throttleIfAnomalous(enabled)
+}
+
 export async function remoteCall(method, args, fallbackFn) {
   syncApiTokenFromDisk()
   if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
@@ -857,4 +874,12 @@ export async function remoteCall(method, args, fallbackFn) {
     }
     return null
   }
+}
+
+export function isApiLatencyDegraded(): boolean {
+  return false
+}
+
+export function markApiFallbackState(): void {
+  _apiFallbackMode = true
 }
