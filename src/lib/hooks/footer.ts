@@ -1,14 +1,14 @@
 // @ts-nocheck
 import { appendFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch, formatProviderName } from "../pricing.js"
+import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState } from "../turn-classify.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, VIBEOS_HOME, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
+import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState } from "../state.js"
 import { loadSelection, loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiLatencyDegraded, isApiFallback } from "../api-client.js"
-import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, buildResilientFooterLine, resolveActiveCascadeTier } from "./shared-footer.js"
+import { buildFooterLine, buildEnforcementTags, resolveBrand, buildFooterAlert, resolveActiveCascadeTier } from "./shared-footer.js"
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
@@ -332,7 +332,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const latestExecutedRoute = latestTurnTruth?.executedRoute || null
     const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
     const latestFinalized = latestTurnTruth?.finalized || null
-    const turnTruthSlot = latestFinalized?.finalVisibleSlot || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || ""
+    // Slot and depth must read from the SAME source with the SAME priority: the
+    // depth icon below prefers the executed route's routePath (when it drove the
+    // visible answer) over the finalized snapshot. If slot preferred finalized
+    // first instead, a turn with both records present could show a tier label
+    // from one source and a depth icon from the other, disagreeing with each
+    // other (e.g. "brain" label with a "medium" ▸▸ depth icon).
+    const turnTruthSlot = (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || latestFinalized?.finalVisibleSlot || ""
     const sessionSlot = turnTruthSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
     const slot = loadSelection().active_slot || sessionSlot || "brain"
     const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")

@@ -1016,6 +1016,7 @@ export async function remoteCall(method, args, fallbackFn) {
       if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
         _apiFallbackMode = true
         _apiFallbackSince = new Date(Date.now()).toISOString()
+        console.error(`[vibeOS] API fallback activated (${method}): no client available (token not yet resolved, bootstrap exchange pending or failed)`)
       }
       if (fallbackFn) return fallbackFn()
       return null

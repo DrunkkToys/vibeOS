@@ -16,7 +16,7 @@ import {
   detectTechStack, projectFingerprint,
   _loadMLState, _saveMLState,
   SCRATCHPAD_ROOT,
-  TRINITY_OPENCODE_CONFIG, _TRINITY_OPENCODE_CONFIGC, TIERS_FILE, _VIBEOS_HOME, _OPENCODE_HOME,
+  TRINITY_OPENCODE_CONFIG, TIERS_FILE,
   loadGlobalLearning,
   _getLearnedExploratoryWords,
   setCurrentProjectFingerprint, setCurrentProjectName,
@@ -25,7 +25,6 @@ import {
   _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
   _OC_SID,
 } from "../state.js"
-import { getOcSessionId } from "../runtime-state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
 import { shouldSuppressLoopNotice } from "../loop-state.js"
 import { nextTurn } from "../turn-memo.js"
@@ -1364,22 +1363,24 @@ export const onSystemTransform = async (_input, output) => {
         if (client) {
           const cascadeData = await client.classify(latestUserIntent, {})
           if (cascadeData) {
-      const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
-      bb.sessions ??= {}
-      const prev = bb.sessions[_OC_SID] || {}
-      // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
-      // signals force brain directly here rather than via a selection-state flag.
-      const resolvedTier = cascadeData.resolved_tier
-        || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : prev.resolved_tier)
-      bb.sessions[_OC_SID] = {
-        ...prev,
-        cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
-        resolved_tier: resolvedTier,
-      }
-      saveBlackboxStateToCtx(bb)
+            const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+            bb.sessions ??= {}
+            const prev = bb.sessions[_OC_SID] || {}
+            // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
+            // signals force brain directly here rather than via a selection-state flag.
+            const resolvedTier = cascadeData.resolved_tier
+              || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : prev.resolved_tier)
+            bb.sessions[_OC_SID] = {
+              ...prev,
+              cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
+              resolved_tier: resolvedTier,
+            }
+            saveBlackboxStateToCtx(bb)
           }
         }
-      } catch {}
+      } catch (classifyErr) {
+        console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
+      }
     }
     let optimizationDecision = null
     let optimizationMode = requestedOptimizationMode
