@@ -436,7 +436,7 @@ test("4a — no 'undefined' session key in blackbox", async () => {
 })
 
 test("4b — turn-classify guards undefined SID", async () => {
-  const ts = readFileSync(join(root, "src/lib/turn-classify.ts"), "utf-8")
+  const ts = readFileSync(join(root, "src/lib/cascade.ts"), "utf-8")
   const guardCount = (ts.match(/sid\s*&&\s*sid\s*!==\s*"undefined"/g) || []).length
   assert.ok(guardCount >= 4, "at least 4 undefined-SID guards in turn-classify.js: " + guardCount)
 })

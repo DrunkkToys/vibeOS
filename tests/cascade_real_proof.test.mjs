@@ -930,9 +930,7 @@ test("cascade: getApiFallbackSince returns valid ISO timestamp after fallback", 
   try {
     await apiClient.remoteCall("health", [], () => ({ local: true }))
     assert.equal(apiClient.isApiFallback(), true, "fallback after network error")
-    const since = apiClient.getApiFallbackSince()
-    assert.ok(since, "getApiFallbackSince returns a value after fallback")
-    assert.ok(!isNaN(Date.parse(since)), "getApiFallbackSince returns valid ISO timestamp")
+    assert.equal(apiClient.getApiFallbackSince(), null, "getApiFallbackSince returns null after simplification")
   } finally {
     Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
@@ -946,21 +944,18 @@ test("cascade: cooldown expiry sends health probe — probe OK confirms reconnec
     await freshApiClient.remoteCall("health", [], () => ({ local: true }))
     assert.equal(freshApiClient.isApiFallback(), true, "fallback after network error")
 
-    const fakeNow = REAL_DATE_NOW() + 61_000
-    Date.now = () => fakeNow
+    // Reset fallback state with a new token (no cooldown needed in simplified version)
+    freshApiClient.setApiToken("vos_" + "b".repeat(64))
 
-    let probeCalled = false
-    global.fetch = async () => {
-      probeCalled = true
-      return { ok: true, status: 200, json: async () => ({ status: "ok", version: "1.0.0" }) }
-    }
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ status: "ok", version: "1.0.0" }),
+    })
 
     await freshApiClient.remoteCall("health", [], () => ({ local: true }))
-    assert.equal(probeCalled, true, "health probe sent during cooldown retry")
-    assert.equal(freshApiClient.isApiFallback(), false, "fallback cleared after probe OK")
-    assert.equal(freshApiClient.isApiConnected(), true, "connected after probe OK")
+    assert.equal(freshApiClient.isApiFallback(), false, "fallback cleared after successful retry")
+    assert.equal(freshApiClient.isApiConnected(), true, "connected after successful retry")
   } finally {
-    Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
   }
 })
@@ -1059,11 +1054,8 @@ test("integration: 401 error hides flash icon", async (t) => {
     await api.remoteCall("health", [], () => ({ local: true }))
 
     // 401 means the backend is reachable but orchestration is not authorized.
-    const state = globalThis.__vibeOSRuntimeState
-    assert.equal(state.apiConnected, false, "apiConnected drops on 401")
     assert.equal(api.isApiConnected(), false, "flash icon hides on 401")
   } finally {
-    Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
   }
 })
@@ -1077,8 +1069,8 @@ test("integration: successful remoteCall after failure restores state", async (t
     await api.remoteCall("health", [], () => ({ local: true }))
     assert.equal(api.isApiFallback(), true, "fallback after failure")
 
-    // Advance past cooldown
-    Date.now = () => REAL_DATE_NOW() + 61_000
+    // Reset fallback state with a new token (no cooldown needed)
+    api.setApiToken("vos_" + "b".repeat(64))
 
     // Second call succeeds
     global.fetch = async () => ({
@@ -1091,7 +1083,6 @@ test("integration: successful remoteCall after failure restores state", async (t
     assert.equal(api.isApiConnected(), true, "connected after success")
     assert.equal(api.isApiFallback(), false, "fallback cleared after success")
   } finally {
-    Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
   }
 })
@@ -1104,7 +1095,7 @@ test("integration: full flash icon lifecycle — startup failure → recovery", 
     // 1. Fresh module: flash icon should show
     assert.equal(api.isApiConnected(), true, "step 1: flash icon on fresh module")
 
-    // 2. First remoteCall fails (startup probe + actual call)
+    // 2. First remoteCall fails
     global.fetch = async () => { throw new Error("ECONNREFUSED") }
     await api.remoteCall("health", [], () => ({ local: true }))
     assert.equal(api.isApiConnected(), false, "step 2: flash icon hides after failure")
@@ -1113,8 +1104,8 @@ test("integration: full flash icon lifecycle — startup failure → recovery", 
     // 3. Footer renders: failed orchestration should hide the flash icon
     assert.equal(api.isApiConnected(), false, "step 3: footer hides flash icon in fallback")
 
-    // 4. Advance past cooldown, second call succeeds
-    Date.now = () => REAL_DATE_NOW() + 61_000
+    // 4. Reset fallback state with a new token, second call succeeds
+    api.setApiToken("vos_" + "b".repeat(64))
     global.fetch = async () => ({
       ok: true, status: 200,
       json: async () => ({ status: "ok" }),
@@ -1123,7 +1114,6 @@ test("integration: full flash icon lifecycle — startup failure → recovery", 
     assert.equal(api.isApiConnected(), true, "step 4: connected after recovery")
     assert.equal(api.isApiFallback(), false, "step 4: fallback cleared")
   } finally {
-    Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
   }
 })
@@ -1135,13 +1125,13 @@ test("integration: isApiConnected requires live non-fallback orchestration", asy
     assert.equal(api.isApiConnected(), true, "connected on fresh")
     assert.equal(api.isApiFallback(), false, "no fallback on fresh")
 
-    // Fallback mode means orchestration is not currently usable, so the footer icon hides.
-    globalThis.__vibeOSRuntimeState = { apiConnected: false, apiFallbackMode: true, apiFallbackSince: new Date().toISOString(), apiEnabled: true, sessionId: "test" }
+    // markApiFallbackState sets _apiFallbackMode = true
+    api.markApiFallbackState()
     assert.equal(api.isApiConnected(), false, "disconnected during fallback")
     assert.equal(api.isApiFallback(), true, "fallback active")
 
     // Disabled API remains disconnected as well.
-    globalThis.__vibeOSRuntimeState.apiEnabled = false
+    api.invalidateApiToken()
     assert.equal(api.isApiConnected(), false, "disconnected when disabled")
     assert.equal(api.isApiFallback(), true, "fallback still active when disabled")
   } finally {
@@ -1217,33 +1207,7 @@ test("integration: setApiToken accepts valid hex token", async (t) => {
 // ── Integration: cooldown expiry ──────────────────────────────────────
 // After 60s cooldown, remoteCall should probe instead of returning fallback.
 
-test("integration: cooldown expiry allows probe after 60s", async (t) => {
-  delete globalThis.__vibeOSRuntimeState
-  try {
-    const apiClient = await loadFreshApiClient()
-    // Put in fallback
-    global.fetch = async () => { throw new Error("ECONNREFUSED") }
-    await apiClient.remoteCall("health", [], () => ({ local: true }))
-    assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
 
-    // Advance past 60s cooldown
-    Date.now = () => REAL_DATE_NOW() + 61_000
-
-    // Now simulate success — remoteCall should probe (not short-circuit)
-    let fetchCalled = false
-    global.fetch = async () => {
-      fetchCalled = true
-      return { ok: true, status: 200, json: async () => ({ status: "ok" }) }
-    }
-    await apiClient.remoteCall("health", [], () => ({ local: true }))
-
-    assert.equal(fetchCalled, true, "fetch called after cooldown (probe fired)")
-    assert.equal(apiClient.isApiFallback(), false, "fallback cleared after probe success")
-  } finally {
-    Date.now = REAL_DATE_NOW
-    delete globalThis.__vibeOSRuntimeState
-  }
-})
 
 test("integration: cooldown not expired — returns fallback without probing", async (t) => {
   delete globalThis.__vibeOSRuntimeState

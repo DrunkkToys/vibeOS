@@ -6,8 +6,3 @@
 export * from "./cascade.js"
 
 // Legacy source-regression guards preserved for tests that inspect this file
-// directly. The real implementation now lives in cascade.ts.
-// sid && sid !== "undefined"
-// sid && sid !== "undefined"
-// sid && sid !== "undefined"
-// sid && sid !== "undefined"

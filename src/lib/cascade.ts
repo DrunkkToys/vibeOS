@@ -318,17 +318,12 @@ export function isLikelyOffTopic(userText, job) {
   return overlap.length === 0 && userWords.size >= 3
 }
 // Mode Router — extracted to mode-table.ts (pure data, no Node deps).
-import type { Mode, ModeEntry, TierInfo } from "./mode-table.js"
-import {
-  MODE_TABLE, normalizeLegacyMode, BRANDED_MODES, RUNTIME_MODES, MODES, TIERS,
-} from "./mode-table.js"
 export {
-  MODES, isMode, TIERS, MODE_TABLE,
+  Mode, MODES, isMode, ModeEntry, TierInfo, TIERS, MODE_TABLE,
   normalizeLegacyMode, BRANDED_MODES, RUNTIME_MODES, RAW_MODE, ALL_MODES,
   getMode, getDefault, getDefaultRuntime, getBrandedModes, getRuntimeModes,
   resolveCascadeSlot, resolveTierModels,
 } from "./mode-table.js"
-export type { Mode, ModeEntry, TierInfo } from "./mode-table.js"
 // Axis Bundle — single source of truth for per-turn control-vector composition.
 // Replaces the duplicated logic previously spread across mode-router.ts (BRANDED_MODES/
 // RUNTIME_MODES), mode-policy.ts (AdaptiveMode auto-switching), meta-controller.ts
@@ -1607,3 +1602,4 @@ export { getBlackboxTracker as _getBlackboxTracker };
 export function _isLikelyOffTopic(text, projectName) { return false; }
 export function _loadGlobalLearning() { return { exploratoryWords: [], noisyWords: [], userTerms: [] }; }
 export function _updateGlobalLearning(word, type, intent) { /* noop */ }
+

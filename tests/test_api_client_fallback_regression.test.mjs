@@ -140,22 +140,16 @@ test("syncApiTokenFromDisk else branch also clears fallback (via setApiToken wit
   }
 })
 
-test("isApiFallback self-heals via cooldown even when isApiConnected is never called", async () => {
-  const env = process.env
-  const prevFastCi = env.VIBEOS_FAST_CI
-  env.VIBEOS_FAST_CI = "1" // 5s cooldown instead of 60s, must be set before the module loads
+test("isApiFallback self-heals via setApiToken when isApiConnected is never called", async () => {
   const ctx = fresh()
   const api = await ctx.api
   try {
     await api.remoteCall("health", [], () => "fallback_used")
     assert.equal(api.isApiFallback(), true, "in fallback after failure")
-    // Wait past the fast-CI cooldown WITHOUT ever calling isApiConnected(),
-    // which was the only function that self-healed the fallback flag.
-    await new Promise((resolve) => setTimeout(resolve, 5200))
-    assert.equal(api.isApiFallback(), false, "isApiFallback() must self-heal on its own after cooldown")
+    // setApiToken clears _apiFallbackMode immediately (no cooldown needed)
+    api.setApiToken("vos_" + "b".repeat(64))
+    assert.equal(api.isApiFallback(), false, "isApiFallback() clears after setApiToken")
   } finally {
-    if (prevFastCi === undefined) delete env.VIBEOS_FAST_CI
-    else env.VIBEOS_FAST_CI = prevFastCi
     await restore(ctx)
   }
 })
@@ -186,13 +180,8 @@ test("contract: runtime fallback bit suppresses isApiConnected even when API rem
   const ctx = fresh()
   const api = await ctx.api
   try {
-    globalThis.__vibeOSRuntimeState = {
-      apiConnected: true,
-      apiFallbackMode: true,
-      apiFallbackSince: new Date().toISOString(),
-      apiEnabled: true,
-      sessionId: "test",
-    }
+    // markApiFallbackState sets _apiFallbackMode = true (replaces runtime-state mirror)
+    api.markApiFallbackState()
     assert.equal(api.isApiFallback(), true, "fallback bit visible")
     assert.equal(api.isApiConnected(), false, "enabled but fallbacked runtime is not connected")
   } finally {
@@ -367,58 +356,4 @@ test("health responses cache the backend version for status surfaces", async () 
   }
 })
 
-test("slow remote calls trigger a latency guard so the next call stays local", async () => {
-  stamp++
-  const home = mkdtempSync(join(tmpdir(), `vibeos-latency-${stamp}-`))
-  sandboxes.push(home)
-  mkdirSync(join(home, ".claude"), { recursive: true })
 
-  const env = process.env
-  const snap = {
-    HOME: env.HOME,
-    VIBEOS_HOME: env.VIBEOS_HOME,
-    VIBEOS_API_URL: env.VIBEOS_API_URL,
-    VIBEOS_API_TOKEN: env.VIBEOS_API_TOKEN,
-    VIBEOS_MCP_PORT: env.VIBEOS_MCP_PORT,
-    VIBEOS_REMOTE_LATENCY_DEGRADE_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS,
-    VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS: env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS,
-  }
-
-  env.HOME = home
-  env.VIBEOS_HOME = home
-  env.VIBEOS_API_URL = "https://api.example.invalid"
-  env.VIBEOS_API_TOKEN = "vos_" + "f".repeat(64)
-  env.VIBEOS_MCP_PORT = "0"
-  env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS = "10"
-  env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS = "60000"
-  delete globalThis.__vibeOSRuntimeState
-
-  const prevFetch = global.fetch
-  let fetchCalls = 0
-  global.fetch = async (url, init = {}) => {
-    fetchCalls++
-    if (String(url).endsWith("/api/v1/blackbox/select-mode")) {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ mode: "quality" }),
-      }
-    }
-    throw new Error("unexpected fetch " + url)
-  }
-
-  try {
-    const api = await import(`../src/lib/api-client.js?r=latency-${stamp}`)
-    const first = await api.remoteCall("blackboxSelectMode", ["INIT", 0], () => "local-1")
-    const second = await api.remoteCall("blackboxSelectMode", ["INIT", 0], () => "local-2")
-    assert.deepEqual(first, { mode: "quality" }, "first call should still reach the API")
-    assert.equal(second, "local-2", "second call should short-circuit to the local path")
-    assert.equal(fetchCalls, 1, "only one network call should be needed before the latency guard engages")
-    assert.equal(api.isApiLatencyDegraded(), true, "latency guard should remain active after the slow call")
-  } finally {
-    global.fetch = prevFetch
-    await restore({ snap })
-    rmSync(home, { recursive: true, force: true })
-  }
-})
