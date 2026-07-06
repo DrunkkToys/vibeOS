@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The live ML cascade (resolveCascadeRouteDecision -> cascadeDecide) made routing
 // decisions but wrote NO audit trail: cascade-audit/cascade-audit.jsonl never
-// existed in VIBEOS_HOME, yet claim-verification.ts (loadRecentCascadeRuns) reads
+// existed in VIBEOS_HOME, yet session-health.ts's evaluateClaimEvidence reads
 // it to substantiate "tests pass / I fixed it" claims. This pins the writer:
 // every cascade decision appends a JSONL line with a parseable _ts that the
 // verifier can correlate.
@@ -16,7 +16,7 @@ const prevHome = process.env.VIBEOS_HOME
 process.env.VIBEOS_HOME = join(sandbox, ".claude")
 
 const te = await import("../src/lib/hooks/tool-execute.js?cascadeaudit=" + Date.now())
-const cv = await import("../src/lib/claim-verification.js?cascadeaudit=" + Date.now())
+const cv = await import("../src/lib/session-health.js?cascadeaudit=" + Date.now())
 const auditFile = join(sandbox, ".claude", "cascade-audit", "cascade-audit.jsonl")
 
 after(() => {
@@ -55,9 +55,10 @@ test("[cascade-audit] a cascade decision appends a parseable _ts line", () => {
 })
 
 test("[cascade-audit] the written line substantiates a claim within the window", () => {
-  const res = cv.evaluateClaimVerification({
+  const res = cv.evaluateClaimEvidence({
     text: "I fixed it and all tests are passing",
     vibeHome: join(sandbox, ".claude"),
+    sessionId: "",
     now: Date.now(),
     windowMs: 120000,
   })

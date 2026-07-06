@@ -146,8 +146,6 @@ process.env.VIBEOS_API_TOKEN = "vos_aabbccdd001122334455667788990011223344556677
 const cacheBust = `?blackbox_cascade=${Date.now()}`
 const mod = await import("../src/index.js" + cacheBust)
 const state = await import("../src/lib/state.js")
-const mlRouter = await import("../src/vibeOS-lib/ml-router.js" + cacheBust)
-const vibeultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js" + cacheBust)
 
 const testCase = (name, fn) => test(name, { concurrency: false }, fn)
 
@@ -157,15 +155,6 @@ after(() => {
   try { mod.closeMcpServer?.() } catch {}
   try { backend.close() } catch {}
 })
-
-function cloneGraph(graph) {
-  return JSON.parse(JSON.stringify(graph))
-}
-
-function restoreGraph(graph, snapshot) {
-  for (const key of Object.keys(graph)) delete graph[key]
-  Object.assign(graph, snapshot)
-}
 
 function primeBrain(projectDir) {
   mod.applySlot("brain", projectDir)
@@ -235,31 +224,6 @@ testCase("real cascade: task hook routes by control-vector worker_slot (single s
   assert.equal(mediumLearning.task_first_words?.implement?.medium >= 1, true)
 
   await hooks["tool.execute.after"]({ tool: "task" }, { result: "done" })
-})
-
-testCase("real cascade: learned graph switches vibeultrax into the deep three-stage pipeline", async () => {
-  const graph = state._mlGraph
-  const snapshot = cloneGraph(graph)
-  try {
-    const firstWord = "orchestrate"
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-flash", "medium", false)
-
-    const result = vibeultrax.vibeultraxPipeline({
-      user_text: "orchestrate login validation and rollback-safe deployment",
-    })
-
-    assert.equal(result.source_strategy, "learned")
-    assert.equal(result.learned_model, "deepseek/deepseek-v4-pro")
-    assert.equal(result.learned_tier, "brain")
-    assert.equal(result.profile, "deep")
-    assert.equal(result.cascade_depth, 3)
-    assert.equal(result.pipeline.join(","), "cheap,medium,brain")
-  } finally {
-    restoreGraph(graph, snapshot)
-  }
 })
 
 testCase("real cascade edge cases: routing ignores per-task remote calls and blank prompts preserve prior job state", async () => {

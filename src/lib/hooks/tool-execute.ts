@@ -18,7 +18,7 @@ import {
   _detectTechStack, _projectFingerprint, _loadProjectState, _saveProjectState,
   _ensureProjectBucket, _mergeProjectBucket, SAVINGS_LEDGER_FILE,
   CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, _loadTodos, upsertTodo,
-  ML_ENABLED, _mlGraph, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
+  ML_ENABLED, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   _loadMLState, saveMLState,
   _readJsonOrEmpty, _handleStateCorruption, _lockPathFor,
   SCRATCHPAD_TOOLS, SCRATCHPAD_GLOBAL_DIR, TOOL_NAME_NORMALIZE, stableJson, applyDecadence,

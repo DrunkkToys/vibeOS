@@ -45,7 +45,6 @@ const resolution = await import("../src/vibeOS-lib/blackbox/resolution-tracker.j
 const classifiers = await import("../src/lib/classifiers.js" + cacheBust)
 const turnClassify = await import("../src/lib/turn-classify.js" + cacheBust)
 const modeRouter = await import("../src/lib/mode-router.js" + cacheBust)
-const state = await import("../src/lib/state.js")
 const vibeultrax = await import("../src/vibeOS-lib/blackbox/vibeultrax.js" + cacheBust)
 const { createTrinityTool } = await import("../src/lib/trinity-tool.js" + cacheBust)
 const { getRealityCheckView } = await import("../src/vibeOS-lib/flow-enforcer.js" + cacheBust)
@@ -76,17 +75,6 @@ function makeState(tracker) {
     { latest_stress_multiplier: 0 },
     tracker.computeState(),
   )
-}
-
-function snapshotGraph(graph) {
-  return JSON.parse(JSON.stringify(graph))
-}
-
-function restoreGraph(graph, snapshot) {
-  for (const key of Object.keys(graph)) {
-    delete graph[key]
-  }
-  Object.assign(graph, snapshot)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -589,32 +577,6 @@ test("cascade: REGIME_CONTROL_TABLE is complete for all SUB_REGIMES", async (t) 
   }
 })
 
-test("cascade: ML router pattern graph creates and serializes correctly", async (t) => {
-  const graph = mlRouter.createPatternGraph()
-  assert.ok(graph.nodes, "graph must have nodes")
-  assert.ok(graph.tiers, "graph must have tiers")
-  assert.ok(Array.isArray(graph.tiers.cheap), "graph must have cheap tier list")
-  assert.ok(Array.isArray(graph.tiers.medium), "graph must have medium tier list")
-  assert.ok(Array.isArray(graph.tiers.brain), "graph must have brain tier list")
-
-  // Add some edges
-  mlRouter.addRouteEdge(graph, "implement", "deepseek/deepseek-v4-pro", "brain", true)
-  mlRouter.addRouteEdge(graph, "implement", "deepseek/deepseek-chat", "cheap", false)
-  mlRouter.addRouteEdge(graph, "check", "deepseek/deepseek-chat", "cheap", true)
-
-  // Serialize and deserialize
-  const serialized = mlRouter.serializeGraph(graph)
-  assert.ok(typeof serialized === "string", "serializeGraph must return a string")
-
-  const deserialized = mlRouter.deserializeGraph(serialized)
-  assert.ok(deserialized.nodes, "deserialized graph must have nodes")
-  assert.ok(deserialized.tiers, "deserialized graph must have tiers")
-
-  // Predict best model
-  const best = mlRouter.predictBestModel(graph, "implement", "cheap")
-  assert.ok(typeof best === "string" && best.length > 0, "predictBestModel must return a model string")
-})
-
 test("cascade: resolveCascadeSlot returns correct tier from pipeline", async (t) => {
   assert.equal(modeRouter.resolveCascadeSlot(["cheap", "medium", "brain"]), "brain")
   assert.equal(modeRouter.resolveCascadeSlot(["brain"]), "brain")
@@ -797,35 +759,6 @@ test("cascade: vibeultraxPipeline exports and preserves the three-stage pipeline
   assert.equal(result.cascade_depth, 3)
   assert.ok(Array.isArray(result.pipeline))
   assert.equal(result.pipeline.join(","), "cheap,medium,brain")
-})
-
-test("cascade: learned route from real graph data pushes vibeultrax into deep cascade", async (t) => {
-  const graph = state._mlGraph
-  const saved = snapshotGraph(graph)
-  try {
-    const firstWord = "orchestrate"
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-pro", "brain", true)
-    mlRouter.addRouteEdge(graph, firstWord, "deepseek/deepseek-v4-flash", "medium", false)
-
-    const result = vibeultrax.vibeultraxPipeline({
-      user_text: "orchestrate login validation, retry handling, and tests",
-    })
-
-    assert.equal(result.source_strategy, "learned", "real graph data should drive learned routing")
-    assert.equal(result.learned_model, "deepseek/deepseek-v4-pro", "brain model should be predicted from learned graph")
-    assert.equal(result.learned_tier, "brain", "learned tier should be brain")
-    assert.equal(result.profile, "deep", "learned brain route should use deep profile")
-    assert.equal(result.cascade_depth, 3, "deep learned route should preserve three-stage cascade")
-    assert.deepEqual(result.pipeline, ["cheap", "medium", "brain"], "deep learned route should keep the three-stage cascade pipeline")
-    assert.ok(
-      Array.isArray(result.directives) && result.directives.some((d) => String(d).includes("learned=deepseek/deepseek-v4-pro")),
-      "directive should record the learned model",
-    )
-  } finally {
-    restoreGraph(graph, saved)
-  }
 })
 
 test("cascade: reality-check is wired through the live runtime hooks", async (t) => {
