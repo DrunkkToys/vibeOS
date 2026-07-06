@@ -99,7 +99,7 @@ test("turn ledger stores a joinable route and finalize record", async () => {
 })
 
 test("claim verification only substantiates against the same session when sessionId is provided", async () => {
-  const claims = await import("../src/lib/claim-verification.js?claim-session=" + Date.now())
+  const claims = await import("../src/lib/session-health.js?claim-session=" + Date.now())
   const auditDir = join(vibeHome, "cascade-audit")
   mkdirSync(auditDir, { recursive: true })
   writeFileSync(join(auditDir, "cascade-audit.jsonl"), [
@@ -114,7 +114,7 @@ test("claim verification only substantiates against the same session when sessio
     }),
   ].join("\n"))
 
-  const mismatch = claims.evaluateClaimVerification({
+  const mismatch = claims.evaluateClaimEvidence({
     text: "I fixed it and all tests are passing",
     vibeHome,
     sessionId: "sid-turn-truth",
@@ -135,7 +135,7 @@ test("claim verification only substantiates against the same session when sessio
     }),
   ].join("\n"))
 
-  const match = claims.evaluateClaimVerification({
+  const match = claims.evaluateClaimEvidence({
     text: "I fixed it and all tests are passing",
     vibeHome,
     sessionId: "sid-turn-truth",

@@ -279,11 +279,9 @@ function invalidateSavingsCache(): void {
 }
 
 // ── ML Router state ──────────────────────────────────────────────────
-import { createPatternGraph, deserializeGraph } from "../vibeOS-lib/ml-router.js"
 import { createCacheDatabase, evictStaleEntries, deserializeCacheDb } from "../vibeOS-lib/smart-cache.js"
 import { applySessionAction, normalizeSessionOrchestration } from "./session-orchestrator.js"
 
-let _mlGraph: unknown = createPatternGraph()
 let _cacheDb: unknown = createCacheDatabase()
 const ML_ENABLED = true
 const ML_CONFIDENCE_THRESHOLD = 0.6
@@ -738,7 +736,6 @@ function getLearnedExploratoryWords(): Set<string> {
 function loadMLState(): void {
   try {
     const gl = loadGlobalLearning()
-    if (gl.ml_graph_raw) _mlGraph = deserializeGraph(gl.ml_graph_raw)
     if (gl.ml_cache_raw) _cacheDb = deserializeCacheDb(gl.ml_cache_raw)
     evictStaleEntries(_cacheDb, 86400 * 7)
   } catch {}
@@ -748,7 +745,6 @@ function saveMLState(): boolean {
   if (!ML_ENABLED) return false
   try {
     updateGlobalLearning((gl: unknown) => {
-      gl.ml_graph_raw = JSON.stringify(_mlGraph)
       gl.ml_cache_raw = JSON.stringify(_cacheDb)
       return gl
     })
@@ -2863,7 +2859,6 @@ export {
   _lastLogRotated,
 
   // ML Router state
-  _mlGraph,
   _cacheDb,
   ML_ENABLED,
   ML_CONFIDENCE_THRESHOLD,

@@ -29,7 +29,7 @@ import { getOcSessionId } from "../runtime-state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../turn-classify.js"
 import { shouldSuppressLoopNotice } from "../loop-state.js"
 import { nextTurn } from "../turn-memo.js"
-import { evaluateClaimVerification } from "../claim-verification.js"
+import { evaluateClaimEvidence } from "../session-health.js"
 import { projectTreeDirective, recordProjectFact } from "../project-tree.js"
 import {
   _classify, _modelCostPerTurn, _isModelFree, _detectContext7, _isDocsTarget,
@@ -1129,7 +1129,7 @@ export const onMessagesTransform = async (_input, output) => {
         }
       }
       if (Date.now() - lastInjectTs < 30000) return
-      const claimStatus = evaluateClaimVerification({ text: currentAssistantText, vibeHome })
+      const claimStatus = evaluateClaimEvidence({ text: currentAssistantText, vibeHome, sessionId: "" })
       const unsubClaims = claimStatus.unsubstantiatedCount > 0 ? claimStatus.claims.map(c => c.text).filter(Boolean) : []
       if (unsubClaims.length > 0 && !Object.isFrozen(messages)) {
         const verifyText = "\n[vibeOS verify]\nUnsubstantiated claims from previous turn:\n" +
