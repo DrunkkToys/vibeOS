@@ -323,11 +323,12 @@ import {
   MODE_TABLE, normalizeLegacyMode, BRANDED_MODES, RUNTIME_MODES, MODES, TIERS,
 } from "./mode-table.js"
 export {
-  Mode, MODES, isMode, ModeEntry, TierInfo, TIERS, MODE_TABLE,
+  MODES, isMode, TIERS, MODE_TABLE,
   normalizeLegacyMode, BRANDED_MODES, RUNTIME_MODES, RAW_MODE, ALL_MODES,
   getMode, getDefault, getDefaultRuntime, getBrandedModes, getRuntimeModes,
   resolveCascadeSlot, resolveTierModels,
 } from "./mode-table.js"
+export type { Mode, ModeEntry, TierInfo } from "./mode-table.js"
 // Axis Bundle — single source of truth for per-turn control-vector composition.
 // Replaces the duplicated logic previously spread across mode-router.ts (BRANDED_MODES/
 // RUNTIME_MODES), mode-policy.ts (AdaptiveMode auto-switching), meta-controller.ts
