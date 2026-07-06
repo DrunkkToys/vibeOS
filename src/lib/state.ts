@@ -159,7 +159,9 @@ export function getOpenCodeHomes(): string[] {
 
 function ensureCascadeAuditFiles(): void {
   try {
-    const dir = join(getVibeOSHome(), "cascade-audit")
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const dir = join(vibeHome, "cascade-audit")
     mkdirSync(dir, { recursive: true })
     for (const file of ["claim-audit.jsonl", "cascade-audit.jsonl"]) {
       const path = join(dir, file)

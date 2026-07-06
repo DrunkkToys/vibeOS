@@ -36,6 +36,7 @@ function releaseSeriesName(version) {
   const parts = String(version || "").split(".").map(Number)
   if (parts.length >= 2 && parts[0] === 0 && parts[1] === 24) return "Return"
   if (parts.length >= 2 && parts[0] === 0 && parts[1] === 25) return "Innocence"
+  if (parts.length >= 2 && parts[0] === 0 && parts[1] === 26) return "Containment of Potential"
   return ""
 }
 

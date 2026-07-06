@@ -1,3 +1,113 @@
+## 0.26.0
+- feat: add classify/escalate cascade API wiring (#398)
+- feat: rebuild dashboard home and session workspace (#389)
+- feat: dashboard orchestrator backend + UX overhaul + MiniLM routing (#384)
+- feat: learned flow rules from user corrections + content-aware pattern detection
+- feat: redesign dashboard as home-first shell
+- feat: port orchestrator frontend from vibeOScore
+- fix: active API health probe — no passive 60s fallback, +audit path safety
+- fix: local cascade escalation was discarded by any backend route, resolved_tier stuck at None (#412)
+- fix: footer tier label/depth-icon desync, silent fallback trip, broken dead imports (#411)
+- fix: isApiFallback() never self-heals, keeping BE non-authoritative for the session (#409)
+- fix: cascade route_path pinned at full pipeline forever, never deescalates (#407)
+- fix: remove dead cascade fields, footer model name follows escalated tier (#406)
+- fix: single source of truth for cascade tier + fix deescalation (#405)
+- fix: collapse cascade tier-routing to one source of truth, fix dead loop detector (#404)
+- fix: collapse cascade subagent routing to one source of truth (#403)
+- fix: use pending_escalation_tier for loop_break/web_search override (#402)
+- fix: FE consumes web_search and loop_break from BE classify response (#401)
+- fix: wire escalation re-route and loop context consumption (#399)
+- fix: collapse 3-painter footer architecture into 1 shared resolver + 1 degrade path (#396)
+- fix: cascade-aware model display in footer using trinity slot models (#395)
+- fix: move hardcoded big-pickle fallback after resolveTrinityDisplayModel in shell-env (#394)
+- fix: stop hardcoded opencode/big-pickle fallback from overriding real model in footer (#393)
+- fix: footer honesty — expired reroute pulse removed, cascade icon shows at depth 1 (#391)
+- fix: preserve native opencode mode selectors (#390)
+- fix: align fallback footer with turn truth (#388)
+- fix: align runtime footer and cascade truth (#387)
+- fix: footer honesty + pivot cache TTL + quality floor in syncControlSettings (#386)
+- fix: footer alert isApiFallback, session schema tier/model, cascade a… (#385)
+- fix: replace vitest skeletons with node:test to unbreak CI
+- fix: global agent config, session recording, and stale opencode config
+- fix: remove hardcoded footer mode branding
+- fix: preserve web search shell text for api tests
+- fix: update stale ~/.claude/ state paths to VIBEOS_HOME
+- fix: update stale ~/.claude/ state paths to VIBEOS_HOME
+- fix: durable dashboard snapshots + stale-proof MCP discovery (#371)
+- fix: cascade footer shows escalated tier + correct arrow count (#370)
+- fix: persist cascade depth from backend route so footer shows cascade icon (#369)
+- fix: make the cascade real — canonical blackbox records, live audit trail, durable bridges (#366)
+- fix: stop config.update/opencode.json mid-turn writes that abort OpenCode turns (#365)
+- fix: stop mid-turn opencode.json writes that abort OpenCode turns (#357)
+- fix: stop vibeultrax from over-triggering stall recovery (#354)
+- fix: clean up legacy config stubs before turns (#353)
+- fix: unify vibe primary agent topology (#352)
+- fix: add tool-call loop circuit-breaker to stop runaway bash poll loops (#350)
+- fix: remove VIBEOS_API_DISABLED=true persistence from disk (#348)
+- fix: allow explicit setting of embedded API token (#347)
+- fix: deploy script never overwrites VIBEOS_HOME/.env.production (#346)
+- fix: api hot-path deadline + blackbox state consolidation + spec contract (#345)
+- fix: persist cascade depth/root to blackbox state across turns (#343)
+- fix: prevent stale .js shadowing and cascade de-escalation (#342)
+- fix: consolidate runtime OpenCode home resolution to single ~/.opencode (#338)
+- fix: single source of truth for the footer — kill the "always cut" fallback (#331)
+- fix: force pipeline repair when manual mode pipeline is collapsed (#330)
+- fix: force pipeline repair when manual mode pipeline is collapsed
+- fix: footer bail-out + pipeline collapse (#329)
+- refactor: split state.ts into modules, fix resolved_tier freeze during API fallback (#413)
+- refactor: dedupe the 8-field loop-notice reset block in loop-state.ts (#410)
+- refactor: delete the dead ML learned-graph and the claim-verification wrapper (#408)
+- refactor: mode axis consolidation + footer display fixes (#383)
+- refactor: remove dead code and toy test (post-merge cleanup)
+- refactor: consolidate mode system to vibemax|vibeqmax|vibeultrax|vibelitex|raw
+- refactor: split maintainability boundaries into focused modules (#358)
+- refactor: consolidate safeJsonParse to one canonical helper (#356)
+- docs: update README for v0.26.0 Containment of Potential; add codename mapping in release.mjs
+- test: add cascade escalation and mode-router real tests + API shape c… (#400)
+- test: add SPEC §14 coverage tests and fix TS loader compilation (#397)
+- chore: untrack internal-only MD files from repo (#351)
+Fix dashboard home hierarchy and sidebar status (#392)
+Merge pull request #380 from DrunkkToys/refactor/learned-flow-patterns
+Merge pull request #379 from DrunkkToys/fix/global-config-dashboard
+Merge pull request #378 from DrunkkToys/codex/dashboard-home-mirror
+Fix footer integration test expectations
+Merge pull request #377 from DrunkkToys/codex/fix-vibeultrax-cheap-first-startup
+Fix syncControlSettings fallback slot scope
+Update README regime and feature counts
+Fix VibeUltraX cheap-first startup routing
+Merge pull request #376 from DrunkkToys/codex/fix-plugin-status-savings
+Hide footer backend icon during auth fallback
+Fix plugin registration, status fallback, and savings sync
+Merge pull request #375 from DrunkkToys/codex/minilm-authoritative-mode
+Use embedding selector for authoritative mode decisions
+Merge pull request #374 from DrunkkToys/codex/unify-dashboard-fastify
+Preserve health probe metadata in MCP status
+Add dashboard bridge write-behind sync
+Merge pull request #373 from DrunkkToys/codex/port-vibeoscore-orchestrator-dashboard
+fix cascade: complex prompts at any confidence route to brain tier (#368)
+Fix local loop authority (#367)
+Fix mega test loader paths and spec claims (#364)
+Narrow shell loop guard to polling (#363)
+Suppress repeated LOOPING notices (#362)
+Make LOOPING sticky across authoritative state writes (#361)
+Show cascade escalation labels (#360)
+Unify session events under VIBEOS_HOME (#359)
+Fix/api client consolidation (#355)
+Migrate test suite to TS and fix buildFooterAlert null crash (#344)
+Migrate repo to TS-only sources (#341)
+Codex/fix cascade authority (#340)
+Consolidate vibeOS skill install (#339)
+Bind vibe tiers to live OpenCode agents (#337)
+Fix VibeUltraX cheap-tier default via the OpenCode dropdown lever (#336)
+Fix VibeUltraX cascade with tier subagents (#335)
+Fix VibeUltraX live root state (#334)
+Fix VibeUltraX cascade routing (#333)
+Fix live control vector persistence (#332)
+Revert "fix: force pipeline repair when manual mode pipeline is collapsed"
+Fix blackbox session-id fragmentation freezing all sessions at INIT (#328)
+Fix footer runtime probe path (#327)
+
+
 ## 0.25.53
 - fix: add project/blackbox cards to home summary, fix template source detection, expand recommendations (#302)
 Merge release v0.25.52 into master

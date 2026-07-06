@@ -92,7 +92,9 @@ function scanClaimsInOutput(output) {
       }
     }
     if (claims.length === 0) return
-    const auditDir = join(getVibeOSHome(), "cascade-audit")
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const auditDir = join(vibeHome, "cascade-audit")
     mkdirSync(auditDir, { recursive: true })
     const auditFile = join(auditDir, "claim-audit.jsonl")
     const entry = JSON.stringify({
