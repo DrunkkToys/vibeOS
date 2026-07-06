@@ -812,6 +812,8 @@ let _apiClientHolder: { client: VibeOSApiClient | null; gen: number; tokenSnapsh
 let _apiClientGen = 0
 let _apiFallbackMode = false
 let _apiFallbackSince = null
+let _lastActiveProbe = 0
+const ACTIVE_PROBE_INTERVAL_MS = Number(process.env.VIBEOS_ACTIVE_PROBE_MS || 10_000)
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
@@ -823,20 +825,35 @@ const LATENCY_GUARDED_METHODS = new Set([
   "routeModel",
 ])
 
-const FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5_000 : 60_000
+const FALLBACK_COOLDOWN_MS = 0 // No passive cooldown — active retry every call
 const LATENCY_DEGRADE_THRESHOLD_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 800)
 const LATENCY_DEGRADE_COOLDOWN_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 2 * 60_000)
 
 function tryResetFallbackCooldown(): boolean {
   if (!_apiFallbackMode || !_apiFallbackSince) return false
-  const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
-  if (elapsed > FALLBACK_COOLDOWN_MS) {
-    _apiFallbackMode = false
-    _apiFallbackSince = null
-    markApiConnected()
-    return true
+  if (FALLBACK_COOLDOWN_MS > 0) {
+    const elapsed = Date.now() - new Date(_apiFallbackSince).getTime()
+    if (elapsed < FALLBACK_COOLDOWN_MS) return false
   }
-  return false
+  _apiFallbackMode = false
+  _apiFallbackSince = null
+  markApiConnected()
+  return true
+}
+
+async function tryActiveProbe(): Promise<void> {
+  if (!_apiFallbackMode) return
+  const now = Date.now()
+  if (now - _lastActiveProbe < ACTIVE_PROBE_INTERVAL_MS) return
+  _lastActiveProbe = now
+  try {
+    const client = getApiClient()
+    if (!client) return
+    if (await probeApiHealth(client)) {
+      _apiFallbackMode = false
+      _apiFallbackSince = null
+    }
+  } catch { /* probe failed — stay in fallback */ }
 }
 
 function markApiLatencyDegraded(durationMs: number): void {
@@ -972,6 +989,8 @@ export function getApiClient() {
 
 export function isApiFallback() {
   tryResetFallbackCooldown()
+  if (!_apiFallbackMode && !isRuntimeApiFallbackMode() && isRuntimeApiEnabled()) return false
+  tryActiveProbe().catch(() => {})
   return _apiFallbackMode || isRuntimeApiFallbackMode() || !isRuntimeApiEnabled()
 }
 
@@ -991,6 +1010,9 @@ export async function remoteCall(method, args, fallbackFn) {
   }
   if (tryResetFallbackCooldown()) {
     if (process.env.VIBEOS_DEBUG) console.warn("[vibeOS] API fallback cooldown expired — retrying API")
+  }
+  if (_apiFallbackMode || isRuntimeApiFallbackMode()) {
+    await tryActiveProbe()
   }
   if (!isRuntimeApiEnabled() || _apiFallbackMode) {
     if (fallbackFn) return fallbackFn()

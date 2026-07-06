@@ -316,7 +316,9 @@ function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | n
 
 function _writeCascadeAudit(prompt: string, slot: string | null, model: string | null, decision: unknown, meta: unknown = {}): void {
   try {
-    const dir = join(getVibeOSHome(), "cascade-audit")
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const dir = join(vibeHome, "cascade-audit")
     mkdirSync(dir, { recursive: true })
     const path = join(dir, "cascade-audit.jsonl")
     if (!existsSync(path)) {

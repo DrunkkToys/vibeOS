@@ -46,7 +46,7 @@ export function resolveOpenCodeHome(): string {
 }
 
 export function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join(process.env.HOME || "", ".claude")
+  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join(process.env.HOME || USER_HOME, ".claude")
 }
 
 export function getOpenCodeHome(): string {
