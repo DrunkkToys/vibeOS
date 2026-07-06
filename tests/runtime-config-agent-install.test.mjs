@@ -144,6 +144,13 @@ test("buildVibeTierAgent: always has subagent mode and model", async () => {
   assert.equal(agent.description, "VibeUltraX cheap tier subagent")
 })
 
+test("buildVibeTierAgent: falls back to a safe cheap model when the input is not byte-safe", async () => {
+  const { buildVibeTierAgent } = await import("../src/lib/runtime-config.js")
+  const agent = buildVibeTierAgent("cheap", "deepseek/deepseek-vč-flash")
+  assert.equal(agent.mode, "subagent")
+  assert.equal(agent.model, "deepseek/deepseek-v4-flash")
+})
+
 test("tierAgentForSlot: maps correctly", async () => {
   const { tierAgentForSlot } = await import("../src/lib/runtime-config.js")
   assert.equal(tierAgentForSlot("cheap"), "vibe-cheap")

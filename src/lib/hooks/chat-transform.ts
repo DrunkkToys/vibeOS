@@ -38,14 +38,12 @@ import {
 } from "../pricing.js"
 import {
   scoreStress, classifyTurnSimple, classifyTurnRemote, loadOptimizationMode,
-  saveOptimizationMode,
   computeControlVector,
-  getBlackboxTracker, getBlackboxResolution,
+  getBlackboxTracker,
   loadBlackboxState as loadBlackboxStateFromCtx, saveBlackboxState as saveBlackboxStateToCtx,
-  resolveEnforcementMode, extractLastUserText,
-  isUserAskingForTests, isLikelyOffTopic,
+  extractLastUserText,
+  isLikelyOffTopic,
   updateGlobalLearning as _updateGlobalLearning,
-  noteTaskRoutingLearning,
   fetchBlackboxEnrichment,
   estimateContextBudget,
   buildControlHistoryEntry,

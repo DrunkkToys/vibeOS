@@ -6,6 +6,28 @@ import { getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./runtime-path
 type JsonRecord = Record<string, any>
 type TrinityConfig = Record<string, { oc?: string }>
 
+const FALLBACK_SLOT_MODELS: Record<string, string> = {
+  cheap: "deepseek/deepseek-v4-flash",
+  medium: "opencode-go/deepseek-v4-flash",
+  brain: "opencode-go/mimo-v2.5",
+}
+
+function isByteStringSafeModelId(modelId: string): boolean {
+  const raw = String(modelId || "")
+  for (const ch of raw) {
+    if ((ch.codePointAt(0) || 0) > 255) return false
+  }
+  return true
+}
+
+function safeAgentModel(slot: string, model: string, existing: JsonRecord = {}): string {
+  const candidate = String(model || "").trim()
+  if (candidate && isByteStringSafeModelId(candidate)) return candidate
+  const existingModel = String(existing?.model || "").trim()
+  if (existingModel && isByteStringSafeModelId(existingModel)) return existingModel
+  return FALLBACK_SLOT_MODELS[String(slot || "").trim().toLowerCase()] || candidate
+}
+
 export const VIBE_PRIMARY_AGENT = "vibe"
 export const NATIVE_OPENCODE_AGENTS = ["build", "plan", "vibe"] as const
 export const VIBE_TIER_AGENT_BY_SLOT: Record<string, string> = {
@@ -54,7 +76,7 @@ export function buildVibeTierAgent(slot: string, model: string, existing: JsonRe
     ...(existing && typeof existing === "object" ? existing : {}),
     description: `VibeUltraX ${slot} tier subagent`,
     mode: "subagent",
-    model,
+    model: safeAgentModel(slot, model, existing),
     permission: {
       read: "allow",
       edit: "allow",
