@@ -1368,14 +1368,21 @@ export const onSystemTransform = async (_input, output) => {
             const prev = bb.sessions[_OC_SID] || {}
             // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
             // signals force brain directly here rather than via a selection-state flag.
+            // When the classify response omits resolved_tier itself, fall back to the same
+            // response's tier/entry_tier fields before giving up on a fresh signal entirely.
             const resolvedTier = cascadeData.resolved_tier
-              || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : prev.resolved_tier)
+              || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : null)
+              || cascadeData.tier
+              || cascadeData.entry_tier
+              || prev.resolved_tier
             bb.sessions[_OC_SID] = {
               ...prev,
               cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
               resolved_tier: resolvedTier,
             }
             saveBlackboxStateToCtx(bb)
+          } else {
+            console.warn("[vibeOS] cascade classify returned no usable data; resolved_tier not updated this turn")
           }
         }
       } catch (classifyErr) {

@@ -369,10 +369,13 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   let cascadeSelectedSlot = _slotFromModel(cascadeSelectedModel, trinityCheap, trinityMedium, trinityBrain)
   let cascadeSource = cascadeSelectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
   let cascadeReason = cascadeSelectedModel ? `${cascadeSource}:${firstWord || input?.currentTier || "task"}` : "no target"
-  let selectedModel = backendRoute?.target ? String(backendRoute.target) : cascadeSelectedModel
-  let selectedSlot = backendRoute?.target ? (backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)) : cascadeSelectedSlot
-  let source = backendRoute?.target ? "backend" : cascadeSource
-  let reason = backendRoute?.target ? (backendRoute?.reason || "backend route") : cascadeReason
+  // selectedModel/selectedSlot/source/reason are set below by the backend branch
+  // (line ~390) or the no-backend/merge branch (line ~466) — this is the single
+  // decision point; nothing reads these placeholder values before then.
+  let selectedModel: string | null = null
+  let selectedSlot: string | null = null
+  let source = "none"
+  let reason = "no target"
   let localConfidence = 0
   let localScore = 0
   let cascadeDecision = null
@@ -466,6 +469,13 @@ export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
   if (!backendRoute?.target) {
     selectedModel = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedModel : (explicitTarget || cascadeSelectedModel)
     selectedSlot = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedSlot : (explicitTarget ? _slotFromModel(explicitTarget, trinityCheap, trinityMedium, trinityBrain) : cascadeSelectedSlot)
+    source = cascadeSource
+    reason = cascadeReason
+  } else if (!backendExplicit && cascadeSelectedSlot && _slotRank(cascadeSelectedSlot) > _slotRank(selectedSlot)) {
+    // Backend route is not marked explicit/non-negotiable, and local cascade
+    // escalated to a higher-ranked slot: local cascade outranks the backend.
+    selectedModel = cascadeSelectedModel
+    selectedSlot = cascadeSelectedSlot
     source = cascadeSource
     reason = cascadeReason
   }

@@ -251,7 +251,7 @@ test("sync route_path shrinks to depth 2 when the resolved slot is medium", asyn
   }
 })
 
-test("route resolver preserves backend target while exposing local cascade target", async () => {
+test("route resolver lets local cascade escalation outrank a non-explicit backend target", async () => {
   const mod = await import("../dist-ts/lib/hooks/tool-execute.js?route-resolver=" + Date.now())
   const decision = mod.resolveCascadeRouteDecision({
     prompt: "fix refactor implement migrate validate the critical production crash error panic failure bug in src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/lib/pricing.ts src/vibeOS-lib/ml-router.ts tests/cascade_route_contract.test.mjs with distributed consensus protocol raft leader election gossip protocol byzantine fault tolerance paxos algorithm eventual consistency CRDT data structures rollback observability retry circuit breaker concurrency race condition deadlock",
@@ -272,14 +272,42 @@ test("route resolver preserves backend target while exposing local cascade targe
     mlConfidenceThreshold: 0.6,
   })
 
+  // Backend route was not marked explicit, and local cascade escalated to a
+  // higher-ranked slot (brain > cheap) — local cascade wins the merge.
+  assert.equal(decision.selectedSlot, "brain")
+  assert.equal(decision.selectedModel, "test/brain")
+  assert.equal(decision.cascadeSelectedSlot, "brain")
+  assert.equal(decision.cascadeSelectedModel, "test/brain")
+  assert.deepEqual(decision.cascadeRoot, ["cheap", "medium", "brain"])
+  assert.deepEqual(decision.cascadeRoutePath, ["cheap", "medium", "brain"])
+  assert.ok(decision.localConfidence >= 0.7)
+})
+
+test("route resolver keeps an explicit backend target even when local cascade escalates higher", async () => {
+  const mod = await import("../dist-ts/lib/hooks/tool-execute.js?route-resolver-explicit=" + Date.now())
+  const decision = mod.resolveCascadeRouteDecision({
+    prompt: "fix refactor implement migrate validate the critical production crash error panic failure bug in src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/lib/pricing.ts src/vibeOS-lib/ml-router.ts tests/cascade_route_contract.test.mjs with distributed consensus protocol raft leader election gossip protocol byzantine fault tolerance paxos algorithm eventual consistency CRDT data structures rollback observability retry circuit breaker concurrency race condition deadlock",
+    firstWord: "fix",
+    currentTier: "high",
+    currentModel: "test/cheap",
+    trinityCheap: "test/cheap",
+    trinityMedium: "test/medium",
+    trinityBrain: "test/brain",
+    activePipeline: ["cheap", "medium", "brain"],
+    backendRoute: { target: "test/cheap", confidence: 0.4, explicit: true },
+    stressScore: 0,
+    localRoutingAllowed: true,
+    hasMedia: false,
+    exploratoryTarget: null,
+    tierTarget: "test/cheap",
+    mlEnabled: true,
+    mlConfidenceThreshold: 0.6,
+  })
+
   assert.equal(decision.selectedSlot, "cheap")
   assert.equal(decision.selectedModel, "test/cheap")
   assert.equal(decision.cascadeSelectedSlot, "brain")
   assert.equal(decision.cascadeSelectedModel, "test/brain")
-  assert.deepEqual(decision.cascadeRoot, ["cheap", "medium", "brain"])
-  assert.deepEqual(decision.routePath, ["cheap"])
-  assert.deepEqual(decision.cascadeRoutePath, ["cheap", "medium", "brain"])
-  assert.ok(decision.localConfidence >= 0.7)
 })
 
 test("route resolver stress-upgrades cheap without collapsing cascade root", async () => {

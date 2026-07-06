@@ -41,6 +41,21 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
     assert.ok(src.includes("resolved_tier:"), "must store resolved_tier in session")
   })
 
+  it("falls back to the classify response's tier/entry_tier when resolved_tier itself is missing", () => {
+    const start = src.indexOf("const resolvedTier =")
+    assert.ok(start >= 0, "resolvedTier computation must exist")
+    const body = src.slice(start, start + 400)
+    assert.ok(body.includes("cascadeData.tier"), "must fall back to cascadeData.tier when resolved_tier is absent")
+    assert.ok(body.includes("cascadeData.entry_tier"), "must fall back to cascadeData.entry_tier when tier is also absent")
+  })
+
+  it("logs when a successful classify call returns no usable data (silent no-op guard)", () => {
+    const start = src.indexOf("const cascadeData = await client.classify(")
+    assert.ok(start >= 0, "classify call must exist")
+    const body = src.slice(start, start + 1400)
+    assert.ok(/else\s*{[^}]*console\.(warn|error)/.test(body), "must log when cascadeData is falsy instead of silently no-oping")
+  })
+
   it("does NOT write a pending_escalation_tier selection-state flag (single-path collapse)", () => {
     assert.ok(!src.includes('writeSelection("pending_escalation_tier"'), "pending_escalation_tier producer must be removed")
     assert.ok(!src.includes('writeSelection("pending_escalation_loop_context"'), "pending_escalation_loop_context producer must be removed")
