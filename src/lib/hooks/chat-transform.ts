@@ -54,6 +54,7 @@ import {
 import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../mode-router.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
+import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
 import { buildSessionBridge, recordSessionBridge } from "../session-bridge.js"
@@ -1387,6 +1388,25 @@ export const onSystemTransform = async (_input, output) => {
         }
       } catch (classifyErr) {
         console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
+      }
+    } else if (latestUserIntent) {
+      // BE classify is gated off (API disconnected or in fallback cooldown). Without this
+      // branch resolved_tier just freezes at whatever it last was (often never-set/None)
+      // for the entire fallback window, since the block above is the only resolved_tier
+      // writer. Derive a local estimate from the same difficulty scorer tool-execute.ts
+      // uses for cascade routing so blackbox state still gets a tier this turn.
+      try {
+        const { suggestedTier } = computeDifficulty(latestUserIntent)
+        const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
+        bb.sessions ??= {}
+        const prev = bb.sessions[_OC_SID] || {}
+        bb.sessions[_OC_SID] = {
+          ...prev,
+          resolved_tier: suggestedTier || prev.resolved_tier,
+        }
+        saveBlackboxStateToCtx(bb)
+      } catch (localClassifyErr) {
+        console.error("[vibeOS] local fallback cascade classify failed:", localClassifyErr?.message || localClassifyErr)
       }
     }
     let optimizationDecision = null
