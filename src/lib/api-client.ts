@@ -825,7 +825,7 @@ const LATENCY_GUARDED_METHODS = new Set([
   "routeModel",
 ])
 
-const FALLBACK_COOLDOWN_MS = 0 // No passive cooldown — active retry every call
+const FALLBACK_COOLDOWN_MS = process.env.VIBEOS_FAST_CI === "1" ? 5_000 : Number(process.env.VIBEOS_COOLDOWN_MS) || 60_000
 const LATENCY_DEGRADE_THRESHOLD_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 800)
 const LATENCY_DEGRADE_COOLDOWN_MS = Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 2 * 60_000)
 
@@ -996,7 +996,7 @@ export function isApiFallback() {
 
 export function isApiConnected() {
   tryResetFallbackCooldown()
-  return isRuntimeApiEnabled() && !isRuntimeApiFallbackMode()
+  return isRuntimeApiEnabled() && !_apiFallbackMode && !isRuntimeApiFallbackMode()
 }
 
 export function getBackendVersion(): string {
