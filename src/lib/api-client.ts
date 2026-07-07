@@ -755,6 +755,10 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
 }
 
 function syncApiTokenFromDisk(): void {
+  const liveHome = getVibeOSHome()
+  if (liveHome !== _apiPersistHome) {
+    _apiPersistHome = liveHome
+  }
   const diskToken = readTokenFromDisk() || ""
   const diskBootstrapToken = readBootstrapTokenFromDisk() || ""
   const envToken = normalizeDirectApiToken(process.env.VIBEOS_API_TOKEN)
@@ -787,6 +791,9 @@ function syncApiTokenFromDisk(): void {
 
 export function getApiClient() {
   syncApiTokenFromDisk()
+  if (!VIBEOS_API_TOKEN) {
+    syncApiTokenFromDisk()
+  }
   if (_apiClientHolder.client && _apiClientHolder.gen === _apiClientGen) {
     _apiClientHolder.client.baseUrl = resolveApiUrl()
     return _apiClientHolder.client
