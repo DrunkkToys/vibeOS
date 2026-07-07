@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { execFileSync } from "node:child_process"
+import { execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
 import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./cascade.js"
@@ -1319,7 +1319,6 @@ export function createTrinityTool(deps) {
         lines.push("Claim audit: " + claimFile)
         lines.push("Cascade audit: " + cascadeFile)
         // Check git diff for "fixed" claims
-        const { execSync } = require("child_process")
         let gitDiffLines = ""
         try {
           gitDiffLines = execSync("git diff --stat", { encoding: "utf-8", timeout: 5000 }).trim()
@@ -1752,7 +1751,7 @@ export function createTrinityTool(deps) {
         }
         if (mode === "status") {
           const bbState = deps.loadBlackboxState()
-          const enabled = deps._blackboxEnabled || bbState.enabled
+          const enabled = bbState.enabled !== false
           const lines = [`Blackbox Decision Engine: ${enabled ? "ON" : "OFF"}`]
           if (enabled) {
             const res = deps.getLatestBlackboxState?.() || deps.getBlackboxResolution()
