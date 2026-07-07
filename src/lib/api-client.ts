@@ -668,6 +668,7 @@ export function invalidateApiToken() {
   try {
     VIBEOS_API_TOKEN = ""
     VIBEOS_API_BOOTSTRAP_TOKEN = ""
+    _tokenInvalidated = true
     syncApiEnabledState(false)
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
@@ -698,6 +699,7 @@ let _apiFallbackMode = false
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
+let _tokenInvalidated = false
 
 export function getApiFallbackSince(): string | null {
   return null
@@ -754,7 +756,8 @@ export async function ensureBootstrapExchange(): Promise<boolean> {
   return _bootstrapExchangeInFlight
 }
 
-function syncApiTokenFromDisk(): void {
+export function syncApiTokenFromDisk(): void {
+  if (_tokenInvalidated) return
   const liveHome = getVibeOSHome()
   if (liveHome !== _apiPersistHome) {
     _apiPersistHome = liveHome
