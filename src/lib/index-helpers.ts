@@ -250,9 +250,9 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
   }
 }
 
-function getApiClient() {
+async function getApiClient() {
   try {
-    const api = require("../lib/api-client.js")
+    const api = await import("../lib/api-client.js")
     return api.getApiClient?.() || null
   } catch { return null }
 }
