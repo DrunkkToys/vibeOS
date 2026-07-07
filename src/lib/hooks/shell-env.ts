@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { currentTier, currentModel } from "../state.js"
+import { VIBEOS_API_TOKEN } from "../api-client.js"
 import { loadSelection } from "../selection-manager.js"
 import { resolveTrinityDisplayModel, classify, _refreshModel } from "../pricing.js"
 import { getVibeOSHome, safeJsonParse } from "../state.js"
@@ -31,5 +32,7 @@ export const onShellEnv = async (_input, output) => {
     output.env.OPENCODE_MODEL_TIER = shellTier || "unknown"
     output.env.OPENCODE_MODEL = displayModel || "unknown"
     output.env.VIBEOS_SHELL_BADGE = `${resolveTierIcon(shellSlot)} ${shellSlot} | ${displayModel || "unknown"}`
+    output.env.VIBEOS_API_TOKEN = VIBEOS_API_TOKEN || ""
+    output.env.VIBEOS_HOME = getVibeOSHome()
   } catch (e) { console.error("[vibeOS] shell.env error:", e) }
 }
