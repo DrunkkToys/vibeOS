@@ -318,8 +318,9 @@ export function isLikelyOffTopic(userText, job) {
   return overlap.length === 0 && userWords.size >= 3
 }
 // Mode Router — extracted to mode-table.ts (pure data, no Node deps).
+export type { Mode, ModeEntry, TierInfo } from "./mode-table.js"
 export {
-  Mode, MODES, isMode, ModeEntry, TierInfo, TIERS, MODE_TABLE,
+  MODES, isMode, TIERS, MODE_TABLE,
   normalizeLegacyMode, BRANDED_MODES, RUNTIME_MODES, RAW_MODE, ALL_MODES,
   getMode, getDefault, getDefaultRuntime, getBrandedModes, getRuntimeModes,
   resolveCascadeSlot, resolveTierModels,
