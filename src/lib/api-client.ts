@@ -791,7 +791,11 @@ export function syncApiTokenFromDisk(): void {
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     console.error("[vibeOS] API token loaded from VIBEOS_API_TOKEN env var")
   } else {
-    VIBEOS_API_BOOTSTRAP_TOKEN ||= EMBEDDED_API_TOKEN
+    VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN
+    if (!diskBootstrapToken && VIBEOS_API_BOOTSTRAP_TOKEN !== EMBEDDED_API_TOKEN) {
+      VIBEOS_API_BOOTSTRAP_TOKEN = EMBEDDED_API_TOKEN
+      _apiFallbackMode = false
+    }
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
   }
 }
