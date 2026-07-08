@@ -593,15 +593,11 @@ function readTokenFromDisk(): string {
   return ""
 }
 
-function isValidBootstrapToken(token: string): boolean {
-  return /^vos_[0-9a-f]{64}$/.test(token)
-}
-
 function readBootstrapTokenFromDisk(): string {
   const primary = readPrimaryEnvFile()
   if (primary !== null) {
     const m = primary.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
-    if (m && isValidBootstrapToken(m[1].trim())) {
+    if (m) {
       return m[1].trim()
     }
     return ""
@@ -609,7 +605,7 @@ function readBootstrapTokenFromDisk(): string {
   try {
     const env = readFileSync(_bootstrapEnvPath(), "utf8")
     const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
-    if (m && isValidBootstrapToken(m[1].trim())) {
+    if (m) {
       _setApiPersistHome(dirname(_bootstrapEnvPath()))
       return m[1].trim()
     }
