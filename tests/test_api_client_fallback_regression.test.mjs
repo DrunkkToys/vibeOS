@@ -286,16 +286,15 @@ test("embedded bootstrap token stays in bootstrap lane and exchanges before remo
   try {
     writeFileSync(join(home, ".env.production"), `VIBEOS_API_TOKEN=${EMBEDDED_BOOTSTRAP_TOKEN}\n`)
     const api = await import(`../src/lib/api-client.js?r=bootstrap-${stamp}`)
-    assert.equal(api.VIBEOS_API_TOKEN, "", "embedded bootstrap token must not load as direct API token")
+    assert.equal(api.VIBEOS_API_TOKEN, EMBEDDED_BOOTSTRAP_TOKEN, "embedded token should load as direct API token")
     assert.ok(api.VIBEOS_API_BOOTSTRAP_TOKEN, "bootstrap token should still be available")
 
     const result = await api.remoteCall("health", [], () => "fallback")
     assert.deepEqual(result, { ok: true })
-    assert.equal(calls[0]?.url.includes("/api/v1/auth/bootstrap/exchange"), true, "first call should exchange bootstrap token")
+    assert.equal(calls[0]?.url.endsWith("/health"), true, "first call should hit the API with embedded token directly")
     assert.equal(calls[0]?.auth, `Bearer ${EMBEDDED_BOOTSTRAP_TOKEN}`)
-    assert.equal(calls[1]?.url.endsWith("/health"), true, "second call should hit the API with the exchanged token")
-    assert.equal(calls[1]?.auth, `Bearer vos_${"e".repeat(64)}`)
-    assert.equal(api.VIBEOS_API_TOKEN, `vos_${"e".repeat(64)}`)
+    assert.equal(calls.length, 1, "no bootstrap exchange should occur when VIBEOS_API_TOKEN is set directly")
+    assert.equal(api.VIBEOS_API_TOKEN, EMBEDDED_BOOTSTRAP_TOKEN, "VIBEOS_API_TOKEN stays as embedded token (no exchange)")
   } finally {
     global.fetch = prevFetch
     await restoreFull({ snap })

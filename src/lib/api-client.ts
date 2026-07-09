@@ -83,8 +83,7 @@ function normalizeApiToken(token: string | null | undefined, fallback = ""): str
 }
 
 function normalizeDirectApiToken(token: string | null | undefined): string {
-  const clean = normalizeApiToken(token, "")
-  return clean && clean !== EMBEDDED_API_TOKEN ? clean : ""
+  return normalizeApiToken(token, "")
 }
 
 function editEnvLine(content: string, key: string, value: string | null): string {
@@ -794,6 +793,9 @@ export function syncApiTokenFromDisk(): void {
     VIBEOS_API_BOOTSTRAP_TOKEN = VIBEOS_API_BOOTSTRAP_TOKEN || EMBEDDED_API_TOKEN
     if (!diskBootstrapToken && VIBEOS_API_BOOTSTRAP_TOKEN !== EMBEDDED_API_TOKEN) {
       VIBEOS_API_BOOTSTRAP_TOKEN = EMBEDDED_API_TOKEN
+      _apiFallbackMode = false
+    }
+    if (_apiFallbackMode && !diskBootstrapToken && VIBEOS_API_BOOTSTRAP_TOKEN === EMBEDDED_API_TOKEN) {
       _apiFallbackMode = false
     }
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
