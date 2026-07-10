@@ -1,3 +1,17 @@
+## 0.26.1
+- fix: accept embedded token as direct API token (#425)
+- fix: accept embedded token as direct API token, reset stuck fallback mode (#424)
+- fix: force overwrite stale bootstrap token in syncApiTokenFromDisk() else branch (#423)
+- fix: reject invalid bootstrap tokens from disk so embedded fallback works (#422) (#422)
+- Revert "fix: reject invalid bootstrap tokens from disk so embedded fallback works (#422)"
+- fix: reject invalid bootstrap tokens from disk so embedded fallback works (#422)
+- fix: refresh API token in chat.params hook so flash icon displays (#421)
+- fix: propagate VIBEOS_API_TOKEN to sub-agent child processes (#420)
+- fix: blackbox status, verify-claims ESM crash, cascade type re-exports, CI cleanup (#419)
+- Kill layers — cascade, footer, state, api-client (#417)
+- fix: reject non-byte-safe model ids (#418)
+- v0.26.0 — Containment of Potential (#416)
+
 ## 0.26.0
 - feat: add classify/escalate cascade API wiring (#398)
 - feat: rebuild dashboard home and session workspace (#389)
