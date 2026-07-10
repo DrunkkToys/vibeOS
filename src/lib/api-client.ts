@@ -795,6 +795,9 @@ export function syncApiTokenFromDisk(): void {
       VIBEOS_API_BOOTSTRAP_TOKEN = EMBEDDED_API_TOKEN
       _apiFallbackMode = false
     }
+    if (_apiFallbackMode && !diskBootstrapToken && VIBEOS_API_BOOTSTRAP_TOKEN === EMBEDDED_API_TOKEN) {
+      _apiFallbackMode = false
+    }
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
   }
 }
