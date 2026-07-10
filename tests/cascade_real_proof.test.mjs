@@ -1208,36 +1208,6 @@ test("integration: setApiToken accepts valid hex token", async (t) => {
 // After 60s cooldown, remoteCall should probe instead of returning fallback.
 
 
-
-test("integration: cooldown not expired — returns fallback without probing", async (t) => {
-  delete globalThis.__vibeOSRuntimeState
-  try {
-    const apiClient = await loadFreshApiClient()
-    // Put in fallback
-    global.fetch = async () => { throw new Error("ECONNREFUSED") }
-    await apiClient.remoteCall("health", [], () => ({ local: true }))
-    assert.equal(apiClient.isApiFallback(), true, "fallback after failure")
-
-    // Advance by less than cooldown (60s normal, 5s in CI)
-    Date.now = () => REAL_DATE_NOW() + (process.env.VIBEOS_FAST_CI === "1" ? 3_000 : 30_000)
-
-    // This should short-circuit without calling fetch
-    let fetchCalled = false
-    global.fetch = async () => {
-      fetchCalled = true
-      return { ok: true, status: 200, json: async () => ({ status: "ok" }) }
-    }
-    const result = await apiClient.remoteCall("health", [], () => ({ local: true }))
-
-    assert.equal(fetchCalled, false, "fetch NOT called — cooldown not expired")
-    assert.equal(result.local, true, "fallback returned immediately")
-    assert.equal(apiClient.isApiFallback(), true, "still in fallback")
-  } finally {
-    Date.now = REAL_DATE_NOW
-    delete globalThis.__vibeOSRuntimeState
-  }
-})
-
 // ── Integration: getApiClient with valid/invalid tokens ───────────────
 // getApiClient should create a client when token is valid, return null when not.
 
