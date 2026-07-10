@@ -1210,6 +1210,10 @@ test("integration: setApiToken accepts valid hex token", async (t) => {
 
 
 test("integration: cooldown not expired — returns fallback without probing", async (t) => {
+  const prevHome = process.env.HOME
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.HOME = SANDBOX
+  process.env.VIBEOS_HOME = claudeDir
   delete globalThis.__vibeOSRuntimeState
   try {
     const apiClient = await loadFreshApiClient()
@@ -1234,6 +1238,8 @@ test("integration: cooldown not expired — returns fallback without probing", a
     assert.equal(apiClient.isApiFallback(), true, "still in fallback")
   } finally {
     Date.now = REAL_DATE_NOW
+    process.env.HOME = prevHome
+    process.env.VIBEOS_HOME = prevVibeHome
     delete globalThis.__vibeOSRuntimeState
   }
 })
