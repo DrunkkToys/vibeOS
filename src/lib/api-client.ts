@@ -83,8 +83,7 @@ function normalizeApiToken(token: string | null | undefined, fallback = ""): str
 }
 
 function normalizeDirectApiToken(token: string | null | undefined): string {
-  const clean = normalizeApiToken(token, "")
-  return clean && clean !== EMBEDDED_API_TOKEN ? clean : ""
+  return normalizeApiToken(token, "")
 }
 
 function editEnvLine(content: string, key: string, value: string | null): string {
