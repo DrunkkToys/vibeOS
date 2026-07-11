@@ -225,6 +225,7 @@ export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string):
 }
 
 export function formatStressGauge(stress: unknown): string {
+  if (stress === null || stress === undefined) return ""
   const value = Number(stress)
   if (!Number.isFinite(value)) return ""
   const clamped = Math.max(0, Math.min(1, value))
