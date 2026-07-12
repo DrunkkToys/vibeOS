@@ -70,6 +70,45 @@ with the fix): `tests/test_footer_cross_session_regime_leak.test.mjs`,
   `raceWithDeadline`/`BLACKBOX_API_DEADLINE_MS` pattern already used for blackbox calls),
   which is a larger, riskier change deferred for its own branch/PR.
 
+## Round 3: broader README/SPEC vs. code audit (background agent + manual verification)
+
+- **`resolveCascadeRouteDecision` (src/lib/hooks/tool-execute.ts:357) is only ever
+  called from test files** -- `cascade_route_contract.test.mjs`,
+  `cascade_escalation_contract.test.mjs`, `test_task_routing_authority.test.mjs`,
+  `cascade_footer_depth.test.mjs`, `cascade_audit_writer.test.mjs`,
+  `vibeultrax_subagent_cascade.test.mjs`, all import/call it directly, never through a
+  live hook. Verified directly: the ACTUAL runtime path (tool-execute.ts:~763, the
+  real-task-tool routing site) builds `routeDecision` inline from
+  `selection.worker_slot`/`active_pipeline` with an explicit comment "ONE source of
+  truth... never re-derive," reading a decision already made upstream by
+  `syncControlSettings` (chat-transform.ts). This may be a deliberate, intentional fix
+  (avoiding duplicate/conflicting cascade computations across two independent code
+  paths -- exactly the class of bug this whole session has been finding elsewhere) where
+  the old function + its large test suite were simply never removed after the refactor.
+  Judgment call, not unilaterally fixed: either (a) SPEC.md's certified behavior for
+  this function is now testing dead code and should be updated/removed, or (b) if the
+  function is genuinely still meant to be load-bearing somewhere, it needs to be wired
+  back in. Needs a maintainer decision, not a blind delete or blind rewire.
+- **`pricingFetch()` (remote `POST /api/v1/pricing/fetch`) is dead** --
+  `api-client.ts:486` defines it, nothing calls it. `vibe rebuild`
+  (`trinity-rebuild.ts:226-269`) populates `model-pricing-cache.json` by hitting
+  OpenRouter/DeepSeek's public APIs directly, bypassing the documented remote vibeOS API
+  entirely. CLAUDE.md's protected-algorithms table and README's "live pricing fetch"
+  claim don't match what actually runs.
+- **`blackboxCalibrate`/`blackboxCalibration` (online calibration) are dead** --
+  `api-client.ts:399-405` wraps the documented `POST /api/v1/blackbox/calibrate` /
+  `GET /api/v1/blackbox/calibration` endpoints ("Online calibration: Aggregates session
+  outcomes and auto-tunes thresholds per project" per CLAUDE.md). Never called from any
+  hook, trinity command, or test. `resolution-tracker.ts` has local `calibratedWeights`
+  fields that load/save locally, but nothing ever fetches fresh calibration from the API.
+- **Smart-cache `predictCacheHit().estimatedSavings` is computed but discarded** --
+  `smart-cache.ts:246-314` computes it on every non-hit observation;
+  `tool-execute.ts:663-719` only reads `.shouldWarm`/`.confidence`/`.similarEntries`/
+  `.reason`. Lower severity than the others: the footer's actual "$X saved" figure comes
+  from a separate, genuinely-working path (`recordCacheSaving` on real scratchpad hits),
+  so this is a leftover/unused field on the prediction object, not a broken user-facing
+  feature.
+
 ## Session identity architecture note for future work
 
 Three subsystems each maintain their OWN session-identity variable, and only one
