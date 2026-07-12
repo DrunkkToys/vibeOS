@@ -73,12 +73,16 @@ api.setApiToken(STALE_TOKEN)
 api.setApiBootstrapToken("vos_" + "f".repeat(64))
 
 test("a rejected token self-heals via bootstrap exchange instead of staying stuck", async () => {
-  const first = await api.remoteCall("health", [], () => "FALLBACK")
-  assert.equal(healthHitsWithStale, 1, "the stale token must actually be tried once")
-  assert.equal(first, "FALLBACK", "the first call fails since the stale token is rejected")
+  try {
+    const first = await api.remoteCall("health", [], () => "FALLBACK")
+    assert.equal(healthHitsWithStale, 1, "the stale token must actually be tried once")
+    assert.equal(first, "FALLBACK", "the first call fails since the stale token is rejected")
 
-  const second = await api.remoteCall("health", [], () => "FALLBACK")
-  assert.ok(exchangeHits > 0, "bootstrap exchange must be attempted after the token was rejected")
-  assert.ok(healthHitsWithFresh > 0, "the freshly exchanged token must actually be used")
-  assert.notEqual(second, "FALLBACK", "the second call must recover once a valid token is obtained")
+    const second = await api.remoteCall("health", [], () => "FALLBACK")
+    assert.ok(exchangeHits > 0, "bootstrap exchange must be attempted after the token was rejected")
+    assert.ok(healthHitsWithFresh > 0, "the freshly exchanged token must actually be used")
+    assert.notEqual(second, "FALLBACK", "the second call must recover once a valid token is obtained")
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
 })

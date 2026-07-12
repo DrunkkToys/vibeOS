@@ -1,0 +1,20 @@
+# vibeOS live-debug session notes (reference only)
+
+Branch: `fix/live-debug-pass`. PR: https://github.com/DrunkkToys/vibeOS/pull/428
+
+## Fixed this session
+- `resolveActiveCascadeTier()` (`src/lib/hooks/footer.ts`): `legacyDepth || N` -> `legacyDepth ?? N` nullish-coalescing fix (real depth-0 was treated as unknown). Removed duplicate `claimTag` key.
+- Model-corroboration override for footer tier display: attempted, then **reverted** (`4cb3d8f7`) — broke `tests/test_footer_alert_regression.test.mjs` (real Task-delegation-to-brain case with frozen entry-model string). No safe way to distinguish stale `route_path` from genuine delegation using only `liveModel` + `route_path`. Underlying footer inconsistency (brain badge + Big Pickle name) remains unfixed; existing "model drift" alert is the only current signal.
+- Unbounded JSONL growth: added `appendJsonlWithRotation()` (`src/utils/fs-helpers.ts`), wired into `turn-ledger.ts`, `state.ts` (loop-audit), `session-health.ts`, `chat-transform.ts` (calibration buffer).
+- Reports directory grew to 7,688 orphaned files (30MB) despite `report-list` showing capped "200" — `_pruneReports()`'s count-cap branch only trimmed the index, never deleted files. Fixed in `src/lib/reporting.ts`; one-time cleanup deleted 7,487 orphaned files.
+- 2 pre-existing tests (`cascade_real_proof.test.mjs`, `test_api_client_fallback_regression.test.mjs`) updated to match the already-landed self-heal contract (401 clears fallback state instead of staying stuck).
+- **Test-hang bug**: `tests/blackbox_bootstrap_exchange_gap.test.mjs` and `tests/api_client_auth_rejection_self_heal.test.mjs` both spin up a bare `http.createServer()` fixture and never call `server.close()`. The actual assertions pass in ~15ms, but the open server keeps the process's event loop alive forever, so the file-level test hangs until the runner's timeout and the process never exits — this is what silently spawned repeated zombie `node` processes (6 dead ones found from 4:26pm-5:30pm, all producing 0 bytes of output). Fixed by closing the server in a `finally` block. This is almost certainly the "2 known-flaky 240s timeout file-level artifacts" noted earlier in the session — now genuinely fixed, not just tolerated.
+
+## Still open (from user feedback, not yet fixed)
+1. **"TDD should not create a skeleton, it should start by writing cascade tests"** — user wants `vibe tdd on`'s current skeleton-generation replaced with a flow that starts by writing real cascade-exercising tests. Skeleton-gen code is in `src/vibeOS-lib/` (tdd-enforcer, likely `tdd-enforcer.ts`). Not yet investigated.
+2. **"it's always looping"** — traced to the REMOTE API's own `negative-outcome-repeat` loop detector (`decision_source: "api"`, confidence 0.92, `loop_source_reason: "repeated negative outcomes"`), seen live in `$VIBEOS_HOME/blackbox-state.json` for session `opencode-57678-1783870757985-bb16114c7bfca`. This is server-side (vibeOScore repo), not directly patchable here. The fixable angle from this repo: whether client-side reward/penalty computation ("Lie penalty: -15", "Meta-work penalty: -8" seen via `vibe blackbox status`) over-penalizes legitimate usage and feeds bad signals upstream. Grep attempted with `--include=*.ts` glob and failed on zsh quoting; retry as `grep -rn "lie penalty\|lie_penalty\|meta-work penalty\|meta_work_penalty\|metaWorkPenalty" src/` (no `--include`).
+3. **"cascade ▸▸ is not correct"** — footer showed a 2-arrow (medium-depth) cascade icon alongside the real brain-tier model name (V4 Pro). Distinct from the corroboration bug above; not yet investigated. Check `ultraCascadeDepth`/cascade icon computation in `footer.ts` against what actually determined depth for that turn.
+
+## Process notes
+- CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
+- Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).

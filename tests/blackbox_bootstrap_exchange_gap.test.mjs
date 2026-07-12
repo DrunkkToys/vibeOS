@@ -67,18 +67,22 @@ const cascade = await import("../src/lib/cascade.js")
 api.setApiBootstrapToken("vos_" + "c".repeat(64))
 
 test("fetchBlackboxEnrichment triggers bootstrap exchange when no direct token exists yet", async () => {
-  assert.equal(exchangeHits, 0, "sanity: exchange not yet called")
-  assert.equal(api.getApiClient(), null, "sanity: no client available before exchange")
+  try {
+    assert.equal(exchangeHits, 0, "sanity: exchange not yet called")
+    assert.equal(api.getApiClient(), null, "sanity: no client available before exchange")
 
-  const result = await cascade.fetchBlackboxEnrichment("test-session-bootstrap-gap", "please refactor the auth module", {
-    features: {},
-    action: "explore",
-    entropy: 1.0,
-    uncertainty: 50,
-  })
+    const result = await cascade.fetchBlackboxEnrichment("test-session-bootstrap-gap", "please refactor the auth module", {
+      features: {},
+      action: "explore",
+      entropy: 1.0,
+      uncertainty: 50,
+    })
 
-  assert.ok(exchangeHits > 0, "bootstrap exchange must be attempted before giving up on the API")
-  assert.ok(analyzeHits > 0, "blackbox analyze must actually be called once a token is obtained")
-  assert.ok(result, "enrichment must succeed once the bootstrap exchange yields a token")
-  assert.equal(result.source, "api", "result must be marked as API-sourced")
+    assert.ok(exchangeHits > 0, "bootstrap exchange must be attempted before giving up on the API")
+    assert.ok(analyzeHits > 0, "blackbox analyze must actually be called once a token is obtained")
+    assert.ok(result, "enrichment must succeed once the bootstrap exchange yields a token")
+    assert.equal(result.source, "api", "result must be marked as API-sourced")
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
 })
