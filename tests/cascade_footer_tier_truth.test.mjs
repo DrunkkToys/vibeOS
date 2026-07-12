@@ -102,6 +102,31 @@ test("resolveActiveCascadeTier: disk session used when live session has no route
   assert.equal(res.depth, 3)
 })
 
+test("resolveActiveCascadeTier: a real legacyDepth of 0 (no escalation) must not be reported as depth 3", async () => {
+  const sf = await import("../src/lib/hooks/shared-footer.js?tier-truth-7=" + Date.now())
+  const res = sf.resolveActiveCascadeTier({
+    liveSession: {},
+    diskSession: {},
+    legacyDepth: 0,
+    liveModel: "deepseek/deepseek-v4-flash",
+    trinityBrain: "deepseek/deepseek-v4-flash",
+  })
+  assert.equal(res.tier, "brain")
+  assert.equal(res.depth, 0, "a direct, non-cascaded brain-tier call must show depth 0, not the nominal 3")
+})
+
+test("resolveActiveCascadeTier: missing legacyDepth still falls back to the tier's nominal depth", async () => {
+  const sf = await import("../src/lib/hooks/shared-footer.js?tier-truth-8=" + Date.now())
+  const res = sf.resolveActiveCascadeTier({
+    liveSession: {},
+    diskSession: {},
+    liveModel: "deepseek/deepseek-v4-flash",
+    trinityBrain: "deepseek/deepseek-v4-flash",
+  })
+  assert.equal(res.tier, "brain")
+  assert.equal(res.depth, 3, "with no tracked depth at all, the nominal brain depth should still be assumed")
+})
+
 // ── Integration: Task-subagent escalation persists route_path, and the footer ──
 // resolver (fed with that persisted state) agrees with the escalated tier,
 // regardless of which hook (tool.execute.after vs text.complete) reads it.
