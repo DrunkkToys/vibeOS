@@ -204,7 +204,7 @@ export class ResolutionTracker {
         reason: "repeated negative outcomes",
       }
     }
-    if (pollSignal && repeatSignal >= 2) {
+    if (pollSignal && repeatSignal >= 4) {
       return {
         isLooping: true,
         authority: "authoritative-local",
@@ -241,6 +241,15 @@ export class ResolutionTracker {
       }
     }
     if (repeatSignal >= 2 || (repeatSignal >= 3 && (activityRepeat >= 3 || targetRepeat >= 3))) {
+      if (pollSignal) {
+        return {
+          isLooping: false,
+          authority: "advisory-local",
+          kind: "poll-repeat-low",
+          confidence: 0.4,
+          reason: "routine polling below runaway threshold",
+        }
+      }
       return {
         isLooping: true,
         authority: "authoritative-local",

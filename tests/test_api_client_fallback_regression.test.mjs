@@ -154,7 +154,7 @@ test("isApiFallback self-heals via setApiToken when isApiConnected is never call
   }
 })
 
-test("contract: auth rejection counts as disconnected orchestration", async () => {
+test("contract: auth rejection self-heals (clears the rejected token) instead of leaving orchestration stuck disconnected", async () => {
   const ctx = fresh()
   const api = await ctx.api
   const prevFetch = global.fetch
@@ -167,9 +167,9 @@ test("contract: auth rejection counts as disconnected orchestration", async () =
     })
 
     const result = await api.remoteCall("health", [], () => "auth-fallback")
-    assert.equal(result, "auth-fallback", "auth failure falls back locally")
-    assert.equal(api.isApiFallback(), true, "auth rejection activates fallback")
-    assert.equal(api.isApiConnected(), false, "auth rejection hides orchestration connectivity")
+    assert.equal(result, "auth-fallback", "auth failure falls back locally for this call")
+    assert.equal(api.isApiFallback(), false, "clearRejectedToken() self-heals so the plugin isn't stuck in fallback after a rejected token")
+    assert.equal(api.isApiConnected(), true, "self-heal restores orchestration connectivity so the next call can re-exchange a fresh token")
   } finally {
     global.fetch = prevFetch
     await restore(ctx)

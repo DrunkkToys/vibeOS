@@ -7,7 +7,7 @@ import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
 import { mergeProjectBucket, _computeSessionMetrics, _pruneOldSessions } from "./pattern-helpers.js"
 import { getOcSessionId, setOcSessionId } from "./runtime-state.js"
-import { safeJsonParse } from "../utils/fs-helpers.js"
+import { safeJsonParse, appendJsonlWithRotation } from "../utils/fs-helpers.js"
 import { USER_HOME, getVibeOSHome as runtimeGetVibeOSHome, getOpenCodeHome as runtimeGetOpenCodeHome, getOpenCodeHomes as runtimeGetOpenCodeHomes, resolveVibeOSHome, resolveOpenCodeHome, setVibeOSHomeContext as runtimeSetVibeOSHomeContext } from "./runtime-paths.js"
 import {
   getSessionRoot,
@@ -896,7 +896,7 @@ function appendLoopTransitionAudit(previousSession: unknown, nextSession: unknow
       loop_detector_confidence: Number.isFinite(Number(next.loop_detector_confidence)) ? Number(next.loop_detector_confidence) : null,
       reason: String(next.loop_source_reason || next.resolution_reason || ""),
     }
-    appendFileSync(auditPath, JSON.stringify(payload) + "\n")
+    appendJsonlWithRotation(auditPath, JSON.stringify(payload) + "\n")
   } catch {}
 }
 

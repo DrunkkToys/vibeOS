@@ -156,14 +156,16 @@ export function resolveActiveCascadeTier(opts: {
       if (tier) return { tier, depth, source: "route" }
     }
   }
-  const legacyDepth = Number(opts.legacyDepth) || 0
+  const legacyDepth = opts.legacyDepth !== undefined && opts.legacyDepth !== null && Number.isFinite(Number(opts.legacyDepth))
+    ? Number(opts.legacyDepth)
+    : null
   const m = opts.liveModel || ""
-  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth || 1, source: "model" }
-  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth || 2, source: "model" }
-  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth || 3, source: "model" }
+  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth ?? 1, source: "model" }
+  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth ?? 2, source: "model" }
+  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth ?? 3, source: "model" }
   const c = String((opts.classify ? opts.classify(m) : "") || "").toLowerCase()
   const tier: CascadeTier = c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
-  return { tier, depth: legacyDepth || (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
+  return { tier, depth: legacyDepth ?? (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
 }
 
 export function resolveRegimeIcon(subRegime: string): string {
@@ -1180,7 +1182,6 @@ async function resolveFooterDisplayState(
     stressGauge: formatStressGauge(_footerStress),
     cascadeIcon: ultraCascadeDepth >= 3 ? "\u25B8\u25B8\u25B8" : ultraCascadeDepth >= 2 ? "\u25B8\u25B8" : ultraCascadeDepth >= 1 ? "\u25B8" : "",
     cascadeLabel: "",
-    claimTag: claimTag || undefined,
     rewardTag: _rewardTag || undefined,
     alertTag: _alertTag || undefined,
     sid, messageID: null, execution, liveModelSetting, resolvedModel, displayMode,

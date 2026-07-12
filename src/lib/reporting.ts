@@ -106,11 +106,16 @@ function _pruneReports() {
       keep.push(r)
     }
     // Keep max 200 (newest)
-    const pruned = keep.sort((a, b) => b.created.localeCompare(a.created)).slice(0, 200)
+    const sorted = keep.sort((a, b) => b.created.localeCompare(a.created))
+    const pruned = sorted.slice(0, 200)
+    const dropped = sorted.slice(200)
     if (pruned.length !== idx.reports.length) {
+      for (const r of dropped) {
+        try { rmSync(join(getReportsDir(), `${r.id}.json`)) } catch {}
+      }
       idx.reports = pruned
       saveReportsIndex(idx)
-      console.error(`[vibeOS] reports pruned: ${idx.reports.length} kept (from ${keep.length})`)
+      console.warn(`[vibeOS] reports pruned: ${idx.reports.length} kept (from ${keep.length}), ${dropped.length} over-cap files deleted`)
     }
   } catch (err) {
     console.error(`[vibeOS] reports prune failed: ${err.message}`)
