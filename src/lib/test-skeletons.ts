@@ -278,10 +278,10 @@ const TEST_SKELETONS = {
           content += `}\n\n`
         }
         if (quality && sourceContent) {
-          const _params = inferFunctionParams(sourceContent, exp.name)
-          content += `    // TODO: Real assertion for ${exp.name} — valid input\n`
-          content += `    // TODO: Real assertion for ${exp.name} — invalid input\n`
-          content += `    // TODO: Real assertion for ${exp.name} — edge case\n\n`
+          const params = inferFunctionParams(sourceContent, exp.name)
+          content += `func Test${cap}_${exp.name}_Quality(t *testing.T) {\n`
+          content += buildQualityAssertionsForFunc(exp.name, params, "go", "\t")
+          content += `}\n\n`
         }
       }
       if (exports.length === 0) {
