@@ -695,7 +695,7 @@ export function clearRejectedToken(): void {
   _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
   _apiFallbackMode = false
   persistPrimaryApiEnvState({ token: "" })
-  console.error("[vibeOS] Rejected API token cleared; will retry bootstrap exchange")
+  console.warn("[vibeOS] Rejected API token cleared; will retry bootstrap exchange")
 }
 
 export function setApiBootstrapToken(newToken) {

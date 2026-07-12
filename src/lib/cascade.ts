@@ -1282,7 +1282,7 @@ async function fetchBlackboxEnrichment(sessionId, userText, localState) {
       client = getApiClient()
     }
     if (!client || isApiFallback()) {
-      console.error(`[vibeOS] blackbox enrichment skipped: client=${!!client} apiFallback=${isApiFallback()}`)
+      console.warn(`[vibeOS] blackbox enrichment skipped: client=${!!client} apiFallback=${isApiFallback()}`)
       return null
     }
     const analyze = client.blackboxAnalyze(sessionId, {
@@ -1302,7 +1302,7 @@ async function fetchBlackboxEnrichment(sessionId, userText, localState) {
   } catch (err) {
     const status = err?.statusCode || err?.status || 0
     const detail = status ? `status=${status}` : `message=${err?.message || err}`
-    console.error(`[vibeOS] blackbox enrichment failed, falling back to local: ${detail}`)
+    console.warn(`[vibeOS] blackbox enrichment failed, falling back to local: ${detail}`)
     if (status === 401 || status === 403) clearRejectedToken()
   }
   return null
