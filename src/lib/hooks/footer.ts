@@ -940,6 +940,8 @@ function _setFooter(obj, text) {
 
 async function resolveFooterDisplayState(
   directory: string,
+  text: string,
+  hookModel = "",
   lastModelError?: string,
   hookName = "experimental.text.complete",
 ): Promise<any> {
@@ -973,6 +975,7 @@ async function resolveFooterDisplayState(
     }
   } catch {}
   let liveModelSetting = readLiveOpenCodeModel(directory) || ""
+  if (hookModel) liveModelSetting = hookModel
   const sid = getSessionId()
   const { ltTasks, ltCache, ltCost, _count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, _sesDuration, _sesRatePerHour, sesTrend, _sesToolBreakdown, sesModelTurns, _quality_avg } = readLifetimeSavings()
   const { _stableStreak, _problemStreak } = readRewardSignals()
@@ -1056,7 +1059,7 @@ async function resolveFooterDisplayState(
   })
   const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
   const claimStatus = evaluateClaimEvidence({
-    text: "",
+    text,
     vibeHome: getVibeOSHome(),
     sessionId: sid,
     turnId: latestTurnTruth?.turnId || "",
@@ -1067,7 +1070,7 @@ async function resolveFooterDisplayState(
     sessionId: sid,
     projectFingerprint: currentProjectFingerprint || "",
     userText: latestUserIntent || "",
-    assistantText: "",
+    assistantText: text,
     prevAssistantTexts,
     turnId: latestTurnTruth?.turnId || "",
   })
@@ -1201,7 +1204,8 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     if (!text) return
 
     _footerStage = "resolve"
-    const state = await resolveFooterDisplayState(directory, lastModelError, hookName)
+    const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
+    const state = await resolveFooterDisplayState(directory, text, hookModel, lastModelError, hookName)
     state.messageID =
       input?.messageID ||
         input?.messageId ||

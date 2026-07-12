@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
@@ -16,7 +16,15 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const FOOTER_TS_PATH = join(dirname(__dirname), 'footer.ts');
+function findProjectRoot(start) {
+  let dir = start;
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    dir = dirname(dir);
+  }
+  return start;
+}
+const FOOTER_TS_PATH = join(findProjectRoot(__dirname), 'src', 'lib', 'hooks', 'footer.ts');
 
 describe('resolveTrinityDisplayModel (pricing.ts)', () => {
   before(() => {
