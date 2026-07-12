@@ -684,6 +684,20 @@ export function invalidateApiToken() {
   }
 }
 
+// A rejected (401/403) direct API token must not leave the plugin stuck in
+// local fallback forever. Clear the dead token in memory and on disk, but
+// keep the bootstrap token intact so the next call can naturally re-exchange
+// for a fresh one -- unlike invalidateApiToken(), this is not a permanent
+// disable and does not set _tokenInvalidated.
+export function clearRejectedToken(): void {
+  VIBEOS_API_TOKEN = ""
+  _apiClientGen++
+  _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
+  _apiFallbackMode = false
+  persistPrimaryApiEnvState({ token: "" })
+  console.error("[vibeOS] Rejected API token cleared; will retry bootstrap exchange")
+}
+
 export function setApiBootstrapToken(newToken) {
   try {
     VIBEOS_API_BOOTSTRAP_TOKEN = String(newToken || "").trim()
@@ -888,6 +902,7 @@ export async function remoteCall(method, args, fallbackFn) {
     }
     if (status === 401 || status === 403) {
       console.warn(`[vibeOS] API auth failed (${method}): server reachable but token rejected`)
+      clearRejectedToken()
     }
     if (fallbackFn) {
       try { return fallbackFn() } catch (fe) { console.error(`[vibeOS] fallback also failed: ${fe?.message || fe}`) }

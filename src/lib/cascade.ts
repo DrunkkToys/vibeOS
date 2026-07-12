@@ -11,7 +11,7 @@ import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
-import { getApiClient, isApiFallback, ensureBootstrapExchange } from "./api-client.js"
+import { getApiClient, isApiFallback, ensureBootstrapExchange, clearRejectedToken } from "./api-client.js"
 
 export function detectOutcomeSignal(text) {
   if (!text) return null
@@ -1281,7 +1281,10 @@ async function fetchBlackboxEnrichment(sessionId, userText, localState) {
       await ensureBootstrapExchange()
       client = getApiClient()
     }
-    if (!client || isApiFallback()) return null
+    if (!client || isApiFallback()) {
+      console.error(`[vibeOS] blackbox enrichment skipped: client=${!!client} apiFallback=${isApiFallback()}`)
+      return null
+    }
     const analyze = client.blackboxAnalyze(sessionId, {
       userText: typeof userText === "string" ? userText : "",
       features: localState.features || {},
@@ -1296,7 +1299,12 @@ async function fetchBlackboxEnrichment(sessionId, userText, localState) {
       _latestBlackboxPivotMsg = result.pivot_directive || null
       return mergeAuthoritativeBlackboxState(localState, result)
     }
-  } catch {}
+  } catch (err) {
+    const status = err?.statusCode || err?.status || 0
+    const detail = status ? `status=${status}` : `message=${err?.message || err}`
+    console.error(`[vibeOS] blackbox enrichment failed, falling back to local: ${detail}`)
+    if (status === 401 || status === 403) clearRejectedToken()
+  }
   return null
 }
 
