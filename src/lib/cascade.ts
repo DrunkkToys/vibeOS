@@ -11,7 +11,7 @@ import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
-import { getApiClient, isApiFallback } from "./api-client.js"
+import { getApiClient, isApiFallback, ensureBootstrapExchange } from "./api-client.js"
 
 export function detectOutcomeSignal(text) {
   if (!text) return null
@@ -1276,7 +1276,11 @@ export function mergeAuthoritativeBlackboxState(localState, apiResult) {
 
 async function fetchBlackboxEnrichment(sessionId, userText, localState) {
   try {
-    const client = getApiClient()
+    let client = getApiClient()
+    if (!client) {
+      await ensureBootstrapExchange()
+      client = getApiClient()
+    }
     if (!client || isApiFallback()) return null
     const analyze = client.blackboxAnalyze(sessionId, {
       userText: typeof userText === "string" ? userText : "",
