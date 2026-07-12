@@ -32,7 +32,7 @@ jobs:
       - run: npm run build:bundle
       - run: npm run test:ci
       - run: npx tsc -p tsconfig.json --noEmit
-      - run: node --check src/index.js
+      - run: node --check dist/vibeOS.js
       - run: npm run build
       - run: node scripts/release.mjs --ci --yes ${{ inputs.bump_type }}
         env:
