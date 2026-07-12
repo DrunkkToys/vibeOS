@@ -184,6 +184,19 @@ function getPivotCache() {
   return globalThis.__vibeultraxPivotCache
 }
 
+// The previous turn's user text, used to detect a forward pivot (topic switch)
+// so the outgoing workflow can be snapshotted before it's lost. Scoped to the
+// current session for the same cross-session-leak reason as getPivotCache().
+function getPrevMessage() {
+  const sid = getCurrentSessionId()
+  if (globalThis.__vibeultraxPrevMessageSessionId !== sid) return ""
+  return globalThis.__vibeultraxPrevMessage || ""
+}
+function setPrevMessage(text) {
+  globalThis.__vibeultraxPrevMessage = text
+  globalThis.__vibeultraxPrevMessageSessionId = getCurrentSessionId()
+}
+
 export function vibeultraxControlVector(input = {}) {
   const text = normalizeText(input)
   const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85)
@@ -234,6 +247,29 @@ export function vibeultraxPipeline(input = {}) {
   const tokens = text ? pc.tokenize(text) : new Set()
   const pivotBack = text && tokens.size > 0 ? pc.detectPivotBack(tokens, 0.5) : { matchedId: null, confidence: 0, reason: "no_text" }
   const isPivotBack = pivotBack.matchedId !== null
+
+  // Forward pivot: if the user just switched topics, snapshot the OUTGOING
+  // workflow before it's lost, so a later pivot-back can find it. Mirrors
+  // vibemaxPipeline's capture pattern -- this was previously missing entirely
+  // in vibeultrax mode (the app's default), so pivot-back could never match
+  // anything real.
+  const prevMessage = getPrevMessage()
+  const forwardPivot = prevMessage && text ? pc.detectPivot(text, prevMessage) : { isPivot: false, similarity: 1 }
+  if (forwardPivot.isPivot && prevMessage) {
+    const prevTokens = pc.tokenize(prevMessage)
+    const prevId = "wf-" + Date.now()
+    const ctx = input._pivotContext || {}
+    pc.snapshot(prevId, {
+      tokens: [...prevTokens],
+      intent: prevMessage.substring(0, 60),
+      decisions: ctx.decisions?.length ? ctx.decisions : [`workflow: ${prevMessage.substring(0, 80)}`],
+      files: ctx.files || [],
+      code_snippets: ctx.code_snippets || [],
+      blockers: ctx.blockers || [],
+      toolOutputs: ctx.toolOutputs || [],
+    })
+  }
+  if (text) setPrevMessage(text)
 
   return {
     ...vibeultraxControlVector(input),
