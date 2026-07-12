@@ -3,7 +3,8 @@
 // @ts-nocheck
 
 import { cascadeDecide } from "../ml-router.js"
-import { PivotCache } from "./pivot-cache.js"
+import { getCurrentSessionId } from "../../lib/state.js"
+import { PivotCache, pivotCacheDirForSession } from "./pivot-cache.js"
 
 const CHEAP = 0.0001
 const MEDIUM = 0.001
@@ -171,8 +172,15 @@ function profileFromCascade(decision) {
   return { profile: "direct", cascade_depth: 1, pipeline_root: VIBEULTRAX_ROOT, route_path: ["cheap"], tier_bias: "cheap", selected_slot: "cheap" }
 }
 
+// Scoped to the current conversation; recreated whenever the active session
+// id changes so captured workflows from one conversation never leak into
+// another (matches the same fix applied to vibemax's getPivotCache()).
 function getPivotCache() {
-  if (!globalThis.__vibeultraxPivotCache) globalThis.__vibeultraxPivotCache = new PivotCache()
+  const sid = getCurrentSessionId()
+  if (!globalThis.__vibeultraxPivotCache || globalThis.__vibeultraxPivotCacheSessionId !== sid) {
+    globalThis.__vibeultraxPivotCache = new PivotCache(pivotCacheDirForSession(sid))
+    globalThis.__vibeultraxPivotCacheSessionId = sid
+  }
   return globalThis.__vibeultraxPivotCache
 }
 
