@@ -1,3 +1,28 @@
+## 0.26.2
+- fix: check the actual shipped bundle, not a stale pre-TS-migration file (#432)
+- fix: install dashboard deps before test:ci in release workflow (#431)
+- fix: footer leaked another session's LOOPING regime via root disk state (#430)
+- fix: stop synthesizing negative outcomes from LOOPING+stress alone (#429)
+- fix: close leaked http server fixtures causing test-file hangs
+- fix: reports prune trimmed the index but never deleted the over-cap files
+- fix: footer tier badge must not claim a higher tier than the model that actually answered
+- fix: rotate unbounded jsonl state logs (turn-ledger, calibration, loop-audit, session-health)
+- fix: cascade-depth icon shows nominal depth instead of real 0 for direct (non-cascaded) calls
+- fix: log blackbox/self-heal diagnostics at warn level so they're actually captured
+- fix: self-heal a rejected API token instead of permanently sticking in local fallback
+- fix: attempt bootstrap token exchange in fetchBlackboxEnrichment before giving up on the API
+- fix: raise poll-repeat loop threshold to stop false-positive LOOPING on routine CI waits
+- fix: pass text+hookModel to resolveFooterDisplayState, fix audit test path for compiled TS
+- fix: footer refactor — extract resolveFooterDisplayState, remove state mutations
+- fix: null guard in formatStressGauge + 14 deep feature tests
+- test: update 2 pre-existing tests to match the intentional self-heal behavior change
+- chore: drop now-unused appendFileSync imports after rotation-helper migration
+Merge pull request #428 from DrunkkToys/fix/live-debug-pass
+revert: back out the cascade-tier model-corroboration override
+Merge pull request #427 from DrunkkToys/fix/footer-refactor-extract-state-resolution
+Revert "fix: null guard in formatStressGauge + 14 deep feature tests"
+
+
 ## 0.26.1
 - fix: accept embedded token as direct API token (#425)
 - fix: accept embedded token as direct API token, reset stuck fallback mode (#424)
