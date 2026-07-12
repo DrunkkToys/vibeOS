@@ -1106,13 +1106,24 @@ async function resolveFooterDisplayState(
         const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
         const finalOutcome = outcome || passiveNegative
         if (finalOutcome) {
+          // Display-only: a passively-inferred outcome may still drive local
+          // resolutionState/nextAction hints below.
           _rewardOutcome = finalOutcome
+        }
+        // Only an EXPLICIT outcome signal (from user/assistant text) may reach the
+        // loop/outcome trackers or the reward engine. Running this block off
+        // `passiveNegative` alone -- synthesizing "negative" purely from already being
+        // in a LOOPING+stressed state -- creates a self-reinforcing loop: LOOPING ->
+        // passive negative -> API/local tracker sees another negative outcome -> LOOPING
+        // confidence rises further, and it applies an unexplained penalty (e.g.
+        // metaWorkPenalty) to the user for no textual reason at all.
+        if (outcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(finalOutcome)
-          try { syncOutcomeToApi(finalOutcome) } catch {}
+          tracker.recordOutcome(outcome)
+          try { syncOutcomeToApi(outcome) } catch {}
           try {
             const rewardInput = buildRewardInput({
-              finalOutcome,
+              finalOutcome: outcome,
               assistantText: prevText,
               userText: latestUserIntent || "",
               prevAssistantTexts,
@@ -1236,11 +1247,15 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         const finalRewardOutcome = rewardOutcome || rewardPassiveNegative
         if (finalRewardOutcome) {
           state._rewardOutcome = finalRewardOutcome
+        }
+        // See the matching comment above: only explicit outcome signals feed the
+        // trackers/reward engine that the LOOPING classification is derived from.
+        if (rewardOutcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(finalRewardOutcome)
-          try { syncOutcomeToApi(finalRewardOutcome) } catch {}
+          tracker.recordOutcome(rewardOutcome)
+          try { syncOutcomeToApi(rewardOutcome) } catch {}
           const rewardResult = computeReward(buildRewardInput({
-            finalOutcome: finalRewardOutcome,
+            finalOutcome: rewardOutcome,
             assistantText: rewardText,
             userText: latestUserIntent || "",
             prevAssistantTexts: typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [],
