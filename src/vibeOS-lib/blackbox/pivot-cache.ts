@@ -1,6 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, dirname } from "node:path"
-import { getVibeOSHome } from "../../lib/state.js"
+import { getVibeOSHome, getCurrentSessionId } from "../../lib/state.js"
+
+// PivotCache used to default to a single $VIBEOS_HOME-wide file with no
+// session scoping at all -- every OpenCode conversation, past or present,
+// shared one pool of captured "workflows." Scope it per-session by default
+// so pivot-back matches (and the context they inject into the prompt) only
+// ever come from the CURRENT conversation, never an unrelated one.
+export function pivotCacheDirForSession(sessionId?: string): string {
+  const sid = sessionId || getCurrentSessionId() || "default"
+  return join(getVibeOSHome(), "pivot-cache", sid)
+}
 
 interface PivotContext {
   tokens: string[]

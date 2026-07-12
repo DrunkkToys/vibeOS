@@ -548,7 +548,14 @@ export function setCurrentTier(v: string | null) { currentTier = v }
 export function setCurrentModel(v: string | null) { currentModel = v }
 export function setCurrentProjectFingerprint(v: string) { currentProjectFingerprint = v }
 export function setCurrentProjectName(v: string) { currentProjectName = v }
-export function setCurrentSessionId(v: string) { currentSessionId = String(v || _OC_SID) }
+export function setCurrentSessionId(v: string) {
+  currentSessionId = String(v || _OC_SID)
+  // Keep the scratchpad cache's session scoping (getOcSessionId, read by
+  // scratchpad-cache.ts's getSessionRoot()) in sync with the real conversation
+  // identity -- otherwise it stays pinned to the stale per-process placeholder
+  // set once at plugin init, and cache entries get scoped to the wrong session.
+  setOcSessionId(currentSessionId)
+}
 export function getCurrentSessionId(): string { return currentSessionId || _OC_SID }
 export function resetSessionId(sessionId: string): void {
   _OC_SID = String(sessionId || getOcSessionId())

@@ -35,8 +35,6 @@ export default function Home(props: {
   onOpenSession: () => void
   onTrinityAction: () => void
 }) {
-  if (!props.data) return <div class="home-view"><div class="card"><h3>Home</h3><p class="muted">loading executive summary...</p></div></div>
-
   const flowSummary = () => resolveFlowSummary({ session: props.session, project: props.project, flows: props.flows })
   const todoPreview = () => (props.data?.todos || []).filter((todo) => todo?.status !== "done").slice(0, 4)
   const homeStatus = () => props.data?.status || props.status
@@ -56,6 +54,7 @@ export default function Home(props: {
   ]
 
   return (
+    <Show when={props.data} fallback={<div class="home-view"><div class="card"><h3>Home</h3><p class="muted">loading executive summary...</p></div></div>}>
     <div class="home-view">
       <section class="home-hero">
         <div class="home-hero-copy">
@@ -219,5 +218,6 @@ export default function Home(props: {
         </div>
       </section>
     </div>
+    </Show>
   )
 }
