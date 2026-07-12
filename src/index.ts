@@ -32,6 +32,7 @@ import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProject
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
+import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
@@ -958,6 +959,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     setToolDirectory(directory || "")
   if (typeof setShellDirectory === "function")
     setShellDirectory(directory || "")
+  if (typeof setTddDirectory === "function")
+    setTddDirectory(directory || "")
   registerSessionCleanupHandlers()
   pruneScratchpadOnce()
   runStartupMaintenanceOnce()
@@ -1518,7 +1521,7 @@ export { applySlot, modelCostPerTurn, isModelFree, isDocsTarget, detectContext7,
 export { getScratchpadHit, getSessionScratchpadDir, getSessionIndexPath, setCurrentModel, setCurrentTier, setCurrentSessionId, setCurrentProjectFingerprint, setCurrentProjectName, getCurrentSessionId, _OC_SID } from "./lib/state.js"
 export { _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 export { _setPendingUiNoteForTest, _setEnforcementBlockedForTest } from "./lib/hooks/tool-execute.js"
-export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder } from "./lib/tdd-enforcer.js"
+export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder, setTddDirectory } from "./lib/tdd-enforcer.js"
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/cascade.js"
 export { loadMcpPort as _loadMcpPort }

@@ -17,6 +17,11 @@ let _detectedFramework: string | null = null
 
 let directory = undefined
 
+export function setTddDirectory(dir) {
+  directory = dir || undefined
+  _detectedFramework = null
+}
+
 const SOURCE_EXT_RE = /\.(py|js|ts|mjs|tsx|jsx|cjs|mts|sh|go|rs|rb|java|kt)$/i
 const SKIP_PATH_RE = /(\/(node_modules|\.venv|dist|build|__pycache__)\/|\/(tests?|spec)\/|test_[^/]+\.py$|_test\.py$|\.test\.[a-z]+$|\.spec\.[a-z]+$|\.config\/opencode\/plugins\/)/i
 
