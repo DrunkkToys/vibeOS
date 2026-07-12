@@ -16,7 +16,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const FOOTER_TS_PATH = join(dirname(dirname(dirname(dirname(dirname(__dirname))))), 'src', 'lib', 'hooks', 'footer.ts');
+const FOOTER_TS_PATH = join(dirname(__dirname), 'footer.ts');
 
 describe('resolveTrinityDisplayModel (pricing.ts)', () => {
   before(() => {
