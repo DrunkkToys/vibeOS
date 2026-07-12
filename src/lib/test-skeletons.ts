@@ -96,7 +96,7 @@ const TEST_SKELETONS = {
         }
         if (quality && sourceContent) {
           const params = inferFunctionParams(sourceContent, exp.name)
-          content += buildQualityAssertionsForFunc(exp.name, params, "js", "  ")
+          content += buildQualityAssertionsForFunc(exp.name, params, "js", "  ", framework)
         }
       }
       if (exports.length === 0) {
@@ -161,7 +161,7 @@ const TEST_SKELETONS = {
         }
         if (quality && sourceContent) {
           const params = inferFunctionParams(sourceContent, exp.name)
-          content += buildQualityAssertionsForFunc(exp.name, params, "mjs", "  ")
+          content += buildQualityAssertionsForFunc(exp.name, params, "mjs", "  ", framework)
         }
       }
       if (exports.length === 0) {
@@ -230,7 +230,7 @@ const TEST_SKELETONS = {
         }
         if (quality && sourceContent) {
           const params = inferFunctionParams(sourceContent, exp.name)
-          content += buildQualityAssertionsForFunc(exp.name, params, "ts", "  ")
+          content += buildQualityAssertionsForFunc(exp.name, params, "ts", "  ", framework)
         }
       }
       if (exports.length === 0) {
