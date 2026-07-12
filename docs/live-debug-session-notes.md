@@ -189,6 +189,61 @@ not just the file it happened to search.
 but NOT documented anywhere in CLAUDE.md's trinity command list — orphaned enum
 value, not a broken promise. Left alone, noted only.
 
+## Round 5: `vibe mode raw` unreachable + vibeultrax pivot capture + a chain of 3 more TDD bugs (PRs #435, #437-439)
+
+- **`vibe mode raw` unreachable** (PR #435) — CLAUDE.md documents `mode
+  vibeultrax|vibeqmax|vibemax|vibelitex|raw` as supported; `RAW_MODE` is fully
+  implemented in `mode-table.ts` but `trinity-tool.ts`'s `slot` schema enum AND its
+  internal `allModeIds`/mode-entry lookup never included it. Same bug class as the
+  `lock` action fix. Live-verified post-fix: `vibe mode raw` now switches correctly
+  ("Raw Brain ⚡" in the footer).
+- **TDD quality assertions were bare TODOs for rust/ruby/java/kotlin/go** (PR #437) —
+  `buildQualityAssertionsForFunc`'s `default` branch (hit by rs/rb/java/kt) emitted
+  comment-only TODOs; `go`'s skeleton in `test-skeletons.ts` bypassed the shared
+  function entirely with its own hardcoded TODO comments. Added real per-language
+  assertion blocks.
+- **vibeultrax pivot capture** (PR #438) — `vibeultraxPipeline` (the app's default
+  mode) only ever READ from `PivotCache`, never wrote to it; only `vibemax.ts` did.
+  `_pivotContext` was already correctly wired into the call site in
+  `chat-transform.ts`, just discarded inside the function body. Added
+  session-scoped forward-pivot detection (mirroring the existing
+  `getPivotCache()` session-scoping) and a `.snapshot()` call, matching
+  `vibemaxPipeline`'s pattern. New test proves the full capture→pivot-away→pivot-back
+  round trip with real injected content.
+- **Two more TDD bugs found live-testing the above, same session** (PR #439):
+  1. `buildTestSkeleton()` unconditionally overwrote a skeleton's file extension with
+     the JS framework's detected extension (`fw.testExt`) regardless of the SOURCE
+     file's language. Live-reproduced: a `.rs` file's skeleton was written to
+     `..._test.js` — raw Rust syntax inside a `.js` file, invisible to `cargo test`,
+     unparseable as JS. Fixed to only apply the override for JS-family extensions.
+  2. `syncControlSettings()` never wrote `tdd_quality` at all, and compared
+     `cv.tdd_mode === "strict"` — a value `tdd_mode` never actually holds
+     (`mode-table.ts` only ever produces `"quality"` or `"lazy"`). So `tdd_strict`
+     was always wrongly false for quality mode, and `tdd_quality` silently kept
+     whatever stale value it had forever (e.g. `false`, left over from switching to
+     `raw` mode, which correctly disables TDD via `tdd: "—"`). This **orphaned the
+     entire PR #437 quality-assertion fix** — live-reproduced by switching
+     raw → vibeultrax and generating a skeleton that still had zero real assertions.
+  Both were caught by the "use OpenCode Desktop itself to test the fix" step of the
+  per-defect loop, not by static reading — a good argument for the loop's design.
+- **Minor observation**: cold-start `writeSelection()` calls against a brand-new,
+  never-initialized `$VIBEOS_HOME` sandbox (no existing `model-tiers.json`) can take
+  tens of seconds due to first-run provider-seeding logic. Not a bug, but worth
+  pre-seeding a minimal `model-tiers.json` in any test that calls `writeSelection`/
+  `syncControlSettings` for the first time in a fresh sandbox, to avoid slow tests —
+  see `test_sync_control_settings_tdd_quality.test.mjs`'s `seedSandbox()` helper for
+  the working pattern (mirrors `test_fixes_footer_pivot_quality.test.mjs`).
+- **Blackbox sub-regime count drift**: CLAUDE.md claims "7 sub-regimes" (INIT,
+  DIVERGENT, EXPLORING, REFINING, CONVERGING, CLOSED, LOOPING); the local
+  `ResolutionTracker.SUB_REGIMES` (`src/vibeOS-lib/blackbox/resolution-tracker.ts:7`)
+  actually has 11: adds IMPLEMENTING, RESEARCH, REVIEWING, DESIGNING. Likely
+  documentation drift rather than a functional bug, since CLAUDE.md itself documents
+  the local tracker as API-fallback-only (never authoritative when the remote API is
+  live) — the remote API may genuinely only use 7. Not fixed; flagged for a docs
+  correction pass.
+- **Stress mitigation pipeline, Context7 injection**: both independently confirmed
+  fully wired and live (haiku audit + spot-checked), no action needed.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
