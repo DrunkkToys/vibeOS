@@ -1,8 +1,40 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 // ── Directory helper ─────────────────────────────────────────────────
 export function ensureDir(dirPath: string): void {
   if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true })
+}
+
+// ── Append-only JSONL writer with line-count rotation ────────────────
+// Appends `line` (or `lines`) to `filePath`, then trims the file down to
+// the most recent `maxLines` whenever it grows past `checkEveryLines`
+// appends since the last trim -- avoids unbounded on-disk growth for
+// high-frequency logs (turn ledger, calibration buffer, loop audit,
+// session health) without paying the read-whole-file cost on every write.
+const _rotationCounters = new Map<string, number>()
+
+export function appendJsonlWithRotation(
+  filePath: string,
+  lines: string | string[],
+  maxLines = 5000,
+  checkEveryLines = 200,
+): void {
+  ensureDir(filePath.slice(0, filePath.lastIndexOf("/")))
+  const payload = Array.isArray(lines) ? lines.join("") : lines
+  appendFileSync(filePath, payload)
+  const count = (_rotationCounters.get(filePath) || 0) + 1
+  if (count < checkEveryLines) {
+    _rotationCounters.set(filePath, count)
+    return
+  }
+  _rotationCounters.set(filePath, 0)
+  try {
+    const raw = readFileSync(filePath, "utf-8")
+    const allLines = raw.split("\n").filter(Boolean)
+    if (allLines.length > maxLines) {
+      writeFileSync(filePath, allLines.slice(-maxLines).join("\n") + "\n")
+    }
+  } catch {}
 }
 
 // ── JSON file reader (safe parse + corruption handling) ─────────────

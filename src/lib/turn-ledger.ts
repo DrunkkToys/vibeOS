@@ -3,11 +3,12 @@
 // route debugging must share one executed-turn truth instead of independently
 // inferring state from blackbox/delegation/footer probes.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { join } from "node:path"
 
 import { getCurrentSessionId, getVibeOSHome } from "./state.js"
+import { appendJsonlWithRotation } from "../utils/fs-helpers.js"
 
 export interface TurnRouteSnapshot {
   selectedModel?: string | null
@@ -162,7 +163,7 @@ export function recordTurnRoute(input: {
   }
   try {
     ensureLedgerDir()
-    appendFileSync(ledgerFile(), JSON.stringify(event) + "\n")
+    appendJsonlWithRotation(ledgerFile(), JSON.stringify(event) + "\n")
   } catch {}
   return { sessionId, turnId }
 }
@@ -185,7 +186,7 @@ export function recordTurnFinalize(input: {
   }
   try {
     ensureLedgerDir()
-    appendFileSync(ledgerFile(), JSON.stringify(event) + "\n")
+    appendJsonlWithRotation(ledgerFile(), JSON.stringify(event) + "\n")
   } catch {}
   return { sessionId, turnId }
 }

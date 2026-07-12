@@ -26,6 +26,7 @@ import {
   _OC_SID,
 } from "../state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../cascade.js"
+import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
 import { shouldSuppressLoopNotice } from "../loop-state.js"
 import { nextTurn } from "../turn-memo.js"
 import { evaluateClaimEvidence } from "../session-health.js"
@@ -1847,7 +1848,7 @@ export const onSystemTransform = async (_input, output) => {
       try {
         const calFile = join(getVibeOSHome(), "calibration-data.jsonl")
         mkdirSync(getVibeOSHome(), { recursive: true })
-        appendFileSync(calFile, _calBuffer.join(""))
+        appendJsonlWithRotation(calFile, _calBuffer.join(""))
         _calBuffer.length = 0
       } catch {}
     }

@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process"
 
 import { getCurrentSessionId, getVibeOSHome } from "./state.js"
 import { loadTurnTruth } from "./turn-ledger.js"
+import { appendJsonlWithRotation } from "../utils/fs-helpers.js"
 
 export type SessionHealthRisk = "low" | "moderate" | "high"
 export type ClaimEvidenceStatus = "supported" | "unsupported" | "contradicted" | "not_applicable"
@@ -465,7 +466,7 @@ export function getSessionHealthSnapshot(input: {
 function persistSessionHealthSnapshot(snapshot: SessionHealthSnapshot, vibeHome = getVibeOSHome()): void {
   try {
     mkdirSync(vibeHome, { recursive: true })
-    appendFileSync(join(vibeHome, "session-health.jsonl"), JSON.stringify(snapshot) + "\n")
+    appendJsonlWithRotation(join(vibeHome, "session-health.jsonl"), JSON.stringify(snapshot) + "\n")
   } catch {}
 }
 
