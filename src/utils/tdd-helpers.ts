@@ -129,7 +129,7 @@ export function _langComment(lang) {
   return map[lang] || "//"
 }
 
-export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
+export function buildQualityAssertionsForFunc(funcName, params, lang, indent, framework = null) {
   const cmt = _langComment(lang)
   const _nl = lang === "py" || lang === "rb" || lang === "sh" ? "\n" : "\n"
   let block = ""
@@ -173,15 +173,6 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
     }
     case "js": case "mjs": case "ts": case "tsx": case "jsx": {
       const blkLang = (lang === "ts" || lang === "tsx") ? "it" : "test"
-      block += `${indent}${blkLang}('${funcName}: handles valid input', () => {\n`
-      block += `${indent}  const result = mod.${funcName}(${args});\n`
-      block += `${indent}  expect(result).toBeDefined();\n`
-      block += `${indent}});\n\n`
-      block += `${indent}${blkLang}('${funcName}: rejects invalid input', () => {\n`
-      block += `${indent}  // TODO: replace with expected error type\n`
-      block += `${indent}  expect(() => mod.${funcName}(null)).toThrow();\n`
-      block += `${indent}});\n\n`
-      block += `${indent}${blkLang}('${funcName}: handles edge cases', () => {\n`
       const ecArgsJS = params.map(p => {
         const t = p.type || inferTypeFromName(p.name, p.defaultValue)
         if (t === "string") return '""'
@@ -191,9 +182,33 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent) {
         if (t === "object") return "{}"
         return "undefined"
       }).join(", ")
-      block += `${indent}  const result = mod.${funcName}(${ecArgsJS});\n`
-      block += `${indent}  expect(result).toBeDefined();\n`
-      block += `${indent}});\n\n`
+      if (framework === "node-test") {
+        block += `${indent}${blkLang}('${funcName}: handles valid input', () => {\n`
+        block += `${indent}  const result = mod.${funcName}(${args});\n`
+        block += `${indent}  assert.notEqual(result, undefined);\n`
+        block += `${indent}});\n\n`
+        block += `${indent}${blkLang}('${funcName}: rejects invalid input', () => {\n`
+        block += `${indent}  // TODO: replace with expected error type\n`
+        block += `${indent}  assert.throws(() => mod.${funcName}(null));\n`
+        block += `${indent}});\n\n`
+        block += `${indent}${blkLang}('${funcName}: handles edge cases', () => {\n`
+        block += `${indent}  const result = mod.${funcName}(${ecArgsJS});\n`
+        block += `${indent}  assert.notEqual(result, undefined);\n`
+        block += `${indent}});\n\n`
+      } else {
+        block += `${indent}${blkLang}('${funcName}: handles valid input', () => {\n`
+        block += `${indent}  const result = mod.${funcName}(${args});\n`
+        block += `${indent}  expect(result).toBeDefined();\n`
+        block += `${indent}});\n\n`
+        block += `${indent}${blkLang}('${funcName}: rejects invalid input', () => {\n`
+        block += `${indent}  // TODO: replace with expected error type\n`
+        block += `${indent}  expect(() => mod.${funcName}(null)).toThrow();\n`
+        block += `${indent}});\n\n`
+        block += `${indent}${blkLang}('${funcName}: handles edge cases', () => {\n`
+        block += `${indent}  const result = mod.${funcName}(${ecArgsJS});\n`
+        block += `${indent}  expect(result).toBeDefined();\n`
+        block += `${indent}});\n\n`
+      }
       break
     }
     default: {
