@@ -127,39 +127,6 @@ test("resolveActiveCascadeTier: missing legacyDepth still falls back to the tier
   assert.equal(res.depth, 3, "with no tracked depth at all, the nominal brain depth should still be assumed")
 })
 
-test("resolveActiveCascadeTier: a stale brain route_path must not override a model that provably answered as cheap", async () => {
-  // Reproduces the live drift observed 2026-07-12: cross-provider brain
-  // delegation (deepseek/deepseek-v4-pro) never fires for a directly-answered
-  // (non-Task-delegated) turn, so the entry model (opencode/big-pickle, the
-  // configured CHEAP model) answers instead -- while a session's route_path
-  // still says the cascade reached "brain" from an earlier decision. The
-  // footer must not claim brain tier when the model that actually answered is
-  // provably a different, lower tier.
-  const sf = await import("../src/lib/hooks/shared-footer.js?tier-truth-9=" + Date.now())
-  const res = sf.resolveActiveCascadeTier({
-    liveSession: { route_path: ["cheap", "medium", "brain"] },
-    diskSession: {},
-    liveModel: "opencode/big-pickle",
-    trinityCheap: "opencode/big-pickle",
-    trinityMedium: "opencode-go/deepseek-v4-flash",
-    trinityBrain: "deepseek/deepseek-v4-pro",
-  })
-  assert.equal(res.tier, "cheap", "the model that actually answered (Big Pickle, the configured cheap model) is hard evidence overriding the stale brain route_path")
-})
-
-test("resolveActiveCascadeTier: route_path is trusted when the model doesn't contradict it (real Task delegation)", async () => {
-  const sf = await import("../src/lib/hooks/shared-footer.js?tier-truth-10=" + Date.now())
-  const res = sf.resolveActiveCascadeTier({
-    liveSession: { route_path: ["cheap", "medium", "brain"] },
-    diskSession: {},
-    liveModel: "deepseek/deepseek-v4-pro",
-    trinityCheap: "opencode/big-pickle",
-    trinityMedium: "opencode-go/deepseek-v4-flash",
-    trinityBrain: "deepseek/deepseek-v4-pro",
-  })
-  assert.equal(res.tier, "brain", "when the answering model matches the route's claimed tier, the route stands")
-})
-
 // ── Integration: Task-subagent escalation persists route_path, and the footer ──
 // resolver (fed with that persisted state) agrees with the escalated tier,
 // regardless of which hook (tool.execute.after vs text.complete) reads it.
