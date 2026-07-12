@@ -11,7 +11,7 @@ import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRA
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../cascade.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, setCurrentModel, setCurrentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
+import { currentModel, currentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { getSessionCacheSavings } from "../session-savings.js"
@@ -901,9 +901,52 @@ function recordFooterError(input: { stage: string; message: string; stack?: stri
   } catch {}
 }
 
-async function _appendFooter(input, output, directory, lastModelError?: string, hookName = "experimental.text.complete") {
+
+// ── Footer Helpers (module-level) ──
+
+function _payload(obj) {
+  if (obj?.message && typeof obj.message === "object") return obj.message
+  return obj
+}
+
+function _extractText(obj) {
+  const payload = _payload(obj)
+  if (typeof payload?.text === "string") return payload.text
+  if (typeof payload?.result === "string") return payload.result
+  if (typeof payload?.content === "string") return payload.content
+  if (Array.isArray(payload?.content)) return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+  if (Array.isArray(payload?.parts)) return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
+  return ""
+}
+
+function _setFooter(obj, text) {
+  const target = _payload(obj)
+  if (typeof target?.text === "string") target.text = text
+  else if (typeof target?.result === "string") target.result = text
+  else if (typeof target?.content === "string") target.content = text
+  else if (Array.isArray(target?.content)) {
+    const textParts = target.content.filter(p => p?.type === "text")
+    if (textParts.length > 0) textParts[textParts.length - 1].text = text
+    else target.content.push({ type: "text", text })
+  } else if (Array.isArray(target?.parts)) {
+    const textParts = target.parts.filter(p => p?.type === "text")
+    if (textParts.length > 0) textParts[textParts.length - 1].text = text
+    else target.parts.push({ type: "text", text })
+  } else target.text = text
+}
+
+// ── Footer Display State Resolution (Single Source of Truth) ──
+// Reads subsystem state. Does NOT mutate setCurrentModel/setCurrentTier.
+// Those mutations belong in tool-execute.ts and pricing.ts.
+
+async function resolveFooterDisplayState(
+  directory: string,
+  text: string,
+  hookModel = "",
+  lastModelError?: string,
+  hookName = "experimental.text.complete",
+): Promise<any> {
   _refreshModel(directory)
-  let _footerStage = "init"
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
@@ -933,15 +976,238 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     }
   } catch {}
   let liveModelSetting = readLiveOpenCodeModel(directory) || ""
-  const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
   if (hookModel) liveModelSetting = hookModel
-  if (liveModelSetting && liveModelSetting !== currentModel) {
-    setCurrentModel(liveModelSetting)
-    setCurrentTier(classify(liveModelSetting))
-    footerDebug(`[vibeOS] live model: ${currentModel} (tier=${currentTier})`)
+  const sid = getSessionId()
+  const { ltTasks, ltCache, ltCost, _count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, _sesDuration, _sesRatePerHour, sesTrend, _sesToolBreakdown, sesModelTurns, _quality_avg } = readLifetimeSavings()
+  const { _stableStreak, _problemStreak } = readRewardSignals()
+
+  const latestTurnTruth = getLatestTurnTruth(sid)
+  const latestExecutedRoute = latestTurnTruth?.executedRoute || null
+  const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
+  const latestFinalized = latestTurnTruth?.finalized || null
+  const turnTruthSlot = (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || latestFinalized?.finalVisibleSlot || ""
+  const sessionSlot = turnTruthSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
+  const slot = loadSelection().active_slot || sessionSlot || "brain"
+  const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
+  const _cacheEvt = getLatestCacheEvent(sid)
+  const _perTurnCacheDelta = _cacheEvt.hit ? _cacheEvt.est_savings_usd : 0
+  const _cacheMiss = !_cacheEvt.hit
+  let liveModel = liveModelSetting
+  if (!liveModel) {
+    liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
   }
+  const displayModel = latestFinalized?.finalVisibleModel || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedModel : "") || liveModelSetting || liveModel || currentModel || ""
+  const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || ""
+  const backendMode = String(
+    loadSelection().requested_optimization_mode ||
+    loadSelection().optimization_mode ||
+    loadOptimizationMode() ||
+    liveBlackboxState?.optimization_mode ||
+    "",
+  ).trim().toLowerCase()
+  const displayMode = backendMode || (quietIntent
+    ? regimeToMode("INIT", _footerStress)
+    : (isApiConnected()
+      ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
+      : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
+  const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
+  const ultraCascadeResolution = resolveActiveCascadeTier({
+    liveSession: liveBlackboxState?.sessions?.[sid],
+    diskSession: diskBlackboxState?.sessions?.[sid],
+    legacyDepth: liveBlackboxState?.control_vector?.cascade_depth ?? liveBlackboxState?.cascade_depth
+      ?? diskBlackboxState?.control_vector?.cascade_depth ?? diskBlackboxState?.cascade_depth ?? 0,
+    liveModel: ultraLiveModel,
+    trinityCheap: TRINITY_CHEAP,
+    trinityMedium: TRINITY_MEDIUM,
+    trinityBrain: TRINITY_BRAIN,
+    classify,
+  })
+  const ultraResolvedTier = ultraCascadeResolution.tier
+  const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
+    ? latestExecutedRoute.routePath.length
+    : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
+  const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
+    : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
+    : null)
+    || displayModel
+    || (ultraResolvedTier === "brain" ? TRINITY_BRAIN : ultraResolvedTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP)
+    || ""
+  const execution = resolveCurrentExecution({
+    directory,
+    activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
+    currentModel,
+    liveModel: displayMode === "vibeultrax" ? cascadeModel : (displayModel || liveModel || currentModel || ""),
+    tiersData: {
+      trinity: {
+        brain: { oc: TRINITY_BRAIN || currentModel },
+        medium: { oc: TRINITY_MEDIUM || currentModel },
+        cheap: { oc: TRINITY_CHEAP || currentModel },
+      },
+    },
+  })
+  const selNowFooter = loadSelection()
+  const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
+  const currentSubRegime = quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || normalizedIntent)
+  const bbMode = resolveEnforcementMode()
+  const CODING_REGIMES = new Set(["REFINING", "IMPLEMENTING", "CONVERGING", "REVIEWING"])
+  const enfTags = buildEnforcementTags({
+    delegationEnforce: selNowFooter.delegation_enforce,
+    flowEnforce: selNowFooter.flow_enforce,
+    tddEnforce: selNowFooter.tdd_enforce && CODING_REGIMES.has(currentSubRegime),
+    bbMode,
+    modelLocked: _modelLocked,
+    quietIntent: isGreetingLike(latestUserIntent || ""),
+  })
+  const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
+  const claimStatus = evaluateClaimEvidence({
+    text,
+    vibeHome: getVibeOSHome(),
+    sessionId: sid,
+    turnId: latestTurnTruth?.turnId || "",
+    userText: latestUserIntent || "",
+    prevAssistantTexts,
+  })
+  const sessionHealth = getSessionHealthSnapshot({
+    sessionId: sid,
+    projectFingerprint: currentProjectFingerprint || "",
+    userText: latestUserIntent || "",
+    assistantText: text,
+    prevAssistantTexts,
+    turnId: latestTurnTruth?.turnId || "",
+  })
+  const claimTag = claimStatus.claimTag || ""
+  const ltTotal = ltTasks + ltCache
+  const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
+  const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
+  const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
+  const activeSlot = turnTruthSlot || ultraResolvedTier
+  const flashIcon = isApiConnected() ? " \u26A1" : ""
+  const rawMode = displayMode
+  const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
+  const SUPPRESS_SYNC_MODES = new Set(["quality", "auto"])
+  const isSuppressedMode = SUPPRESS_SYNC_MODES.has(String(displayMode || "").toLowerCase())
+  const vibeBrand = isSuppressedMode ? "vibeOS" : resolveBrand(displayMode, activeSlot)
+  const XP_SHOW_REGIMES = new Set(["CONVERGING", "CLOSED", "REVIEWING"])
+  let _rewardTag = ""
+  let _rewardOutcome = null
+  let _rewardCredits = 0
+  let _rewardBreakdown = null
+
+  if (_blackboxEnabled) {
+    try {
+      const prevText = _prevOutputText
+      if (prevText) {
+        const outcome = detectOutcomeSignal(prevText)
+        const regime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+        const stress = _footerStress
+        const isLooping = String(regime || "").toUpperCase() === "LOOPING"
+        const isStressed = Number(stress || 0) > 0.3
+        const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
+        const finalOutcome = outcome || passiveNegative
+        if (finalOutcome) {
+          _rewardOutcome = finalOutcome
+          const tracker = getBlackboxTracker()
+          tracker.recordOutcome(finalOutcome)
+          try { syncOutcomeToApi(finalOutcome) } catch {}
+          try {
+            const rewardInput = buildRewardInput({
+              finalOutcome,
+              assistantText: prevText,
+              userText: latestUserIntent || "",
+              prevAssistantTexts,
+              savingsUsd: _perTurnCacheDelta,
+              isBrainTier: String(currentTier || "").toLowerCase() === "high",
+              sessionId: sid,
+              turnId: latestTurnTruth?.turnId || "",
+              projectFingerprint: currentProjectFingerprint || "",
+              cacheHit: _cacheEvt.hit,
+              cacheMiss: _cacheMiss,
+            })
+            const rewardResult = computeReward(rewardInput)
+            _rewardCredits = rewardResult.credits
+            _rewardBreakdown = rewardResult.breakdown
+            if (rewardResult.credits !== 0) {
+              const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
+              if (!suppressPositive) {
+                _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
+  const _cascadeTierModels = new Set([TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean))
+  const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting)
+    ? liveModelSetting
+    : _expectedModel
+  let _alertTag = ""
   try {
-    const messageID =
+    const pendingSwitch = getPendingLiveSwitch()
+    _alertTag = buildFooterAlert({
+      apiDegraded: isApiFallback(),
+      apiSlow: false,
+      liveModel: liveModelSetting || undefined,
+      expectedModel: _expectedForAlert || undefined,
+      lastModelError,
+      pendingLiveModel: pendingSwitch?.model || undefined,
+    })
+    if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
+      _alertTag = "\u21BB recover"
+    }
+  } catch {}
+
+  const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
+  const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
+  const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
+  const showDowngrade = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
+  const downgradeWorkerSlot = showDowngrade ? `\u2193 ${sessionSlot}` : undefined
+
+  return {
+    activeSlot,
+    sessionSlot,
+    workerSlot: downgradeWorkerSlot,
+    providerLabel: execution.provider_label,
+    modelName: modelDisplayName(execution.model),
+    savingsTotal: footerSavingsTotal,
+    ltTrend: sesTrend,
+    vibeBrand,
+    optMode: isSuppressedMode ? "" : displayMode,
+    flashIcon,
+    enfTags,
+    subRegime: currentSubRegime,
+    stressGauge: formatStressGauge(_footerStress),
+    cascadeIcon: ultraCascadeDepth >= 3 ? "\u25B8\u25B8\u25B8" : ultraCascadeDepth >= 2 ? "\u25B8\u25B8" : ultraCascadeDepth >= 1 ? "\u25B8" : "",
+    cascadeLabel: "",
+    claimTag: claimTag || undefined,
+    rewardTag: _rewardTag || undefined,
+    alertTag: _alertTag || undefined,
+    sid, messageID: null, execution, liveModelSetting, resolvedModel, displayMode,
+    displayModel, currentSubRegime, _footerStress, liveBlackboxState, diskBlackboxState,
+    latestTurnTruth, latestExecutedRoute, turnTruthSlot, slot, brainModel, _cacheEvt,
+    _perTurnCacheDelta, _cacheMiss, cv, isSuppressedMode, _rewardOutcome, _rewardCredits,
+    _rewardBreakdown, claimTag: claimTag || "", downgradeWorkerSlot,
+    cascadeDepthForIcon: Number(ultraCascadeDepth) || 0, footerSavingsTotal, sesTrend,
+    ltTotal, ltCost, ltCache, sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
+    sesTaskDelegations, sesModelTurns, claimStatus, sessionHealth, stripped: "",
+  }
+}
+
+// ── Gutted _appendFooter (thin orchestrator) ──
+
+async function _appendFooter(input, output, directory, lastModelError?: string, hookName = "experimental.text.complete") {
+  _refreshModel(directory)
+  let _footerStage = "init"
+  try {
+    const text = _extractText(output)
+    if (!text) return
+
+    _footerStage = "resolve"
+    const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
+    const state = await resolveFooterDisplayState(directory, text, hookModel, lastModelError, hookName)
+    state.messageID =
       input?.messageID ||
         input?.messageId ||
         input?.message?.id ||
@@ -950,418 +1216,151 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.message?.id ||
         null
 
-    function _payload(obj) {
-      if (obj?.message && typeof obj.message === "object") return obj.message
-      return obj
-    }
-
-    function _extractText(obj) {
-      const payload = _payload(obj)
-      if (typeof payload?.text === "string") return payload.text
-      if (typeof payload?.result === "string") return payload.result
-      if (typeof payload?.content === "string") return payload.content
-      if (Array.isArray(payload?.content)) return payload.content.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
-      if (Array.isArray(payload?.parts)) return payload.parts.filter(p => p?.type === "text").map(p => p.text).filter(Boolean).join("\n")
-      return ""
-    }
-    const text = _extractText(output)
-    if (!text) return
-    _footerStage = "savings"
-    const { ltTasks, ltCache, ltCost, _count, sesTasks, sesEdit, sesCredit, sesC7, sesQuota, sesTaskDelegations, _sesDuration, _sesRatePerHour, sesTrend, _sesToolBreakdown, sesModelTurns, _quality_avg } = readLifetimeSavings()
-    const { _stableStreak, _problemStreak } = readRewardSignals()
-
-    const sid = getSessionId()
-    const latestTurnTruth = getLatestTurnTruth(sid)
-    const latestExecutedRoute = latestTurnTruth?.executedRoute || null
-    const latestRouteDrivesVisibleAnswer = latestExecutedRoute?.contributedToFinalAnswer === true
-    const latestFinalized = latestTurnTruth?.finalized || null
-    const turnTruthSlot = (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedSlot : "") || latestFinalized?.finalVisibleSlot || ""
-    const sessionSlot = turnTruthSlot || loadBlackboxState()?.sessions?.[sid]?.active_slot || loadSessionSlot(sid)
-    const slot = loadSelection().active_slot || sessionSlot || "brain"
-    const brainModel = slot === "brain" ? (TRINITY_BRAIN || currentModel) : slot === "medium" ? (TRINITY_MEDIUM || currentModel) : (TRINITY_CHEAP || currentModel || "")
-    const _cacheEvt = getLatestCacheEvent(sid)
-    const _perTurnCacheDelta = _cacheEvt.hit ? _cacheEvt.est_savings_usd : 0
-    const _cacheMiss = !_cacheEvt.hit
-    let liveModel = liveModelSetting
-    if (!liveModel) {
-      liveModel = readConfig(directory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
-    }
-    const displayModel = latestFinalized?.finalVisibleModel || (latestRouteDrivesVisibleAnswer ? latestExecutedRoute?.selectedModel : "") || liveModelSetting || liveModel || currentModel || ""
-    const resolvedModel = displayModel || liveModelSetting || liveModel || currentModel || ""
-    if (resolvedModel && resolvedModel !== currentModel) {
-      setCurrentModel(resolvedModel)
-      setCurrentTier(classify(resolvedModel))
-    }
-    const backendMode = String(
-      loadSelection().requested_optimization_mode ||
-      loadSelection().optimization_mode ||
-      loadOptimizationMode() ||
-      liveBlackboxState?.optimization_mode ||
-      "",
-    ).trim().toLowerCase()
-    const displayMode = backendMode || (quietIntent
-      ? regimeToMode("INIT", _footerStress)
-      : (isApiConnected()
-        ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
-        : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
-    const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
-    const ultraCascadeResolution = resolveActiveCascadeTier({
-      liveSession: liveBlackboxState?.sessions?.[sid],
-      diskSession: diskBlackboxState?.sessions?.[sid],
-      legacyDepth: liveBlackboxState?.control_vector?.cascade_depth ?? liveBlackboxState?.cascade_depth
-        ?? diskBlackboxState?.control_vector?.cascade_depth ?? diskBlackboxState?.cascade_depth ?? 0,
-      liveModel: ultraLiveModel,
-      trinityCheap: TRINITY_CHEAP,
-      trinityMedium: TRINITY_MEDIUM,
-      trinityBrain: TRINITY_BRAIN,
-      classify,
-    })
-    const ultraResolvedTier = ultraCascadeResolution.tier
-    const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
-      ? latestExecutedRoute.routePath.length
-      : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
-    const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
-      : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
-      : null)
-      || displayModel
-      || (ultraResolvedTier === "brain" ? TRINITY_BRAIN : ultraResolvedTier === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP)
-      || ""
-    _footerStage = "execution"
-    const execution = resolveCurrentExecution({
-      directory,
-      activeSlot: displayMode === "vibeultrax" ? ultraResolvedTier : slot || "brain",
-      currentModel,
-      liveModel: displayMode === "vibeultrax" ? cascadeModel : (displayModel || liveModel || currentModel || ""),
-      tiersData: {
-        trinity: {
-          brain: { oc: TRINITY_BRAIN || currentModel },
-          medium: { oc: TRINITY_MEDIUM || currentModel },
-          cheap: { oc: TRINITY_CHEAP || currentModel },
-        },
-      },
-    })
-    const _executionSlot = displayMode === "vibeultrax"
-      ? ultraResolvedTier
-      : execution.quality === "brain"
-        ? "brain"
-        : execution.quality === "mid"
-          ? "medium"
-          : "cheap"
-    let _modelTag = `[${shortModelName(cascadeModel)}]`
-    const _workerModel = slot === "brain" ? TRINITY_MEDIUM : null
-    const totalTurns = (sesModelTurns?.brain || 0) + (sesModelTurns?.worker || 0)
-    if (_workerModel && _workerModel !== brainModel) {
-      const brainPct = Math.round(((sesModelTurns?.brain || 0) / (totalTurns || 1)) * 100)
-      _modelTag = `[${shortModelName(cascadeModel)} ${brainPct}% → ${shortModelName(_workerModel)} ${100 - brainPct}%]`
-    }
-
-    _autoReportCount = (_autoReportCount || 0) + 1
-    if (_autoReportCount % 5 === 0) {
-      try {
-        saveReport({
-          type: "session",
-          summary: "Session cost: $" + formatUsd(ltCost) + " | cache saved: $" + formatUsd(ltCache) + " | delegation saved: $" + formatUsd(Number(sesTasks || 0)) + " | task delegations: " + Number(sesTaskDelegations || 0),
-          metrics: {
-            sessionId: sid,
-            projectFingerprint: currentProjectFingerprint || "unknown",
-            projectName: currentProjectName || "unknown",
-            sessionCost: ltCost,
-            cacheSavings: ltCache,
-            delegationSavingsUsd: sesTasks,
-            taskDelegationCount: sesTaskDelegations,
-            tasksDelegated: sesTaskDelegations,
-            model: resolvedModel || currentModel,
-            slot: loadSelection().active_slot || "unknown",
-            editSavings: sesEdit,
-            creditSavings: sesCredit,
-            context7Savings: sesC7,
-            quotaSavings: sesQuota,
-          },
-          tags: ["auto", "cost"],
-        })
-      } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
-    }
-
-    const selNowFooter = loadSelection()
-    const normalizedIntent = classifyTurnSimple(latestUserIntent || "")
-    const currentSubRegime = quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || normalizedIntent)
-    const bbMode = resolveEnforcementMode()
-    const CODING_REGIMES = new Set(["REFINING", "IMPLEMENTING", "CONVERGING", "REVIEWING"])
-    const enfTags = buildEnforcementTags({
-      delegationEnforce: selNowFooter.delegation_enforce,
-      flowEnforce: selNowFooter.flow_enforce,
-      tddEnforce: selNowFooter.tdd_enforce && CODING_REGIMES.has(currentSubRegime),
-      bbMode,
-      modelLocked: _modelLocked,
-      quietIntent: isGreetingLike(latestUserIntent || ""),
-    })
-    const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
-    _footerStage = "claims"
-    const claimStatus = evaluateClaimEvidence({
-      text,
-      vibeHome: getVibeOSHome(),
-      sessionId: sid,
-      turnId: latestTurnTruth?.turnId || "",
-      userText: latestUserIntent || "",
-      prevAssistantTexts,
-    })
-    const sessionHealth = getSessionHealthSnapshot({
-      sessionId: sid,
-      projectFingerprint: currentProjectFingerprint || "",
-      userText: latestUserIntent || "",
-      assistantText: text,
-      prevAssistantTexts,
-      turnId: latestTurnTruth?.turnId || "",
-    })
-    const claimTag = claimStatus.claimTag || ""
     const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
     const hasExistingFooter = footerSuffix.test(text)
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
-    const ltTotal = ltTasks + ltCache
-    const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
-    const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
-    const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
-    const activeSlot = turnTruthSlot || ultraResolvedTier
-    const flashIcon = isApiConnected() ? " \u26A1" : ""
-    const rawMode = displayMode
-    _footerStage = "control-vector"
-    const cv = computeControlVector({ sub_regime: currentSubRegime, latest_stress_multiplier: _footerStress, user_text: latestUserIntent || "" }, undefined, rawMode)
-    const SUPPRESS_SYNC_MODES = new Set(["quality", "auto"])
-    const isSuppressedMode = SUPPRESS_SYNC_MODES.has(String(displayMode || "").toLowerCase())
-    const vibeBrand = isSuppressedMode ? "vibeOS" : resolveBrand(displayMode, activeSlot)
-    const XP_SHOW_REGIMES = new Set(["CONVERGING", "CLOSED", "REVIEWING"])
-    let _rewardTag = ""
-    let _rewardOutcome = null
-    let _rewardCredits = 0
-    let _rewardBreakdown = null
+    state.stripped = stripped
 
-    if (_blackboxEnabled) {
-      try {
-        const prevText = _prevOutputText
-        _prevOutputText = _extractText(output) || ""
-        if (_prevOutputText && prevText && _prevOutputText !== prevText) {
-          const outcome = detectOutcomeSignal(_prevOutputText)
-          const regime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
-          const stress = _footerStress
-          const isLooping = String(regime || "").toUpperCase() === "LOOPING"
-          const isStressed = Number(stress || 0) > 0.3
-          const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
-          const finalOutcome = outcome || passiveNegative
-          if (finalOutcome) {
-            _rewardOutcome = finalOutcome
-            const tracker = getBlackboxTracker()
-            tracker.recordOutcome(finalOutcome)
-            try { syncOutcomeToApi(finalOutcome) } catch {}
-            try {
-              const curOutput = _prevOutputText || ""
-              const rewardInput = buildRewardInput({
-                finalOutcome,
-                assistantText: curOutput,
-                userText: latestUserIntent || "",
-                prevAssistantTexts,
-                savingsUsd: _perTurnCacheDelta,
-                isBrainTier: String(currentTier || "").toLowerCase() === "high",
-                sessionId: sid,
-                turnId: latestTurnTruth?.turnId || "",
-                projectFingerprint: currentProjectFingerprint || "",
-                cacheHit: _cacheEvt.hit,
-                cacheMiss: _cacheMiss,
-              })
-              const rewardResult = computeReward(rewardInput)
-              _rewardCredits = rewardResult.credits
-              _rewardBreakdown = rewardResult.breakdown
-              if (rewardResult.credits !== 0) {
-                const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
-                if (!suppressPositive) {
-                  _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
-                }
-              }
-            } catch {}
-            try {
-              mkdirSync(getVibeOSHome(), { recursive: true })
-              appendFileSync(
-                join(getVibeOSHome(), "calibration-data.jsonl"),
-                JSON.stringify({ ts: new Date().toISOString(), event: "outcome", sid: getSessionId(), outcome: finalOutcome }) + "\n",
-              )
-            } catch {}
-          }
-        }
-      } catch {}
-    }
+    // Update _prevOutputText for next turn's reward detection
+    const prevText = _prevOutputText
+    _prevOutputText = text
 
-    if (_rewardOutcome && !_rewardTag) {
+    // Re-detect reward if text changed
+    if (_blackboxEnabled && _prevOutputText && prevText && _prevOutputText !== prevText) {
       try {
-        const curOutput = _prevOutputText || ""
-        const rewardResult = computeReward(buildRewardInput({
-          finalOutcome: _rewardOutcome,
-          assistantText: curOutput,
-          userText: latestUserIntent || "",
-          prevAssistantTexts,
-          savingsUsd: _perTurnCacheDelta,
-          isBrainTier: String(currentTier || "").toLowerCase() === "high",
-          sessionId: sid,
-          turnId: latestTurnTruth?.turnId || "",
-          projectFingerprint: currentProjectFingerprint || "",
-          cacheHit: _cacheEvt.hit,
-          cacheMiss: _cacheMiss,
-        }))
-        _rewardCredits = rewardResult.credits
-        _rewardBreakdown = rewardResult.breakdown
-        if (rewardResult.credits !== 0) {
-          const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
-          if (!suppressPositive) {
-            _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
-          }
-        }
-      } catch {}
-    }
-
-    if (!_rewardTag) {
-      try {
-        const rewardText = _prevOutputText || _extractText(output) || ""
+        const rewardText = _prevOutputText
         const rewardOutcome = detectOutcomeSignal(rewardText)
-        const rewardRegime = liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
-        const rewardStress = _footerStress
+        const rewardRegime = state.liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")
+        const rewardStress = state._footerStress
         const rewardPassiveNegative = (String(rewardRegime || "").toUpperCase() === "LOOPING" && Number(rewardStress || 0) > 0.3 && !rewardOutcome) ? "negative" : null
         const finalRewardOutcome = rewardOutcome || rewardPassiveNegative
         if (finalRewardOutcome) {
+          state._rewardOutcome = finalRewardOutcome
+          const tracker = getBlackboxTracker()
+          tracker.recordOutcome(finalRewardOutcome)
+          try { syncOutcomeToApi(finalRewardOutcome) } catch {}
           const rewardResult = computeReward(buildRewardInput({
             finalOutcome: finalRewardOutcome,
             assistantText: rewardText,
             userText: latestUserIntent || "",
-            prevAssistantTexts,
-            savingsUsd: _perTurnCacheDelta,
+            prevAssistantTexts: typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [],
+            savingsUsd: state._perTurnCacheDelta,
             isBrainTier: String(currentTier || "").toLowerCase() === "high",
-            sessionId: sid,
-            turnId: latestTurnTruth?.turnId || "",
+            sessionId: state.sid,
+            turnId: state.latestTurnTruth?.turnId || "",
             projectFingerprint: currentProjectFingerprint || "",
-            cacheHit: _cacheEvt.hit,
-            cacheMiss: _cacheMiss,
+            cacheHit: state._cacheEvt.hit,
+            cacheMiss: state._cacheMiss,
           }))
-          _rewardCredits = rewardResult.credits
-          _rewardBreakdown = rewardResult.breakdown
+          state._rewardCredits = rewardResult.credits
+          state._rewardBreakdown = rewardResult.breakdown
           if (rewardResult.credits !== 0) {
-            const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(currentSubRegime || "").toUpperCase())
+            const XP_SHOW_REGIMES = new Set(["CONVERGING", "CLOSED", "REVIEWING"])
+            const suppressPositive = rewardResult.credits > 0 && !XP_SHOW_REGIMES.has(String(state.currentSubRegime || "").toUpperCase())
             if (!suppressPositive) {
-              _rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
+              state.rewardTag = rewardResult.credits > 0 ? `+${rewardResult.credits} XP` : `${rewardResult.credits} XP`
             }
           }
         }
       } catch {}
     }
 
-    const _expectedModel = slot === "brain" ? TRINITY_BRAIN : slot === "medium" ? TRINITY_MEDIUM : TRINITY_CHEAP
-    const _cascadeTierModels = new Set([TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean))
-    const _expectedForAlert = displayMode === "vibeultrax" && liveModelSetting && _cascadeTierModels.has(liveModelSetting)
-      ? liveModelSetting
-      : _expectedModel
-    _footerStage = "alert"
-    let _alertTag = ""
-    try {
-      const pendingSwitch = getPendingLiveSwitch()
-      _alertTag = buildFooterAlert({
-        apiDegraded: isApiFallback(),
-        apiSlow: false,
-        liveModel: liveModelSetting || undefined,
-        expectedModel: _expectedForAlert || undefined,
-        lastModelError,
-        pendingLiveModel: pendingSwitch?.model || undefined,
-      })
-      if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
-        _alertTag = "↻ recover"
-      }
-    } catch {}
+    // Auto-report every 5th call
+    _autoReportCount = (_autoReportCount || 0) + 1
+    if (_autoReportCount % 5 === 0) {
+      try {
+        saveReport({
+          type: "session",
+          summary: "Session cost: $" + formatUsd(state.ltCost) + " | cache saved: $" + formatUsd(state.ltCache) + " | delegation saved: $" + formatUsd(Number(state.sesTasks || 0)) + " | task delegations: " + Number(state.sesTaskDelegations || 0),
+          metrics: {
+            sessionId: state.sid,
+            projectFingerprint: currentProjectFingerprint || "unknown",
+            projectName: currentProjectName || "unknown",
+            sessionCost: state.ltCost,
+            cacheSavings: state.ltCache,
+            delegationSavingsUsd: state.sesTasks,
+            taskDelegationCount: state.sesTaskDelegations,
+            tasksDelegated: state.sesTaskDelegations,
+            model: state.resolvedModel || currentModel,
+            slot: loadSelection().active_slot || "unknown",
+            editSavings: state.sesEdit,
+            creditSavings: state.sesCredit,
+            context7Savings: state.sesC7,
+            quotaSavings: state.sesQuota,
+          },
+          tags: ["auto", "cost"],
+        })
+      } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
+    }
 
     _footerStage = "build"
-    const cascadeDepthForIcon = Number(ultraCascadeDepth) || 0
-    const TIER_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
-    const sessionRank = TIER_RANK[sessionSlot || ""] ?? -1
-    const activeRankVal = TIER_RANK[activeSlot || ""] ?? -1
-    const showDowngrade = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
-    const downgradeWorkerSlot = showDowngrade ? `↓ ${sessionSlot}` : undefined
-    const vibeLine = buildFooterLine({
-      activeSlot,
-      providerLabel: execution.provider_label,
-      modelName: modelDisplayName(execution.model),
-      workerSlot: downgradeWorkerSlot,
-      savingsTotal: footerSavingsTotal,
-      ltTrend: sesTrend,
-      vibeBrand,
-      optMode: isSuppressedMode ? "" : displayMode,
-      flashIcon,
-      enfTags,
-      subRegime: currentSubRegime,
-      stressGauge: formatStressGauge(_footerStress),
-      cascadeIcon: cascadeDepthForIcon >= 3 ? "▸▸▸" : cascadeDepthForIcon >= 2 ? "▸▸" : cascadeDepthForIcon >= 1 ? "▸" : "",
-      cascadeLabel: "",
-      claimTag: claimTag || undefined,
-      rewardTag: _rewardTag || undefined,
-      alertTag: _alertTag || undefined,
-    })
+    const vibeLine = buildFooterLine(state)
     recordFooterProbe({
       hook: hookName,
       builder: "rich",
-      providerLabel: execution.provider_label,
-      provider: execution.provider,
-      modelId: execution.model,
-      modelName: modelDisplayName(execution.model),
-      activeSlot,
-      sessionSlot,
-      mode: displayMode,
-      messageID,
+      providerLabel: state.execution.provider_label,
+      provider: state.execution.provider,
+      modelId: state.execution.model,
+      modelName: modelDisplayName(state.execution.model),
+      activeSlot: state.activeSlot,
+      sessionSlot: state.sessionSlot,
+      mode: state.displayMode,
+      messageID: state.messageID,
       footerLine: vibeLine,
     })
-    if (stripped === _lastStrippedText && !claimTag) return
-    if (messageID && textCompletePainted.has(messageID)) {
-      const paintedLen = textCompletePainted.get(messageID)
-      if (stripped.length <= paintedLen && !claimTag) return
+    if (stripped === _lastStrippedText && !state.claimTag) return
+    if (state.messageID && textCompletePainted.has(state.messageID)) {
+      const paintedLen = textCompletePainted.get(state.messageID)
+      if (stripped.length <= paintedLen && !state.claimTag) return
     }
+    _footerStage = "snapshot"
     try {
       recordLiveSessionSnapshot({
-        sessionId: sid,
+        sessionId: state.sid,
         projectFingerprint: currentProjectFingerprint || "",
         projectName: currentProjectName || "",
-        outcome: _rewardOutcome,
-        rewardCredits: _rewardCredits,
-        rewardBreakdown: _rewardBreakdown,
-        savingsUsd: _perTurnCacheDelta,
+        outcome: state._rewardOutcome,
+        rewardCredits: state._rewardCredits,
+        rewardBreakdown: state._rewardBreakdown,
+        savingsUsd: state._perTurnCacheDelta,
         footerLine: vibeLine,
-        control: cv,
-        subRegime: currentSubRegime,
-        resolutionState: _rewardOutcome === "positive" ? "working" : _rewardOutcome === "negative" ? "needs_attention" : (liveBlackboxState?.resolution_state || liveBlackboxState?.resolution || "unresolved"),
-        resolutionReason: _rewardOutcome ? (_rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
-        nextAction: _rewardOutcome === "negative"
-          ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || "")
-          : (sessionHealth.recommendedAction || getLatestBlackboxPivotMsg() || (Array.isArray(cv?.directives) ? cv.directives[0] : "") || ""),
-        loopInterventionLevel: liveBlackboxState?.loop_intervention_level || cv?.loop_intervention_level || "none",
-        pivotDetected: Boolean(liveBlackboxState?.pivot_detected || sessionHealth.metaWorkDrift),
-        stress: _footerStress,
+        control: state.cv,
+        subRegime: state.currentSubRegime,
+        resolutionState: state._rewardOutcome === "positive" ? "working" : state._rewardOutcome === "negative" ? "needs_attention" : (state.liveBlackboxState?.resolution_state || state.liveBlackboxState?.resolution || "unresolved"),
+        resolutionReason: state._rewardOutcome ? (state._rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
+        nextAction: state._rewardOutcome === "negative"
+          ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || "")
+          : (state.sessionHealth.recommendedAction || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || ""),
+        loopInterventionLevel: state.liveBlackboxState?.loop_intervention_level || state.cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(state.liveBlackboxState?.pivot_detected || state.sessionHealth.metaWorkDrift),
+        stress: state._footerStress,
         source: "footer",
       })
     } catch (innerErr) {
       console.error("[vibeOS] footer recordLiveSessionSnapshot error:", innerErr?.message || innerErr)
     }
+    _footerStage = "finalize"
     try {
-      if (latestTurnTruth?.turnId) {
+      if (state.latestTurnTruth?.turnId) {
         recordTurnFinalize({
-          sessionId: sid,
-          turnId: latestTurnTruth.turnId,
+          sessionId: state.sid,
+          turnId: state.latestTurnTruth.turnId,
           finalized: {
-            finalVisibleModel: execution.model,
-            finalVisibleSlot: activeSlot,
-            finalVisibleProvider: execution.provider,
-            finalVisibleProviderLabel: execution.provider_label,
-            finalVisibleModelName: modelDisplayName(execution.model),
+            finalVisibleModel: state.execution.model,
+            finalVisibleSlot: state.activeSlot,
+            finalVisibleProvider: state.execution.provider,
+            finalVisibleProviderLabel: state.execution.provider_label,
+            finalVisibleModelName: modelDisplayName(state.execution.model),
             footerLine: vibeLine,
-            claimTag: claimTag || "",
-            rewardTag: _rewardTag || "",
-            rewardCredits: _rewardCredits,
-            rewardOutcome: _rewardOutcome || "",
-            subRegime: currentSubRegime,
-            enforcementMode: cv?.enforcement_mode || "",
-            flowMode: cv?.flow_mode || "",
-            tddMode: cv?.tdd_mode || "",
-            cascadeDepth: cascadeDepthForIcon,
+            claimTag: state.claimTag || "",
+            rewardTag: state.rewardTag || "",
+            rewardCredits: state._rewardCredits,
+            rewardOutcome: state._rewardOutcome || "",
+            subRegime: state.currentSubRegime,
+            enforcementMode: state.cv?.enforcement_mode || "",
+            flowMode: state.cv?.flow_mode || "",
+            tddMode: state.cv?.tdd_mode || "",
+            cascadeDepth: state.cascadeDepthForIcon,
           },
         })
       }
@@ -1371,30 +1370,14 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
     _footerCacheTs = Date.now()
-
-    function _setFooter(obj, text) {
-      const target = _payload(obj)
-      if (typeof target?.text === "string") target.text = text
-      else if (typeof target?.result === "string") target.result = text
-      else if (typeof target?.content === "string") target.content = text
-      else if (Array.isArray(target?.content)) {
-        const textParts = target.content.filter(p => p?.type === "text")
-        if (textParts.length > 0) textParts[textParts.length - 1].text = text
-        else target.content.push({ type: "text", text })
-      } else if (Array.isArray(target?.parts)) {
-        const textParts = target.parts.filter(p => p?.type === "text")
-        if (textParts.length > 0) textParts[textParts.length - 1].text = text
-        else target.parts.push({ type: "text", text })
-      } else target.text = text
-    }
     _setFooter(output, footerText)
     _lastStrippedText = stripped
 
     if (!process.stdout?.isTTY) {
-      console.error(`\n${vibeLine} —`)
+      console.error(`\n${vibeLine} \u2014`)
     }
 
-    if (messageID) textCompletePainted.set(messageID, stripped.length)
+    if (state.messageID) textCompletePainted.set(state.messageID, stripped.length)
     if (textCompletePainted.size > 500) {
       const it = textCompletePainted.keys()
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
