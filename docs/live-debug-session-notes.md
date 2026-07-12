@@ -137,6 +137,59 @@ per-conversation state.
 2. **"it's always looping"** — traced to the REMOTE API's own `negative-outcome-repeat` loop detector (`decision_source: "api"`, confidence 0.92, `loop_source_reason: "repeated negative outcomes"`), seen live in `$VIBEOS_HOME/blackbox-state.json` for session `opencode-57678-1783870757985-bb16114c7bfca`. This is server-side (vibeOScore repo), not directly patchable here. The fixable angle from this repo: whether client-side reward/penalty computation ("Lie penalty: -15", "Meta-work penalty: -8" seen via `vibe blackbox status`) over-penalizes legitimate usage and feeds bad signals upstream. Grep attempted with `--include=*.ts` glob and failed on zsh quoting; retry as `grep -rn "lie penalty\|lie_penalty\|meta-work penalty\|meta_work_penalty\|metaWorkPenalty" src/` (no `--include`).
 3. **"cascade ▸▸ is not correct"** — footer showed a 2-arrow (medium-depth) cascade icon alongside the real brain-tier model name (V4 Pro). Distinct from the corroboration bug above; not yet investigated. Check `ultraCascadeDepth`/cascade icon computation in `footer.ts` against what actually determined depth for that turn.
 
+## Round 4: marathon live-debug session (PRs #429-435)
+
+Fixed and merged: footer cross-session regime leak (dead `_cascadeRouteLen`),
+session-identity root cause (5 hooks in `src/index.ts` never synced OpenCode's real
+`sessionID`), scratchpad-cache session sync, `PivotCache` session-scoping, dashboard
+stuck-loading (`Home.tsx` `<Show>` fix), passiveNegative feedback loop, TDD skeleton
+hardcoded Jest `expect()` API under `node:test` (PR #433), TDD framework detection's
+`directory` never wired at all in `tdd-enforcer.ts` — silently used `process.cwd()`
+of the OpenCode Desktop GUI process instead of the project root, defaulting away
+from `node:test` to `vitest` (PR #434, root cause of item 1 below), `vibe lock on|off`
+missing from the action schema enum despite a full handler existing (PR #434), and
+`vibe mode raw` unreachable — `RAW_MODE` fully implemented in `mode-table.ts` but
+never included in `trinity-tool.ts`'s `slot` schema enum or internal mode lookup
+(PR #435).
+
+**Item 1 (TDD skeleton mess) — root cause found and fixed.** Live-reproduced: the
+very first TDD skeleton generated against this repo in a fresh OpenCode Desktop
+session imported from `'vitest'`, a package not installed anywhere in the project.
+Root cause: `directory` in `tdd-enforcer.ts` was declared but never assigned, so
+`_detectTestFramework()` always used the wrong root. Fixed via `setTddDirectory()`
+mirroring the existing `setToolDirectory`/`setShellDirectory` pattern. Follow-up not
+yet done: `buildQualityAssertionsForFunc`'s `default` branch (go/rs/rb/java/kt) still
+emits pure `TODO` comments with zero real assertions — same complaint, next layer.
+
+**Item 3 (cascade icon mismatch) — root-caused via turn-ledger history, not a fresh
+live reproduction.** `turn-ledger.jsonl` has 333 historical turns with
+`cascadeDepth: 1` (single-arrow icon) while `finalVisibleSlot: "brain"`, e.g. turnId
+`70c6b439ac041bf2`: `finalVisibleModel: "opencode/big-pickle"` (the CHEAP model)
+paired with `finalVisibleSlot: "brain"` in the SAME finalized record — this is not
+just an icon depth quirk, the slot and model string themselves disagree. The footer
+already self-detects this and appends a `⚠ model drift` alert
+(`footerLine: "... brain | Opencode | Big Pickle ▶ ↻ Looping | ... ⚠ model drift ..."`).
+This is the SAME issue already investigated earlier this session ("Model-corroboration
+override... reverted... broke a legit delegation test. No safe way to distinguish
+stale route_path from genuine delegation using only liveModel + route_path.") — not
+re-attempting the same fix without a safer disambiguation signal. Current mitigation
+(the model-drift alert) is real and working, just not a full fix. Needs a genuinely
+new signal (e.g. corroborate against `turn-ledger`'s own `cascadeDepth`/route history
+rather than only live model string) before another fix attempt.
+
+**Haiku-audit false positive caught**: an audit claimed `report-save`/`report-list`/
+`report-read`/`research-audit` don't exist because it only grepped `trinity-tool.ts`.
+They're real, fully wired, independent top-level OpenCode tools registered under
+`pluginHooks.tool` in `src/index.ts` (~line 1369, returned via `DelegationEnforcer`
+at line 1501) — confirmed directly, no fix needed. Lesson: always verify a
+subagent's grep-based negative claims against the actual registration/export site,
+not just the file it happened to search.
+
+**`"target"` action** — present in `trinity-tool.ts`'s action enum with zero handler,
+but NOT documented anywhere in CLAUDE.md's trinity command list — orphaned enum
+value, not a broken promise. Left alone, noted only.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
+- Marathon session strategy: see `/Users/drunkktoys/.claude/plans/plan-multiples-live-sessions-crystalline-castle.md` for the per-defect loop, cost-management rules, and backlog.
