@@ -211,6 +211,41 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent, fr
       }
       break
     }
+    case "rs": {
+      block += `${indent}#[test]\n${indent}fn test_${funcName}_valid_input() {\n`
+      block += `${indent}    let result = ${funcName}(${args});\n`
+      block += `${indent}    // TODO: replace with the real expected value\n`
+      block += `${indent}    assert!(true, "replace with a real assertion on {:?}", result);\n${indent}}\n\n`
+      block += `${indent}#[test]\n${indent}#[should_panic]\n${indent}fn test_${funcName}_invalid_input() {\n`
+      block += `${indent}    ${funcName}(${params.length ? "Default::default()" : ""});\n${indent}}\n\n`
+      break
+    }
+    case "rb": {
+      block += `${indent}def test_${funcName}_valid_input\n`
+      block += `${indent}  result = ${funcName}(${args})\n`
+      block += `${indent}  refute_nil result, "${funcName} should return a value for valid input"\n`
+      block += `${indent}end\n\n`
+      block += `${indent}def test_${funcName}_invalid_input\n`
+      block += `${indent}  assert_raises(StandardError) { ${funcName}(nil) }\n`
+      block += `${indent}end\n\n`
+      break
+    }
+    case "java": case "kt": {
+      const semi = lang === "java" ? ";" : ""
+      const kw = lang === "java" ? "void" : "fun"
+      block += `${indent}@Test\n${indent}${kw} test${funcName.charAt(0).toUpperCase() + funcName.slice(1)}ValidInput() {\n`
+      block += `${indent}    var result = ${funcName}(${args})${semi}\n`
+      block += `${indent}    assertNotNull(result)${semi}\n${indent}}\n\n`
+      block += `${indent}@Test\n${indent}${kw} test${funcName.charAt(0).toUpperCase() + funcName.slice(1)}InvalidInput() {\n`
+      block += `${indent}    assertThrows(${lang === "java" ? "Exception.class, () -> " : "Exception::class.java) { "}${funcName}(null)${lang === "java" ? ")" : " }"}${semi}\n${indent}}\n\n`
+      break
+    }
+    case "go": {
+      block += `${indent}// TODO: replace argument values below with real test cases\n`
+      block += `${indent}result := ${funcName}(${args})\n`
+      block += `${indent}if result == nil {\n${indent}\tt.Error("${funcName}: expected a non-nil result for valid input")\n${indent}}\n`
+      break
+    }
     default: {
       block += `${indent}${cmt} TODO: Quality assertion for ${funcName} — valid input\n`
       block += `${indent}${cmt} ${funcName}(${args}) should return expected result\n\n`
