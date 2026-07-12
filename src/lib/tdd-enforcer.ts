@@ -161,7 +161,8 @@ export function buildTestSkeleton(filePath, sourceContent = "", options = {}) {
     case "java": case "kt": testPath = dir + "src/test/" + name.charAt(0).toUpperCase() + name.slice(1) + "Test." + ext; break
     default: return null
   }
-  if (fw?.testExt) {
+  const JS_FAMILY_EXT = new Set(["js", "mjs", "ts", "jsx", "tsx", "cjs", "mts"])
+  if (fw?.testExt && JS_FAMILY_EXT.has(extLower)) {
     testPath = testPath.replace(new RegExp("\\.[^.]+$"), "." + fw.testExt)
   }
   const exports = extractExports(sourceContent, extLower)
