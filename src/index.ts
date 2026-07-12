@@ -1203,6 +1203,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   }
   const pluginHooks = {
     "tool.execute.before": async (input, output) => {
+      if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
@@ -1220,6 +1221,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
+      if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
@@ -1229,6 +1231,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteAfter(input, output)
     },
     "chat.params": async (_input, output) => {
+      if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       syncApiTokenFromDisk()
       if (typeof setChatParamsDirectory === "function") setChatParamsDirectory(directory || "")
@@ -1246,9 +1249,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onMessagesTransform(_input, output)
     },
     "experimental.session.compacting": async (_input, output) => {
+      if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       return onSessionCompacting(_input, output)
     },
     "experimental.chat.system.transform": async (_input, output) => {
+      if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
@@ -1271,6 +1276,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onShellEnv(_input, output)
     },
     "experimental.text.complete": async (_input, output) => {
+      if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)

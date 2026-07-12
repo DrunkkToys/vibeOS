@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { autoSelectMode } from "../../lib/cascade.js"
-import { PivotCache } from "./pivot-cache.js"
+import { getCurrentSessionId } from "../../lib/state.js"
+import { PivotCache, pivotCacheDirForSession } from "./pivot-cache.js"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -66,10 +67,17 @@ function predictTree(tree, features) {
 const BUDGET_CFG = { tier: "cheap", thinking: "off", tdd: "normal", flow: "audit", enforcement: "relaxed", wbp: "minimal", c7: "skippable", kp: [1, 3], tc: 0.1, amode: "build" }
 const VIBEMAX_MAP = { quality: "optimized", longrun: "optimized", audit: "optimized", speed: "budget", budget: "budget" }
 
-// PivotCache instance
+// PivotCache instance -- scoped to the current conversation; recreated
+// whenever the active session id changes so captured workflows from one
+// conversation never leak into another.
 let pivotCache = null
+let pivotCacheSessionId = null
 function getPivotCache() {
-  if (!pivotCache) pivotCache = new PivotCache()
+  const sid = getCurrentSessionId()
+  if (!pivotCache || pivotCacheSessionId !== sid) {
+    pivotCache = new PivotCache(pivotCacheDirForSession(sid))
+    pivotCacheSessionId = sid
+  }
   return pivotCache
 }
 let prevMessage = ""

@@ -156,14 +156,16 @@ export function resolveActiveCascadeTier(opts: {
       if (tier) return { tier, depth, source: "route" }
     }
   }
-  const legacyDepth = Number(opts.legacyDepth) || 0
+  const legacyDepth = opts.legacyDepth !== undefined && opts.legacyDepth !== null && Number.isFinite(Number(opts.legacyDepth))
+    ? Number(opts.legacyDepth)
+    : null
   const m = opts.liveModel || ""
-  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth || 1, source: "model" }
-  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth || 2, source: "model" }
-  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth || 3, source: "model" }
+  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth ?? 1, source: "model" }
+  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth ?? 2, source: "model" }
+  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth ?? 3, source: "model" }
   const c = String((opts.classify ? opts.classify(m) : "") || "").toLowerCase()
   const tier: CascadeTier = c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
-  return { tier, depth: legacyDepth || (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
+  return { tier, depth: legacyDepth ?? (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
 }
 
 export function resolveRegimeIcon(subRegime: string): string {
@@ -952,6 +954,15 @@ async function resolveFooterDisplayState(
   if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
   let liveBlackboxState = quietIntent ? null : getLatestBlackboxState()
   const diskBlackboxState = quietIntent ? null : loadBlackboxState()
+  // The root of blackbox-state.json (sub_regime, cv, cascade_depth, etc.) is a
+  // process-global "whoever wrote last" mirror -- NOT scoped to the current
+  // session. With multiple concurrent OpenCode sessions/tabs, falling back to
+  // it directly leaks another session's regime (e.g. a genuinely LOOPING
+  // session) into THIS session's footer, while resolveActiveCascadeTier below
+  // correctly reads the session-scoped record. Fall back to this session's own
+  // disk record instead, so both the regime label and the tier badge agree.
+  const _footerSid = getSessionId()
+  const diskSessionState = diskBlackboxState?.sessions?.[_footerSid] || null
   try {
     const liveCascadeDepth = Number(
       liveBlackboxState?.control_vector?.cascade_depth ??
@@ -959,20 +970,19 @@ async function resolveFooterDisplayState(
       0,
     ) || 0
     const diskCascadeDepth = Number(
-      _cascadeRouteLen ??
-      diskBlackboxState?.control_vector?.cascade_depth ??
-      diskBlackboxState?.cascade_depth ??
+      diskSessionState?.control_vector?.cascade_depth ??
+      diskSessionState?.cascade_depth ??
       0,
     ) || 0
     if (
-      diskBlackboxState &&
+      diskSessionState &&
       (
         !liveBlackboxState ||
         diskCascadeDepth > liveCascadeDepth ||
-        (diskBlackboxState?.sub_regime && !liveBlackboxState?.sub_regime)
+        (diskSessionState?.sub_regime && !liveBlackboxState?.sub_regime)
       )
     ) {
-      liveBlackboxState = diskBlackboxState
+      liveBlackboxState = diskSessionState
     }
   } catch {}
   let liveModelSetting = readLiveOpenCodeModel(directory) || ""
@@ -1015,7 +1025,7 @@ async function resolveFooterDisplayState(
     liveSession: liveBlackboxState?.sessions?.[sid],
     diskSession: diskBlackboxState?.sessions?.[sid],
     legacyDepth: liveBlackboxState?.control_vector?.cascade_depth ?? liveBlackboxState?.cascade_depth
-      ?? diskBlackboxState?.control_vector?.cascade_depth ?? diskBlackboxState?.cascade_depth ?? 0,
+      ?? diskSessionState?.control_vector?.cascade_depth ?? diskSessionState?.cascade_depth ?? 0,
     liveModel: ultraLiveModel,
     trinityCheap: TRINITY_CHEAP,
     trinityMedium: TRINITY_MEDIUM,
@@ -1105,13 +1115,24 @@ async function resolveFooterDisplayState(
         const passiveNegative = (isLooping && isStressed) && !outcome ? "negative" : null
         const finalOutcome = outcome || passiveNegative
         if (finalOutcome) {
+          // Display-only: a passively-inferred outcome may still drive local
+          // resolutionState/nextAction hints below.
           _rewardOutcome = finalOutcome
+        }
+        // Only an EXPLICIT outcome signal (from user/assistant text) may reach the
+        // loop/outcome trackers or the reward engine. Running this block off
+        // `passiveNegative` alone -- synthesizing "negative" purely from already being
+        // in a LOOPING+stressed state -- creates a self-reinforcing loop: LOOPING ->
+        // passive negative -> API/local tracker sees another negative outcome -> LOOPING
+        // confidence rises further, and it applies an unexplained penalty (e.g.
+        // metaWorkPenalty) to the user for no textual reason at all.
+        if (outcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(finalOutcome)
-          try { syncOutcomeToApi(finalOutcome) } catch {}
+          tracker.recordOutcome(outcome)
+          try { syncOutcomeToApi(outcome) } catch {}
           try {
             const rewardInput = buildRewardInput({
-              finalOutcome,
+              finalOutcome: outcome,
               assistantText: prevText,
               userText: latestUserIntent || "",
               prevAssistantTexts,
@@ -1181,7 +1202,6 @@ async function resolveFooterDisplayState(
     stressGauge: formatStressGauge(_footerStress),
     cascadeIcon: ultraCascadeDepth >= 3 ? "\u25B8\u25B8\u25B8" : ultraCascadeDepth >= 2 ? "\u25B8\u25B8" : ultraCascadeDepth >= 1 ? "\u25B8" : "",
     cascadeLabel: "",
-    claimTag: claimTag || undefined,
     rewardTag: _rewardTag || undefined,
     alertTag: _alertTag || undefined,
     sid, messageID: null, execution, liveModelSetting, resolvedModel, displayMode,
@@ -1236,11 +1256,15 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         const finalRewardOutcome = rewardOutcome || rewardPassiveNegative
         if (finalRewardOutcome) {
           state._rewardOutcome = finalRewardOutcome
+        }
+        // See the matching comment above: only explicit outcome signals feed the
+        // trackers/reward engine that the LOOPING classification is derived from.
+        if (rewardOutcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(finalRewardOutcome)
-          try { syncOutcomeToApi(finalRewardOutcome) } catch {}
+          tracker.recordOutcome(rewardOutcome)
+          try { syncOutcomeToApi(rewardOutcome) } catch {}
           const rewardResult = computeReward(buildRewardInput({
-            finalOutcome: finalRewardOutcome,
+            finalOutcome: rewardOutcome,
             assistantText: rewardText,
             userText: latestUserIntent || "",
             prevAssistantTexts: typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [],

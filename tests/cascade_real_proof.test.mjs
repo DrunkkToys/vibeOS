@@ -981,7 +981,7 @@ test("cascade: cooldown expiry health probe FAIL stays in fallback", async (t) =
   }
 })
 
-test("cascade: cooldown health probe 401 stays in fallback with refreshed timestamp", async (t) => {
+test("cascade: cooldown health probe 401 self-heals instead of sticking in fallback", async (t) => {
   const freshApiClient = await loadFreshApiClient()
   global.fetch = async () => { throw new Error("ECONNREFUSED") }
   try {
@@ -996,8 +996,8 @@ test("cascade: cooldown health probe 401 stays in fallback with refreshed timest
     })
 
     const result = await freshApiClient.remoteCall("health", [], () => ({ local: true }))
-    assert.equal(result.local, true, "fallback invoked after probe 401")
-    assert.equal(freshApiClient.isApiFallback(), true, "stays in fallback after probe 401")
+    assert.equal(result.local, true, "fallback invoked for this call since the rejected token just failed")
+    assert.equal(freshApiClient.isApiFallback(), false, "a rejected token self-heals (clearRejectedToken) instead of leaving the plugin stuck in fallback forever")
   } finally {
     Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
