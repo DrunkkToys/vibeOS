@@ -54,13 +54,13 @@ The cascade shape follows the general LLM routing literature, but the live sourc
 
 ### VibeBoX Decision Engine
 
-At the core of vibeOS is a real-time decision engine that classifies every user turn into one of fourteen sub-regimes:
+At the core of vibeOS is a real-time decision engine that classifies every user turn into one of thirteen sub-regimes:
 
 - **INIT / DIVERGENT / EXPLORING** -- You are learning the codebase, asking questions, browsing. cheap model, relaxed enforcement. Stay out of your way.
 - **REFINING / IMPLEMENTING / DESIGNING** -- You are iterating on a solution or actively building. Default mode: VibeUltraX, auto-escalate on complexity.
 - **RESEARCH / REVIEWING** -- You are investigating, comparing, or checking work. Routing and enforcement tighten as evidence requirements increase.
 - **CONVERGING / CLOSED** -- You are finalizing. Full quality mode, brain tier, strict enforcement and flow checks.
-- **LOOPING / ESCALATED** -- You are stuck or the session needs intervention. Speed mode or hard escalation paths activate to break cycles.
+- **LOOPING** -- You are stuck or the session needs intervention. Speed mode and escalating intervention levels activate to break cycles.
 - **FORENSIC / AUDIT** -- You are doing deep investigation or security-style review. Brain tier, strict enforcement, detailed verification.
 
 For VibeMaX, feature extraction currently yields 14 numeric features per turn: 8 normalized metrics plus 6 raw/boolean indicators. Four escalating intervention levels prevent infinite loops. PIVOT/SWITCH detection recognizes context changes and injects scope-confirmation directives.
@@ -221,7 +221,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Session lock | `vibe lock on\|off` -- freezes model at session start |
 | Model locking | Per-session lock that skips auto-reconcile with OpenCode config changes |
 | Blackbox decision engine | Dialogue trajectory tracking, loop prevention, outcome calibration |
-| TensorTAG routing | WBP protocol synthesizes delegated task output in assistant chat |
+| WBP protocol | Worker-to-Brain Protocol synthesizes delegated task output in assistant chat |
 | Pattern learner runtime | vibe patterns, vibe patterns clear, vibe patterns suggest |
 | Reward engine | Quality credits, saving bonus, lie/laziness penalties -- gamified quality assurance |
 | Lie detector | Detects fabricated claims, invented function names, hallucinated APIs |
