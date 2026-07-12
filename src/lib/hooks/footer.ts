@@ -143,26 +143,48 @@ export function resolveActiveCascadeTier(opts: {
   trinityBrain?: string
   classify?: (model: string) => string
 }): CascadeTierResolution {
+  // Ground truth: if the model that actually answered this turn exactly matches
+  // one of the configured trinity model IDs, that is hard evidence of the real
+  // tier. A stale/aspirational route_path (recorded when the cascade *intended*
+  // to escalate, e.g. cross-provider delegation that silently fell back to the
+  // entry model) must not override that evidence with a higher tier the model
+  // never actually reached -- that is exactly the "brain tier + Big Pickle
+  // model" drift the footer's own alert already flags separately.
+  const tierRank: Record<CascadeTier, number> = { cheap: 1, medium: 2, brain: 3 }
+  const m = opts.liveModel || ""
+  const corroboratedModelTier: CascadeTier | null =
+    opts.trinityBrain && m === opts.trinityBrain ? "brain"
+      : opts.trinityMedium && m === opts.trinityMedium ? "medium"
+        : opts.trinityCheap && m === opts.trinityCheap ? "cheap"
+          : null
+
   for (const session of [opts.liveSession, opts.diskSession]) {
     const routePath = Array.isArray(session?.route_path) ? (session!.route_path as unknown[]) : []
     const tier = routePath.length ? _asTier(routePath[routePath.length - 1]) : null
-    if (tier) return { tier, depth: routePath.length, source: "route" }
+    if (tier) {
+      if (corroboratedModelTier && tierRank[corroboratedModelTier] < tierRank[tier]) {
+        return { tier: corroboratedModelTier, depth: tierRank[corroboratedModelTier], source: "model" }
+      }
+      return { tier, depth: routePath.length, source: "route" }
+    }
   }
   for (const session of [opts.liveSession, opts.diskSession]) {
     const pipelineRoot = Array.isArray(session?.pipeline_root) ? (session!.pipeline_root as unknown[]) : []
     const depth = Number(session?.cascade_depth) || 0
     if (pipelineRoot.length && depth > 0) {
       const tier = _asTier(pipelineRoot[Math.min(depth, pipelineRoot.length) - 1])
-      if (tier) return { tier, depth, source: "route" }
+      if (tier) {
+        if (corroboratedModelTier && tierRank[corroboratedModelTier] < tierRank[tier]) {
+          return { tier: corroboratedModelTier, depth: tierRank[corroboratedModelTier], source: "model" }
+        }
+        return { tier, depth, source: "route" }
+      }
     }
   }
   const legacyDepth = opts.legacyDepth !== undefined && opts.legacyDepth !== null && Number.isFinite(Number(opts.legacyDepth))
     ? Number(opts.legacyDepth)
     : null
-  const m = opts.liveModel || ""
-  if (opts.trinityCheap && m === opts.trinityCheap) return { tier: "cheap", depth: legacyDepth ?? 1, source: "model" }
-  if (opts.trinityMedium && m === opts.trinityMedium) return { tier: "medium", depth: legacyDepth ?? 2, source: "model" }
-  if (opts.trinityBrain && m === opts.trinityBrain) return { tier: "brain", depth: legacyDepth ?? 3, source: "model" }
+  if (corroboratedModelTier) return { tier: corroboratedModelTier, depth: legacyDepth ?? tierRank[corroboratedModelTier], source: "model" }
   const c = String((opts.classify ? opts.classify(m) : "") || "").toLowerCase()
   const tier: CascadeTier = c === "high" || c === "brain" ? "brain" : c === "mid" || c === "medium" ? "medium" : "cheap"
   return { tier, depth: legacyDepth ?? (tier === "brain" ? 3 : tier === "medium" ? 2 : 1), source: "model" }
