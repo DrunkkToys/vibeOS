@@ -5,7 +5,7 @@ import { join, dirname } from "node:path"
 import { execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolveExecutionIdentity } from "./pricing.js"
-import { BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./cascade.js"
+import { BRANDED_MODES, RUNTIME_MODES, RAW_MODE, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./cascade.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getSessionHealthSnapshot } from "./session-health.js"
@@ -330,7 +330,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "target", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -636,11 +636,11 @@ export function createTrinityTool(deps) {
       if (action === "mode") {
         const builtInIds = ["balanced", "budget", "quality", "speed", "longrun", "audit", "forensic"]
         const brandedIds = BRANDED_MODES.map(m => m.id)
-        const allModeIds = [...builtInIds, "auto", ...brandedIds]
-        if (!slot) return `Provide mode: ${brandedIds.join(" | ")} | auto | ${builtInIds.join(" | ")}`
+        const allModeIds = [...builtInIds, "auto", ...brandedIds, RAW_MODE.id]
+        if (!slot) return `Provide mode: ${brandedIds.join(" | ")} | ${RAW_MODE.id} | auto | ${builtInIds.join(" | ")}`
         const resolvedSlot = slot
         if (!allModeIds.includes(resolvedSlot) && resolvedSlot !== "auto") {
-          return `Provide mode: ${brandedIds.join(" | ")} | auto | ${builtInIds.join(" | ")}`
+          return `Provide mode: ${brandedIds.join(" | ")} | ${RAW_MODE.id} | auto | ${builtInIds.join(" | ")}`
         }
         const ok = deps.saveOptimizationMode(resolvedSlot)
         if (!ok) return `Failed to write mode`
@@ -648,7 +648,7 @@ export function createTrinityTool(deps) {
         deps.writeSelection("requested_optimization_mode", resolvedSlot)
 
         const canonical = normalizeLegacyMode(resolvedSlot)
-        const modeEntry = [...BRANDED_MODES, ...RUNTIME_MODES].find(e => e.id === resolvedSlot) || MODE_TABLE[canonical]
+        const modeEntry = [...BRANDED_MODES, ...RUNTIME_MODES, RAW_MODE].find(e => e.id === resolvedSlot) || MODE_TABLE[canonical]
         if (modeEntry) {
           const tierSlot = resolvedSlot === "vibeultrax" ? "cheap" : resolveCascadeSlot(modeEntry.pipeline)
           deps.writeSessionSlot(deps._OC_SID, tierSlot)
