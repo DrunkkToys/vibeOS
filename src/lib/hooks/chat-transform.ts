@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync, renameSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync, renameSync } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {

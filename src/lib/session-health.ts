@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // @ts-nocheck
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
