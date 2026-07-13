@@ -630,7 +630,6 @@ export function materializeScratchpadAlias(
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
 export const onToolExecuteBefore = async (input, output) => {
-  if (process.env.VIBEOS_TEST_CONTEXT === "1") _resetWarnCountsForTest()
   if (!loadSelection().enabled) return
   _refreshModel(projectDirectory)
   const t = input?.tool ?? ""
