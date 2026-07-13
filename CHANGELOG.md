@@ -1,3 +1,52 @@
+## 0.26.3
+- feat: vibeultrax mode now captures pivot workflow snapshots (#438)
+- fix: scope dashboard todo/session counts + simplify Home UX (retry of #454) (#455)
+- fix: scope vibe todo to the current project (#452)
+- fix: strip volatile footer alert before hashing tool output for scratchpad cache (#451)
+- fix: clamp cascade icon depth to turn-ledger truth (#450)
+- fix: flow enforcer rules file never resolves for real deployed installs (#449)
+- fix: replace stale 'trinity <command>' help/error text with 'vibe <command>' (#448)
+- fix: TDD skeleton wrong file extension + tdd_quality never synced (#439)
+- fix: TDD quality-assertion block emitted bare TODO comments for rs/rb/java/kt/go (#437)
+- fix: vibe mode raw was unreachable despite being fully implemented (#435)
+- fix: TDD framework detection never received the project directory (#434)
+- fix: TDD skeleton quality block hardcoded jest's expect() API (#433)
+- fix: check the actual shipped bundle, not a stale pre-TS-migration file (#432)
+- fix: install dashboard deps before test:ci in release workflow (#431)
+- fix: footer leaked another session's LOOPING regime via root disk state (#430)
+- fix: stop synthesizing negative outcomes from LOOPING+stress alone (#429)
+- fix: close leaked http server fixtures causing test-file hangs
+- fix: reports prune trimmed the index but never deleted the over-cap files
+- fix: footer tier badge must not claim a higher tier than the model that actually answered
+- fix: rotate unbounded jsonl state logs (turn-ledger, calibration, loop-audit, session-health)
+- fix: cascade-depth icon shows nominal depth instead of real 0 for direct (non-cascaded) calls
+- fix: log blackbox/self-heal diagnostics at warn level so they're actually captured
+- fix: self-heal a rejected API token instead of permanently sticking in local fallback
+- fix: attempt bootstrap token exchange in fetchBlackboxEnrichment before giving up on the API
+- fix: raise poll-repeat loop threshold to stop false-positive LOOPING on routine CI waits
+- fix: pass text+hookModel to resolveFooterDisplayState, fix audit test path for compiled TS
+- fix: footer refactor — extract resolveFooterDisplayState, remove state mutations
+- fix: null guard in formatStressGauge + 14 deep feature tests
+- docs: log round 8 live-debug findings (#453)
+- docs: note the axis level enum mismatch found while live-testing
+- docs: log Round 6 findings (dead smart-cache field, dead API-client methods) (#445)
+- docs: fix README sub-regime count and fictional TensorTAG label (#441)
+- docs: record round-5 findings (mode raw, vibeultrax pivot capture, TDD extension+quality-sync bugs, sub-regime drift) (#440)
+- docs: record round-4 marathon session findings (TDD root cause, cascade model-drift, haiku audit false positive) (#436)
+- test: update 2 pre-existing tests to match the intentional self-heal behavior change
+- chore: sync package.json/CHANGELOG to already-published v0.26.2 (#456)
+- chore: drop now-unused appendFileSync imports after rotation-helper migration
+cleanup: delete dead LocalBlackboxStub (src/vibeOS-lib/blackbox/local-stub.ts) (#447)
+cleanup: fix stale VibeBoX feature-count claims, remove dead pricingLookup/pricingStatic (#446)
+cleanup: remove dead pricingFetch/blackboxCalibrate/blackboxCalibration client methods (#444)
+cleanup: dead smart-cache field + TDD skeleton import path fix (#443)
+cleanup: remove orphaned target action enum value (#442)
+Merge pull request #428 from DrunkkToys/fix/live-debug-pass
+revert: back out the cascade-tier model-corroboration override
+Merge pull request #427 from DrunkkToys/fix/footer-refactor-extract-state-resolution
+Revert "fix: null guard in formatStressGauge + 14 deep feature tests"
+
+
 ## 0.26.2
 - fix: check the actual shipped bundle, not a stale pre-TS-migration file (#432)
 - fix: install dashboard deps before test:ci in release workflow (#431)
