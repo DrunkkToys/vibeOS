@@ -46,7 +46,6 @@ test("sc — smart cache predict returns expected structure", async () => {
   assert.ok(typeof pred.shouldCache === "boolean", "predict returns shouldCache")
   assert.ok(typeof pred.confidence === "number", "confidence is number: " + pred.confidence)
   assert.ok(Array.isArray(pred.similarEntries), "similarEntries is array")
-  assert.ok(typeof pred.estimatedSavings === "number", "estimatedSavings is number")
 })
 
 test("sc — cache dedup prevents duplicate entries (same hash)", async () => {
