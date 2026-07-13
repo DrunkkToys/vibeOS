@@ -68,19 +68,41 @@ function directiveFor(kind: LoopKind, count: number): string {
 
 interface Entry { sig: string; poll: boolean; at: number }
 
+// Consecutive failures on the same edit/write target before nudging the
+// model to stop guessing (e.g. re-run edit with stale oldString) and re-read
+// the file instead. Advisory only -- unlike the bash repeat/poll guard above,
+// this never blocks the tool call, since a false positive here would break
+// legitimate multi-step edits.
+export const EDIT_FAILURE_WARN_THRESHOLD = 3
+
 // Sliding-window tracker. One instance is held module-globally by the
 // tool-execute hook (like softQuotaCounts); reset() clears it for tests and on
 // session change.
 export class ToolLoopGuard {
   private window: Entry[] = []
   private readonly max: number
+  private editFailureCounts: Map<string, number> = new Map()
 
   constructor(max: number = LOOP_WINDOW) {
     this.max = Math.max(1, max)
   }
 
+  // Record a failed edit/write on `key` (e.g. `edit:/path/to/file.ts`).
+  // Returns the running failure count and whether it has crossed the warn
+  // threshold. Call clearEditFailure(key) on a successful edit to reset it.
+  observeEditFailure(key: string): { count: number; shouldWarn: boolean } {
+    const count = (this.editFailureCounts.get(key) || 0) + 1
+    this.editFailureCounts.set(key, count)
+    return { count, shouldWarn: count >= EDIT_FAILURE_WARN_THRESHOLD }
+  }
+
+  clearEditFailure(key: string): void {
+    this.editFailureCounts.delete(key)
+  }
+
   reset(): void {
     this.window = []
+    this.editFailureCounts.clear()
   }
 
   // Record a bash command and return the loop verdict for it.
