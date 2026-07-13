@@ -348,7 +348,7 @@ test("trinity tool: status, set, shortcuts, thinking, flow, help", async () => {
   assert.ok(brief.includes("brief") || brief.includes("BRIEF") || brief.includes("Reasoning") || brief.includes("\u2705"), "thinking brief: " + brief)
   assert.ok((await t.execute({ action: "flow" })).includes("Flow"))
   const help = await t.execute({ action: "help" })
-  assert.ok(help.includes("trinity") && (help.includes("rebuild") || help.includes("brain")))
+  assert.ok(help.includes("vibe") && (help.includes("rebuild") || help.includes("brain")))
 })
 
 test("trinity mode vibeultrax switches optimization mode", async () => {
