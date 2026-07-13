@@ -103,7 +103,11 @@ export function saveSessionStress(score: number, level: string): void {
   try {
     updateState((s: unknown) => {
       const sid = _OC_SID
-      const ses = s.sessions?.[sid] || {}
+      const nowIso = new Date().toISOString()
+      s.sessions ??= {}
+      const ses = s.sessions[sid] || {}
+      if (!ses.started) ses.started = nowIso
+      if (!ses.session_started_at) ses.session_started_at = ses.started
       if (!Array.isArray(ses.stress_history)) ses.stress_history = []
       ses.stress_history.push({ ts: new Date().toISOString(), score, level })
       if (ses.stress_history.length > 100) ses.stress_history = ses.stress_history.slice(-50)
@@ -140,7 +144,8 @@ export function recordSaving(tool, reason, saveEst, meta = {}) {
       s.sessions ??= {}
       const sid = _OC_SID
       if (!s.sessions[sid]) {
-        s.sessions[sid] = { total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
+        const nowIso = new Date().toISOString()
+        s.sessions[sid] = { started: nowIso, session_started_at: nowIso, total_savings_usd: 0, cache_savings_usd: 0, project_name: "", warns: [], cache_hits: [], seenWarnKeys: {} }
         if (currentProjectFingerprint) {
           s.sessions[sid].project_fingerprint = currentProjectFingerprint
         }
