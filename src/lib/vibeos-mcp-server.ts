@@ -454,6 +454,7 @@ export function createMcpServer(deps: Deps): McpServer {
           metrics: deps.getSessionMetrics(currentSessionId),
           templates: (typeof deps.listSessionTemplates === "function" ? deps.listSessionTemplates() : TEMPLATE_LIBRARY) as any[],
           currentProjectName: deps.currentProjectName || "",
+          currentProjectFingerprint: deps.currentProjectFingerprint || "",
         })
         json(res, 200, {
           ...home,

@@ -105,6 +105,52 @@ test("dashboard home model highlights the active session and recommendation", ()
   assert.equal(model.template_editor.templates.length > 0, true)
 })
 
+// Regression: buildDashboardHomeModel's `sessions` param feeds /dashboard/home
+// directly from getMergedSessionsMap(deps) -- a THIRD unscoped call site for the
+// same session leak fixed in vibeos-mcp-server.ts's buildLocalSessions() (which
+// only covers /sessions, not /dashboard/home). Live-confirmed via a raw
+// /dashboard/home fetch showing sessions from unrelated projects with no cap.
+test("dashboard home model excludes sessions with a confirmed different project fingerprint", () => {
+  const model = buildDashboardHomeModel({
+    currentSessionId: "sid-current",
+    sessions: {
+      "sid-current": { started: "2026-07-13T10:00:00.000Z", project_fingerprint: "fp-a" },
+      "sid-foreign": { started: "2026-07-13T11:00:00.000Z", project_fingerprint: "fp-b" },
+    },
+    currentProjectFingerprint: "fp-a",
+  })
+  const ids = model.sessions.map((s) => s.session_id)
+  assert.ok(ids.includes("sid-current"))
+  assert.ok(!ids.includes("sid-foreign"), "must exclude a session confirmed to belong to a different project")
+})
+
+test("dashboard home model keeps sessions with no project_fingerprint at all", () => {
+  const model = buildDashboardHomeModel({
+    currentSessionId: "sid-current",
+    sessions: {
+      "sid-current": { started: "2026-07-13T10:00:00.000Z", project_fingerprint: "fp-a" },
+      "sid-unscoped": { started: "2026-07-13T09:00:00.000Z" },
+    },
+    currentProjectFingerprint: "fp-a",
+  })
+  const ids = model.sessions.map((s) => s.session_id)
+  assert.ok(ids.includes("sid-unscoped"), "must not hide sessions that were never stamped with a fingerprint")
+})
+
+test("dashboard home model caps sessions to 10, most recent first (current session always pinned first)", () => {
+  const sessions = {}
+  for (let i = 0; i < 20; i++) {
+    sessions[`s${i}`] = { started: new Date(2026, 6, 1, 0, i).toISOString() }
+  }
+  const model = buildDashboardHomeModel({
+    currentSessionId: "s0",
+    sessions,
+  })
+  assert.equal(model.sessions.length, 10, "must cap the returned sessions list to 10")
+  assert.equal(model.totals.total_sessions, 20, "totals.total_sessions must reflect the true in-scope count, not the capped list")
+  assert.equal(model.sessions[0].session_id, "s0", "current session stays pinned first regardless of recency")
+})
+
 test("session orchestrator versions history and supports undo/batch", () => {
   const started = normalizeSessionOrchestration({ status: "active", template: { id: "save", body: "Keep it short." } }, "sid-1")
   const annotated = applySessionAction(started, "annotate", { note: "first note" })
