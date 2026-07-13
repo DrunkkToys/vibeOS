@@ -1052,11 +1052,16 @@ export const onToolExecuteBefore = async (input, output) => {
         sessionId: getCurrentSessionId(),
       })
       if (isFallback || !compatibilityMode) {
-        const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
-        if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
-          console.error(`[vibeOS] [delegation] ${msg}`)
+        const directWarnKey = `${getCurrentSessionId()}|${t}|direct`
+        const directWarnCount = _warnCounts[directWarnKey] || 0
+        if (directWarnCount < MAX_WARNS_PER_TOOL) {
+          _warnCounts[directWarnKey] = directWarnCount + 1
+          const msg = `[vibeOS] ${resolveTierIcon("cheap")} cheap lane · save about ~$${_estEdit.toFixed(3)} by delegating to Task. Try ${resolveTierIcon("medium")} medium.`
+          if (shouldLogWarn(`${t}|direct|${_tierWord}`) && process.env.VIBEOS_DEBUG_DELEGATION === "1") {
+            console.error(`[vibeOS] [delegation] ${msg}`)
+          }
+          pendingUiNote = msg
         }
-        pendingUiNote = msg
         return
       }
     }

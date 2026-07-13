@@ -218,6 +218,36 @@ test('warn-coalescing: repeated same-tool warns merge in session', async () => {
   assert.ok(Number(state.lifetime?.warn_count || 0) >= 1 || totalWarns >= 1, 'warning state should increment')
 })
 
+test('warn-coalescing: direct-edit "cheap lane" UI note is capped at MAX_WARNS_PER_TOOL like the lowCredit nudge', async () => {
+  // CLAUDE.md item 13 claims "per-session warning caps" for ALL delegation
+  // warnings, but only the lowCredit nudge path checked _warnCounts -- the
+  // direct-edit "cheap lane" nudge set pendingUiNote unconditionally on
+  // every single call, so a user editing 7 files in one session would see
+  // 7 identical warnings instead of capping out like every other nudge.
+  const { home, sandbox } = makeSandbox('warn-cap-direct')
+  const projectDir = join(sandbox, 'proj')
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'opencode.json'), JSON.stringify({ model: 'deepseek/deepseek-v4-pro' }))
+  process.env.HOME = home
+
+  const mod = await import('../src/index.js?warn-cap=' + Date.now())
+  const hooks = await mod.DelegationEnforcer({ directory: projectDir })
+  await hooks['shell.env']({}, { env: {} })
+  await hooks.tool.trinity.execute({ action: 'set', slot: 'brain' })
+
+  let noteCount = 0
+  for (let i = 0; i < 7; i++) {
+    const toolInput = { tool: 'write', args: { filePath: join(projectDir, `file${i}.ts`) } }
+    const beforeOut = { args: { filePath: join(projectDir, `file${i}.ts`) } }
+    await hooks['tool.execute.before'](toolInput, beforeOut)
+    const toolResult = { result: 'export const x = true' }
+    await hooks['tool.execute.after'](toolInput, toolResult)
+    if (String(toolResult.result || '').includes('cheap lane')) noteCount++
+  }
+
+  assert.ok(noteCount <= 5, `direct-edit "cheap lane" UI note should cap at MAX_WARNS_PER_TOOL (5), got ${noteCount}`)
+})
+
 test('warn-coalescing: free tools never generate warns', async () => {
   const { home, sandbox } = makeSandbox('warn-free')
   const projectDir = join(sandbox, 'proj')
