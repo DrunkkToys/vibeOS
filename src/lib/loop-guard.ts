@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Tool-call loop circuit-breaker.
 //
-// The blackbox loop detector (vibeOS-lib/blackbox/local-stub.ts) compares the
+// The blackbox loop detector (vibeOS-lib/blackbox/resolution-tracker.ts) compares the
 // PROSE of consecutive turns. It cannot see a *tool-call* loop: an agent that
 // keeps running `sleep 600 && gh pr view 348 --json statusCheckRollup`, reading
 // the (ever-changing) CI output, editing, rebuilding and re-polling for hours.
