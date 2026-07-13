@@ -1,7 +1,11 @@
-import { describe, it } from "node:test"
+import { describe, it, before, after } from "node:test"
 import assert from "node:assert/strict"
+import { existsSync, mkdirSync, cpSync, rmSync } from "node:fs"
+import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+import { tmpdir } from "node:os"
 
-import { checkFlowRules, resetForTest, resolveRulesPath, resetAll, addFlowRule, getSessionFlowCounts } from "../flow-enforcer.js"
+import { checkFlowRules, resetForTest, resolveRulesPath, resetAll, addFlowRule, getSessionFlowCounts, __MODULE_DIRNAME } from "../flow-enforcer.js"
 
 const SECRETS_RULE = {
   id: "detect-secrets",
@@ -284,5 +288,45 @@ describe("reality-check flow rules", () => {
       content: "reality check",
     })
     assert.ok(hits.some((hit) => hit.id === "postmortem-trigger"))
+  })
+})
+
+describe("resolveRulesPath deployed-layout regression", () => {
+  // The test runner's ts-src-loader may serve flow-enforcer from different
+  // __dirname depending on which compiled copy is loaded (dist-ts/ or dist-ts-tests/).
+  // We use __MODULE_DIRNAME (exported from flow-enforcer) to create the fixture
+  // at the actual runtime __dirname/assets/, guaranteeing the candidate path exists.
+
+  const fixtureDir = join(__MODULE_DIRNAME, "assets")
+  const fixturePath = join(fixtureDir, "flow-rules.json")
+  const srcRules = join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json")
+  let savedCwd: string
+
+  before(() => {
+    savedCwd = process.cwd()
+    try {
+      console.log(`[flow-regression] before: __MODULE_DIRNAME=${__MODULE_DIRNAME}, fixtureDir=${fixtureDir}`)
+      mkdirSync(fixtureDir, { recursive: true })
+      cpSync(srcRules, fixturePath)
+      console.log(`[flow-regression] before: fixture created, exists=${existsSync(fixturePath)}`)
+    } catch (err) {
+      console.error(`[flow-regression] before: FAILED to create fixture:`, err)
+    }
+  })
+
+  after(() => {
+    try { process.chdir(savedCwd) } catch {}
+    try { rmSync(fixtureDir, { recursive: true }) } catch {}
+  })
+
+  it("finds rules via __dirname/assets when cwd-relative candidates are defeated", () => {
+    process.chdir(tmpdir())
+    resetAll()
+    const resolved = resolveRulesPath()
+    assert.ok(
+      resolved.endsWith("assets/flow-rules.json"),
+      `Expected __dirname/assets/flow-rules.json, got: ${resolved}`,
+    )
+    assert.ok(existsSync(resolved), `Resolved path does not exist on disk: ${resolved}`)
   })
 })
