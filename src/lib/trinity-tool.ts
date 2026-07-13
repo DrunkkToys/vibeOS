@@ -777,8 +777,17 @@ export function createTrinityTool(deps) {
 
       if (action === "lock") {
         if (slot === "on") {
-          const lockSlot = deps.loadSelection()?.active_slot || "brain"
-          const lockModel = deps._tiersData?.trinity?.[lockSlot]?.oc || deps.currentModel || "detected model"
+          const sel = deps.loadSelection() || {}
+          // Lock the model actually running right now (deps.currentModel), not
+          // whatever `active_slot` claims -- the two can drift (cascade auto-
+          // reconcile can leave active_slot pointing at a different tier than
+          // what's live), and locking the wrong model defeats the whole point
+          // of "freeze what's running." Reverse-derive the slot name from the
+          // trinity config for bookkeeping/display only.
+          const trinityMap = deps._tiersData?.trinity || {}
+          const lockModel = deps.currentModel || trinityMap?.[sel.active_slot || "brain"]?.oc || "detected model"
+          const matchedSlot = Object.keys(trinityMap).find((s) => trinityMap[s]?.oc === lockModel)
+          const lockSlot = matchedSlot || sel.active_slot || "brain"
           deps._modelLocked = true
           deps._lockedSlot = lockSlot
           deps._lockedModel = lockModel

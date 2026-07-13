@@ -658,6 +658,29 @@ test("trinity: lock on works", async () => {
   assert.ok(result.includes("LOCK ON") || result.includes("lock"))
 })
 
+// Regression: `vibe lock on` derived the model to lock from `active_slot`'s
+// configured trinity model, not from the model actually running
+// (deps.currentModel). Live-reproduced: cascade auto-reconcile had left
+// active_slot pointing at "brain" while the footer/real running model was the
+// cheap slot's -- `vibe lock on` locked the WRONG model, defeating the whole
+// point of "freeze what's running right now."
+test("trinity: lock on locks the model actually running, not active_slot's stale config", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-lock-drift-"))
+  const deps = makeMockDeps(sandbox)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+
+  // active_slot claims "brain" (deepseek/deepseek-v4-pro), but the model
+  // actually running right now is the cheap slot's (deepseek/deepseek-v4-flash).
+  deps.writeSelection("active_slot", "brain")
+  deps.currentModel = "deepseek/deepseek-v4-flash"
+
+  const result = await tool.execute({ action: "lock", slot: "on" })
+  assert.ok(result.includes("deepseek/deepseek-v4-flash"), "must lock the real running model: " + result)
+  assert.ok(!result.includes("deepseek/deepseek-v4-pro"), "must not lock active_slot's stale/mismatched model: " + result)
+  assert.equal(deps._lockedModel, "deepseek/deepseek-v4-flash")
+})
+
 test("trinity: lock off works", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "trinity-lock-"))
   const deps = makeMockDeps(sandbox)
