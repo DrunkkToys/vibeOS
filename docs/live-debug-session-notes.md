@@ -495,6 +495,73 @@ value, not a broken promise. Left alone, noted only.
   `get_page_text` and a `querySelectorAll` count confirmed exactly 10 session rows and
   1 current-badge, matching the real 25-total/10-shown backend numbers).
 
+## Round 10 (PR #458, #459) -- session-timestamp gap, loop-guard blind spot for edit/write
+
+- **Live-driving found `started_at: null` ("unknown start") for the CURRENT session**
+  in the dashboard's Running Sessions list, while every other session showed a real
+  timestamp. Root cause: two of the four functions that can be the FIRST writer to
+  create a session's `delegation-state.json` record --
+  `saveSessionStress()`/`recordSaving()` in `index-helpers.ts` -- never stamped
+  `started`/`session_started_at`, unlike the other two initializers in `state.ts`
+  (`recordDelegation`, `recordCacheSaving`, plus telemetry) which all do. Since either
+  of the two buggy writers can fire before any of the correct ones on a brand-new
+  session, and every writer uses `??=`/exists-guards, a session that hit this path
+  first was stuck with no start time forever. Fixed both to stamp on first write. PR
+  #458, merged, live-reproduced via direct `delegation-state.json` inspection before
+  and after the fix.
+- **Loop-guard blind spot: `edit`/`write` aren't in `SOFT_QUOTA`, so repeated FAILING
+  edits are invisible to any loop/cost mechanism.** Live-reproduced by asking OpenCode
+  Desktop to make a real edit: it retried a failing `edit` call **8+ times in a row**
+  (each a full model turn) before self-recovering by re-reading the file. The existing
+  bash-only `ToolLoopGuard.observe()` couldn't have caught this even if wired up,
+  since each retry likely carried a different `oldString` guess -- an exact-repeat
+  signature match wouldn't fire. Added `observeEditFailure(key)`/`clearEditFailure(key)`
+  tracking consecutive failures per `tool:filePath`, independent of args, and wired it
+  into `onToolExecuteAfter` to append an advisory nudge (not a hard block -- blocking
+  edits outright risked breaking legitimate multi-step fixes) once the threshold is
+  hit. PR #459, merged.
+- **Release-branch version drift (real, recurring, not fixed at the workflow level)**:
+  `scripts/release.mjs` pushes its version-bump commit to an unmergeable
+  `release/vX.Y.Z` branch because CI's `GITHUB_TOKEN` can't push to protected
+  `master`, and nothing merges that branch back. This left `master`'s `package.json`
+  one release behind published npm/GitHub versions TWICE in a row (v0.26.2, v0.26.3),
+  and each time caused the next release run to recompute the same "next version" and
+  fail with `tag already exists`. Fixed via two narrow follow-up PRs (#456, #457) that
+  synced only the version + CHANGELOG delta -- deliberately NOT merging the full
+  release branch, which was cut from a stale master and would have reverted several
+  already-merged fixes/tests (confirmed via diff before doing anything). The
+  underlying workflow gap (no auto-merge-back) is flagged, not fixed -- needs explicit
+  sign-off before touching `release.yml`/`scripts/release.mjs`.
+- **GitHub-side PR wedge (process note, not a vibeOS bug)**: PR #454 got CI and
+  mergeability computation permanently stuck after its last two commits (no workflow
+  run fired, `refs/pull/454/merge` never got created, close/reopen didn't unstick it)
+  despite the branch merging cleanly with zero conflicts against a *stale* local test.
+  Root cause of the false "clean merge" read: the verification clone's `origin` remote
+  was still pointed at the local disk path, not the real GitHub repo, so it never
+  tested the actual current `origin/master` -- re-testing against the real remote
+  showed a genuine content conflict in this notes file (two rounds' sections appended
+  at the same spot). Fixed by resolving the conflict for real and opening a fresh PR
+  (#455) from a new branch, which got a working CI/merge pipeline immediately.
+- **Non-bugs ruled out this round**: `axis status` initially got a "What did you mean
+  by axis?" non-response from the model -- confirmed as a cheap-tier model
+  instruction-following miss, not a tool-schema bug, since a more explicit prompt
+  immediately called it correctly. `repair-state preview` showing
+  `active_slot: brain` vs `selected_slot: cheap` drift was the CORRECT, working
+  result of an intentional `vibe set brain <model>` call earlier in the session
+  followed by the documented cascade auto-reconcile (simple prompts route to cheap
+  per-turn unless locked) -- not a bug. A stray `undefined/opencode.json` +
+  `undefined/.vibeOS-locks/` directory pair was found in the repo root (gitignored,
+  harmless) but its provenance couldn't be conclusively pinned to a vibeOS code path
+  in the time available -- flagged as an open lead, not chased further. `diagnose`
+  correctly found a real stale plugin-path registration in the project's root
+  `opencode.json` (pointing at a deleted `/private/tmp/vibeos-setup-*` test sandbox)
+  and its suggested repair (`vibeostheog setup --project`) genuinely fixed it,
+  confirmed via a second `diagnose` call showing "Plugin path repaired since last
+  call." Flow TODO-extraction appearing not to fire for a real edit was explained by
+  `flow_enforce` legitimately being `false` at the time (auto-mode's regime-driven
+  control vector), not a bug -- the status line's "(extract)" suffix only appears
+  when both `flow_enabled` and `flow_enforce` are true, and it was accurate.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
