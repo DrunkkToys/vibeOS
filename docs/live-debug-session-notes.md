@@ -353,6 +353,61 @@ value, not a broken promise. Left alone, noted only.
   autocomplete/placeholder text, not a vibeOS defect -- noted only so a future pass
   doesn't waste time chasing it as a plugin bug.
 
+## Round 8 — cascade icon (real fix), scratchpad-cache footer pollution, todo cross-project leak
+
+- **Cascade icon depth vs model mismatch**: first attempt trusted
+  `turn.finalize`'s `cascadeDepth` as ground truth -- wrong, because
+  `recordTurnFinalize`'s `turnId` is `state.latestTurnTruth.turnId` (the LAST
+  known turnId, not tied to the current conversational turn), so a Task
+  dispatch to brain at 08:15:24 had its `turnId` reused by 28 subsequent
+  `turn.finalize` writes over 45 minutes, all still recording `cascadeDepth: 3`.
+  Real fix: added `getLatestRouteEvent()` (turn-ledger.ts) reading the raw
+  `turn.route` event's own `_ts` directly, and
+  `clampCascadeDepthToTurnTruth()` (tool-execute.ts) which only trusts a route
+  event's `cascadeDepth` if it's within `CASCADE_ROUTE_RECENCY_MS` (30s) of
+  now; otherwise falls back to live-model-tier classification (not the
+  route-path-derived tier, which was the actual pollutant). Also applied in
+  `footer.ts`'s `ultraCascadeDepth` computation. PR #450, merged, live-reverified
+  after restart: fresh session shows `cascadeDepth: 0` for a cheap-tier turn,
+  no stray cascade icon.
+- **Scratchpad cache-hit defeated by footer noise (this round's most valuable
+  find)**: `compressToolOutputs` (chat-transform.ts) content-hashes tool
+  output including the live footer line vibeOS itself prepends
+  (`_prependFooterAlert`), which changes every turn (savings figures, XP,
+  regime). So two calls with byte-identical *real* output never hashed the
+  same, and the scratchpad cache-hit path (`getScratchpadHit` in
+  tool-execute.ts) could never fire in practice. Fixed by hashing
+  `_stripLeadingFooterForHash(raw)` instead of raw (stored content unchanged
+  -- full raw output including footer is still what's written to
+  `scratch/by-hash/<hash>.txt`). PR #451, merged.
+- **`vibe todo` global cross-project leak**: `todos.json` had no project
+  scoping at all -- a real user's file had 1,609 pending entries, most from
+  unrelated repos (VibeBrainUltra), and `vibe todo` reported "1,609 pending"
+  regardless of which project you were in. Fixed: `TodoEntry.projectFingerprint`
+  field, `upsertTodo()` stamps it from `currentProjectFingerprint`, new
+  `loadTodosForCurrentProject()` filters by it (falls back to the full list
+  only when no fingerprint is set), trinity-tool.ts's `todo` handler uses the
+  scoped loader. Legacy unscoped entries from other projects correctly
+  excluded once a fingerprint is set. PR #452, merged, live-reverified after
+  restart: fresh session's `vibe todo` now reports "No pending todos" instead
+  of leaking unrelated-project entries.
+- Logged, not fixed (no live impact found): `axis` action's `level` param
+  JSON schema enum (`["full","brief","off","on"]`) doesn't match the actual
+  axis values needed (`strict|relaxed|required|optional` etc.) -- OpenCode
+  doesn't strictly enforce the declared enum, so it worked live anyway.
+- Non-bugs ruled out this round: a "△12 verify" footer glyph (font rendering
+  of `⚠` U+26A0, raw stored string was correct); a stale `▸▸▸` cascade icon in
+  an already-open pre-restart session (confirmed stale in-memory plugin code,
+  not a new bug -- OpenCode Desktop does not hot-reload the plugin, confirmed
+  again this round); a "need" prefix in one message bubble (computer-use
+  typing artifact).
+- **Operational note reconfirmed**: OpenCode Desktop must be fully quit
+  (`osascript -e 'tell application "OpenCode" to quit'`) and reopened
+  (`open_application` with bundle id `ai.opencode.desktop` -- display name
+  "OpenCode" alone is not resolvable by `request_access`) after every
+  `npm run build` deploy; an already-running session keeps the old in-memory
+  plugin code.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
