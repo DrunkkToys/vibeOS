@@ -272,6 +272,40 @@ value, not a broken promise. Left alone, noted only.
   removed, but wasn't in the original approved scope so it was deliberately left alone
   rather than scope-creeping the PR. Flagged for a follow-up pass.
 
+## Round 7
+- **Cascade icon showed brain-depth (▸▸▸) while the model badge showed cheap** —
+  user personally spotted this live in the footer. First fix attempt (trusting
+  turn-ledger's `finalized.cascadeDepth`) was INSUFFICIENT — caught only by pulling
+  the real production `turn-ledger.jsonl` for the exact session and finding that
+  signal is itself polluted: turnId is keyed off the last routing decision, not the
+  current conversational turn, so one real Task dispatch to brain at 08:15 had its
+  turnId reused by 28 subsequent `turn.finalize` writes over the next 45 minutes, all
+  still recording `cascadeDepth: 3`. Real fix (PR #450): `getLatestRouteEvent()` reads
+  the RAW `turn.route` event's own timestamp directly from the ledger file (not the
+  merged/re-touched view), and only trusts an elevated depth within
+  `CASCADE_ROUTE_RECENCY_MS` (30s) of now; otherwise falls back to classifying the
+  model actually displayed, never the route-path-derived tier (the same polluted
+  signal `resolveActiveCascadeTier` uses). Verified against the live session data
+  directly (not just test fixtures) before and after the fix. Required an OpenCode
+  Desktop app restart to pick up the new plugin bundle — an already-open session kept
+  running the old in-memory code and re-produced the stale depth even after deploy,
+  which is expected (no plugin hot-reload) but worth remembering for future
+  build→deploy→verify cycles.
+- **`vibe diagnose` — first live verification ever this session** — found a genuine
+  (if locally-scoped) misconfiguration: this repo's gitignored `opencode.json` had a
+  plugin path pointing at a stale temp setup directory
+  (`/private/tmp/vibeos-setup-*/`) from an earlier `setup`/test run, instead of the
+  real deployed plugin path. Confirmed `opencode.json` is gitignored (not a shipped
+  defect, purely local dev-machine cruft). Ran the suggested fix
+  (`npx vibeostheog setup --project`), re-ran `diagnose` live, confirmed 13/13 checks
+  now pass. Good end-to-end proof the diagnose→fix→reverify loop genuinely works.
+- Note on driving the chat directly: asking the model in natural language to run
+  `vibe diagnose` is NOT reliable — it substituted `action="status"` on the first
+  attempt. Had to explicitly instruct it to call the tool with the exact action
+  string before it actually exercised the command. Worth remembering when live-testing
+  any trinity action this way: verify which action actually got called, don't trust
+  the summary text alone.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
