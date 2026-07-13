@@ -44,6 +44,7 @@ type Deps = {
   saveBlackboxVector: (vector: unknown) => void
   saveBlackboxOutcome: (outcome: unknown) => void
   currentProjectName?: string
+  currentProjectFingerprint?: string
 }
 
 type McpServer = {
@@ -242,18 +243,40 @@ function buildLocalSavings(deps: Deps): unknown {
   return deps.getSavings()
 }
 
-function buildLocalSessions(deps: Deps): { sessions: unknown[]; total_sessions: number } {
+// Running-sessions panel cap: mirrors OpenCode Desktop's own sidebar, which
+// only ever shows a handful of recent conversations, not the plugin's entire
+// lifetime session history.
+const DASHBOARD_RUNNING_SESSIONS_LIMIT = 10
+
+function buildLocalSessions(deps: Deps, limit = DASHBOARD_RUNNING_SESSIONS_LIMIT): { sessions: unknown[]; total_sessions: number } {
   const sessionsMap = getMergedSessionsMap(deps)
   const currentSessionId = deps.getCurrentSessionId()
-  const sessions = Object.entries(sessionsMap).map(([id, ses]) => ({
+  const currentFingerprint = deps.currentProjectFingerprint || ""
+  // Only exclude sessions with a KNOWN, DIFFERENT project fingerprint --
+  // unlike todos.json (where unscoped entries were confirmed old cross-project
+  // junk), a large share of real, current-project sessions never get
+  // project_fingerprint stamped at all (older opencode-<pid>-<ts> session IDs
+  // predating full project-context wiring). Excluding those would hide
+  // legitimate recent activity, not just noise.
+  const entries = Object.entries(sessionsMap).filter(([, ses]) => {
+    const fp = (ses as Record<string, unknown> | undefined)?.project_fingerprint
+    return !currentFingerprint || !fp || fp === currentFingerprint
+  })
+  const sessions = entries.map(([id, ses]) => ({
     ...buildSessionDetail(id, ses, deps.getSessionMetrics(id), deps.getBlackboxState() || {}, { current_session_id: currentSessionId }),
     started: ses?.started || null,
+    last_updated: ses?.last_updated || ses?.started || null,
     cost_usd: Number(ses?.cost_usd ?? 0) || 0,
     delegation_savings_usd: getSessionDelegationSavings(ses),
     cache_savings_usd: Number(ses?.cache_savings_usd ?? 0) || 0,
     warns_count: Array.isArray(ses?.warns) ? ses.warns.length : 0,
   }))
-  return { sessions, total_sessions: sessions.length }
+  sessions.sort((a, b) => {
+    const at = Date.parse(String(a.last_updated || "")) || 0
+    const bt = Date.parse(String(b.last_updated || "")) || 0
+    return bt - at
+  })
+  return { sessions: sessions.slice(0, limit), total_sessions: sessions.length }
 }
 
 function buildLocalCurrentSession(deps: Deps, sessionId: string): Record<string, unknown> {
