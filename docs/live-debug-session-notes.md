@@ -338,10 +338,14 @@ value, not a broken promise. Left alone, noted only.
   VibeBrainUltra content, not theSaver-oc. Same class of cross-project leak as the
   footer/scratchpad/PivotCache bugs found earlier. Fixed by adding an optional
   `projectFingerprint` field to `TodoEntry`, stamped on write by `upsertTodo()`, and a
-  new `loadTodosForCurrentProject()` used only by the `vibe todo` action (dashboard/MCP
-  consumers deliberately left unscoped, since a cross-project overview may be
-  intentional there). Legacy entries with no fingerprint are excluded from the scoped
-  view rather than silently attributed to whichever project happens to be open.
+  new `loadTodosForCurrentProject()` used only by the `vibe todo` action. **Correction
+  (Round 9, PR #454): the "dashboard/MCP consumers deliberately left unscoped" call was
+  wrong** -- live-driving `vibe dashboard` showed the same 1609-entry leak on
+  `/dashboard/home`'s raw JSON. Not a deliberate design choice, just two call sites
+  (`src/index.ts`'s `_dashboardSyncDeps.todos`/`getTodos`) that were missed when #452
+  scoped the trinity-tool path. Fixed in the same PR. Legacy entries with no fingerprint
+  are excluded from the scoped todo view rather than silently attributed to whichever
+  project happens to be open.
 - Live-verified several more trinity actions this round, all working correctly:
   `reality-check`, `verify-claims`, `patterns`, `axis status`/`axis <name> <value>`,
   `project`, `blackbox status`, `repair-state preview`, `guard` (correctly reported
@@ -441,6 +445,55 @@ value, not a broken promise. Left alone, noted only.
     existing spec for what distinguishes e.g. FORENSIC from AUDIT locally.
     Logging as a known gap rather than guessing at heuristics; same
     treatment as the already-logged `axis`/`level` enum mismatch.
+## Round 9 (PR #454) -- dashboard todo/session leaks were bigger than #452 fixed, plus UX simplification
+
+- **Live-driving `vibe dashboard` found the todo leak was NOT actually closed by #452.**
+  `/dashboard/home`'s raw JSON still showed `"TODOs": 1609` with entries from an
+  unrelated project. Root cause: `src/index.ts`'s `_dashboardSyncDeps` object had TWO
+  call sites (`todos: loadTodos()` for the status payload, `getTodos: () =>
+  loadTodos()` for the dashboard home model) that #452 never touched -- it only fixed
+  the trinity-tool `vibe todo` action's own read path. Fixed both to use
+  `loadTodosForCurrentProject()`.
+- **The exact same leak class existed for SESSIONS, across THREE separate call
+  sites**, none of which had ever been scoped or capped:
+  1. `/sessions` (`buildLocalSessions()` in vibeos-mcp-server.ts) -- fed the standalone
+     Sessions table.
+  2. `/dashboard/home`'s own `sessions` array (`buildDashboardHomeModel()` in
+     session-orchestrator.ts) -- fed Home's "Recent Sessions" card. This one bypassed
+     `buildLocalSessions()` entirely, reading `getMergedSessionsMap(deps)` directly.
+  3. Neither had a cap -- delegation-state.json had 32 tracked sessions total; the
+     dashboard rendered them (or a hardcoded `.slice(0,5)`) with no real limit logic.
+  - **Important difference from the todo fix**: for todos, entries with no
+    `projectFingerprint` were confirmed old cross-project junk and excluded. For
+    sessions, direct inspection showed the OPPOSITE: 25 of 32 real, genuinely recent
+    sessions had never been stamped with `project_fingerprint` at all (stamping
+    predates full wiring for some session-id formats) -- excluding them the same way
+    would have hidden most of today's real activity. So the sessions fix only excludes
+    a session with a CONFIRMED, different fingerprint; unscoped sessions are kept.
+  - Both call sites now: filter (confirmed-different-project only), sort by
+    `last_updated`/`started` descending (current session always pinned first), and cap
+    to 10 -- matching what OpenCode Desktop's own sidebar shows, per the user's
+    explicit ask.
+- **Test-isolation finding along the way**: `dashboard-bridge.ts`'s projection cache
+  reads a REAL disk file under `getVibeOSHome()` -- not scoped to `HOME` overrides used
+  elsewhere in the test suite. A sessions-scoping test's `total_sessions` assertion
+  silently picked up a stale cached projection from THIS live dogfooding session
+  running concurrently, before the test isolated `HOME`. This is very likely also why
+  `tests/dashboard-api.test.mjs` hangs/is flaky when run as part of the full suite
+  (confirmed independently: it also hangs on unmodified master, in isolation, with no
+  relation to this session's code changes) -- worth a dedicated follow-up to add
+  `HOME` isolation to that file too, not fixed here (out of scope for this PR).
+- **Dashboard UX simplification** (user request, mid-session): `Home.tsx` was a dense
+  hero + ops-strip + controls-strip + mode-grid + overview-grid + detail-grid (4 more
+  cards: current-session, todos, savings, recent-sessions-of-5). Consolidated into 3
+  clearly labeled sections: **KPIs** (total/session savings, pending todos, session
+  count, backend, model), **Orchestrator** (slot/mode/thinking/enforce/flow controls +
+  the branded mode grid, one panel), **Running Sessions** (the now-correctly-scoped
+  last-10 list, current session pinned first and badged). Live-verified against the
+  running dashboard via DOM query (not full-page screenshot -- the Browser pane's
+  scroll action was flaky/black-framed in this environment, unrelated to the app code;
+  `get_page_text` and a `querySelectorAll` count confirmed exactly 10 session rows and
+  1 current-badge, matching the real 25-total/10-shown backend numbers).
 
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).

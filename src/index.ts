@@ -705,7 +705,7 @@ async function ensureMcpServerRunning() {
               currentModel: currentModel || "",
               creditPercent: loadCredit(),
               version: readPackageVersion(),
-              todos: loadTodos(),
+              todos: loadTodosForCurrentProject(),
               fallbackThinking: thinkingLevel(loadCredit()),
               backendConnected: isApiConnected(),
               backendHealthUrl: `${VIBEOS_API_URL}/health`,
@@ -728,11 +728,12 @@ async function ensureMcpServerRunning() {
             session: readFullState()?.sessions?.[_OC_SID] || {},
           }),
           getSessionMetrics: () => computeSessionMetrics(readFullState(), _OC_SID),
-          getTodos: () => loadTodos(),
+          getTodos: () => loadTodosForCurrentProject(),
           getSessionOrchestration: (sessionId: string) => loadSessionOrchestration(sessionId),
           mutateSessionOrchestration: (sessionId: string, mutator: (session: unknown) => unknown) => mutateSessionOrchestration(sessionId, mutator),
           listSessionTemplates: () => TEMPLATE_LIBRARY,
           currentProjectName: currentProjectName || "",
+          currentProjectFingerprint: currentProjectFingerprint || "",
           listReports: (filter) => {
             if (!existsSync(getReportsDir())) {
               const e = new Error("reports dir not found")

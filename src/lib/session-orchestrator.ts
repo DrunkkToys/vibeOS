@@ -490,6 +490,12 @@ export function buildSessionDetail(sessionId: string, session: AnyObject, metric
   return summary
 }
 
+// Running-sessions panel cap: mirrors OpenCode Desktop's own sidebar, which
+// only ever shows a handful of recent conversations, not the plugin's entire
+// lifetime session history. Kept in sync with vibeos-mcp-server.ts's
+// DASHBOARD_RUNNING_SESSIONS_LIMIT.
+const DASHBOARD_HOME_SESSIONS_LIMIT = 10
+
 export function buildDashboardHomeModel({
   currentSessionId,
   status = {},
@@ -500,6 +506,7 @@ export function buildDashboardHomeModel({
   metrics = {},
   templates = TEMPLATE_LIBRARY,
   currentProjectName = "",
+  currentProjectFingerprint = "",
 }: {
   currentSessionId: string
   status?: AnyObject
@@ -510,8 +517,16 @@ export function buildDashboardHomeModel({
   metrics?: AnyObject
   templates?: any[]
   currentProjectName?: string
+  currentProjectFingerprint?: string
 }) {
-  const rows = Object.entries(sessions || {}).map(([sessionId, session]) => buildSessionListItem(
+  // Only exclude sessions with a KNOWN, DIFFERENT project fingerprint -- see
+  // the matching comment in vibeos-mcp-server.ts's buildLocalSessions() for
+  // why unscoped (never-stamped) sessions are kept rather than dropped.
+  const scopedSessionEntries = Object.entries(sessions || {}).filter(([, session]) => {
+    const fp = (session as AnyObject | undefined)?.project_fingerprint
+    return !currentProjectFingerprint || !fp || fp === currentProjectFingerprint
+  })
+  const rows = scopedSessionEntries.map(([sessionId, session]) => buildSessionListItem(
     sessionId,
     session as AnyObject,
     sessionId === currentSessionId ? metrics : {},
@@ -558,7 +573,7 @@ export function buildDashboardHomeModel({
       version: currentSession.version,
       history: currentSession.history,
     },
-    sessions: sortSessions(rows),
+    sessions: sortSessions(rows).slice(0, DASHBOARD_HOME_SESSIONS_LIMIT),
     templates,
     session_actions: ["start", "pause", "resume", "lock", "unlock", "retag", "annotate", "checkout", "archive", "undo", "batch"],
     totals: {
