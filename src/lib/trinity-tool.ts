@@ -239,17 +239,17 @@ function cascadeDiagnosticResults(deps) {
   const cheapFirstOk = !cheapFirstExpected || liveModel === cheapModel || cheapFirstDegraded
   results.push({ ok: true, okLabel: "OK", label: "cascade vibeos_home", detail: deps.VIBEOS_HOME || getVibeOSHome() })
   results.push({ ok: !!pluginPath && deps.existsSync(pluginPath), okLabel: pluginPath && deps.existsSync(pluginPath) ? "OK" : "WARN", label: "cascade plugin", detail: pluginPath ? `${pluginPath}${sha256File(pluginPath) ? ` sha256:${sha256File(pluginPath)}` : ""}` : "not found" })
-  results.push({ ok: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT), okLabel: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade active_pipeline", detail: JSON.stringify(sel.active_pipeline || null), fix: "run `trinity repair-state apply`" })
-  results.push({ ok: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT), okLabel: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade vector_changed_pipeline", detail: JSON.stringify(sel.vector_changed_pipeline || null), fix: "run `trinity repair-state apply`" })
-  results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `trinity repair-state apply`" })
+  results.push({ ok: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT), okLabel: sameJson(sel.active_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade active_pipeline", detail: JSON.stringify(sel.active_pipeline || null), fix: "run `vibe repair-state apply`" })
+  results.push({ ok: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT), okLabel: !sel.vector_changed_pipeline || sameJson(sel.vector_changed_pipeline, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade vector_changed_pipeline", detail: JSON.stringify(sel.vector_changed_pipeline || null), fix: "run `vibe repair-state apply`" })
+  results.push({ ok: sameJson(cv.cascade_root, VIBEULTRAX_ROOT), okLabel: sameJson(cv.cascade_root, VIBEULTRAX_ROOT) ? "OK" : "WARN", label: "cascade root cv", detail: JSON.stringify({ cascade_root: cv.cascade_root || null, route_path: cv.route_path || null, selected_slot: cv.selected_slot || null }), fix: "run `vibe repair-state apply`" })
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
   results.push({ ok: existingOcConfigs.length > 0, okLabel: existingOcConfigs.length > 0 ? "OK" : "WARN", label: "cascade opencode configs", detail: existingOcConfigs.length ? existingOcConfigs.join(" | ") : "none found", fix: "run `vibe setup --project` or `npm run deploy`" })
   const primaryAgent = primaryOc.agent && typeof primaryOc.agent === "object" ? primaryOc.agent[VIBE_PRIMARY_AGENT] || null : null
   const resolvedDefaultAgent = normalizeNativeOpenCodeAgent(primaryOc.default_agent, "vibe")
   const primaryAgentOk = !!primaryAgent && primaryAgent.mode === "primary" && !String(primaryAgent.model || "").trim()
-  results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: resolvedDefaultAgent, expected: "primary vibe agent present" })}` : `missing in ${primaryOcConfigPath}`, fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: resolvedDefaultAgent, expected: "primary vibe agent present" })}` : `missing in ${primaryOcConfigPath}`, fix: "run `vibe repair-state apply` or start a new VibeUltraX turn" })
   const defaultAgentOk = isNativeOpenCodeAgent(primaryOc.default_agent)
-  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: resolvedDefaultAgent, expected: "build|plan|vibe", active_slot: sel.active_slot || null }), fix: "run `trinity repair-state apply` or start a new VibeUltraX turn" })
+  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: resolvedDefaultAgent, expected: "build|plan|vibe", active_slot: sel.active_slot || null }), fix: "run `vibe repair-state apply` or start a new VibeUltraX turn" })
   results.push({
     ok: cheapFirstOk,
     okLabel: cheapFirstOk ? "OK" : "WARN",
@@ -272,12 +272,12 @@ function cascadeDiagnosticResults(deps) {
       const agents = oc.agent && typeof oc.agent === "object" ? oc.agent : {}
       const agent = agents[name] || null
       const ok = !!agent && agent.mode === "subagent" && agent.model === model
-      results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? `${ocConfigPath} ${JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null })}` : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `trinity repair-state apply` after rebuild" })
+      results.push({ ok, okLabel: ok ? "OK" : "WARN", label: `cascade ${name}`, detail: agent ? `${ocConfigPath} ${JSON.stringify({ mode: agent.mode || null, model: agent.model || null, expected: model || null })}` : `missing in ${ocConfigPath}`, fix: "run a VibeUltraX turn or `vibe repair-state apply` after rebuild" })
     }
   }
   results.push({ ok: activeJobs.count === 0, okLabel: activeJobs.count === 0 ? "OK" : "WARN", label: "cascade stale active jobs", detail: `${activeJobs.count} in ${activeJobs.path}` })
   results.push({ ok: proc.stale.length === 0, okLabel: proc.stale.length === 0 ? "OK" : "WARN", label: "cascade opencode processes", detail: `${proc.count} found${proc.stale.length ? `; stale: ${proc.stale.join(" | ")}` : ""}` })
-  results.push({ ok: repair.length === 0, okLabel: repair.length === 0 ? "OK" : "WARN", label: "cascade repair candidates", detail: String(repair.length), fix: repair.length ? "run `trinity repair-state apply`" : null })
+  results.push({ ok: repair.length === 0, okLabel: repair.length === 0 ? "OK" : "WARN", label: "cascade repair candidates", detail: String(repair.length), fix: repair.length ? "run `vibe repair-state apply`" : null })
   return results
 }
 
@@ -614,7 +614,7 @@ export function createTrinityTool(deps) {
           targetModel = tiers?.trinity?.[slot]?.oc || ""
         } catch {}
         if (!targetModel) {
-          return "\u274c No model configured for " + slot + " slot. Run \`trinity rebuild\` first."
+          return "\u274c No model configured for " + slot + " slot. Run \`vibe rebuild\` first."
         }
         const auth = deps._readAuth()
         let probeFailed = false
@@ -729,7 +729,7 @@ export function createTrinityTool(deps) {
             : `\u274c Failed to write model-tiers.json`
         }
         if (slot === "enforce") {
-          if (level !== "on" && level !== "off") return "\u274c Provide level on|off for \`trinity flow enforce\`"
+          if (level !== "on" && level !== "off") return "\u274c Provide level on|off for \`vibe flow enforce\`"
           const enforceOn = level === "on"
           const ok = deps.writeSelection("flow_enforce", enforceOn)
           if (ok && enforceOn) deps.writeSelection("onboarding_mode", "strict")
@@ -772,7 +772,7 @@ export function createTrinityTool(deps) {
             : `\u274c Failed to write model-tiers.json`
         }
         const _sel = deps.loadSelection()
-        return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)\nUse \`trinity enforce on\` to reapply the guard if needed.`
+        return `\u{1F6AB} Delegation enforcement: ON (mandatory, blocks direct writes/edits on brain tier)\nUse \`vibe enforce on\` to reapply the guard if needed.`
       }
 
       if (action === "lock") {
@@ -784,7 +784,7 @@ export function createTrinityTool(deps) {
           deps._lockedModel = lockModel
           deps.writeSelection("slot_locked", true)
           console.error(`[vibeOS] model LOCKED \u2014 ${lockModel} (${deps.currentTier}) will not auto-reconcile with config`)
-          return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`trinity set\` or \`trinity lock off\`.`
+          return `LOCK ON \u2014 ${lockModel} will not change unless you force with \`vibe set\` or \`vibe lock off\`.`
         }
         if (slot === "off") {
           deps._modelLocked = false
@@ -794,13 +794,13 @@ export function createTrinityTool(deps) {
           console.error(`[vibeOS] model UNLOCKED \u2014 auto-reconcile re-enabled`)
           return `LOCK OFF \u2014 will auto-follow OpenCode config changes.`
         }
-        return `\u{1F512} Model lock: ${deps._modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}\nUse \`trinity lock on\` or \`trinity lock off\` to toggle.\nLock is per-session (resets on restart).`
+        return `\u{1F512} Model lock: ${deps._modelLocked ? "ON (fixed per session)" : "OFF (follows config)"}\nUse \`vibe lock on\` or \`vibe lock off\` to toggle.\nLock is per-session (resets on restart).`
       }
 
       if (action === "tdd") {
         if (slot === "strict") {
           if (level !== "on" && level !== "off") {
-            return "\u274c Provide level on|off for \`trinity tdd strict\`"
+            return "\u274c Provide level on|off for \`vibe tdd strict\`"
           }
           const ok = deps.writeSelection("tdd_strict", level === "on")
           if (ok && level === "on") deps.writeSelection("onboarding_mode", "strict")
@@ -810,7 +810,7 @@ export function createTrinityTool(deps) {
         }
         if (slot === "quality") {
           if (level !== "on" && level !== "off") {
-            return "\u274c Provide level on|off for \`trinity tdd quality\`"
+            return "\u274c Provide level on|off for \`vibe tdd quality\`"
           }
           const ok = deps.writeSelection("tdd_quality", level === "on")
           if (ok && level === "on") deps.writeSelection("onboarding_mode", "strict")
@@ -994,7 +994,7 @@ export function createTrinityTool(deps) {
         const suggestions = []
         if (totalTurns > 10 && sv.sesModelTurns.brain > sv.sesModelTurns.worker * 2) {
           if (!deps.loadSelection().delegation_enforce) {
-            suggestions.push(`\ud83d\udca1 High direct brain usage (${brainPct}%) \u2014 enable enforcement with \`trinity enforce on\` to block direct writes/edits`)
+            suggestions.push(`\ud83d\udca1 High direct brain usage (${brainPct}%) \u2014 enable enforcement with \`vibe enforce on\` to block direct writes/edits`)
           } else {
             suggestions.push(`\ud83d\udca1 High direct brain usage (${brainPct}%) \u2014 enforcement is ON but brain keeps editing directly; check plugin logs`)
           }
@@ -1015,14 +1015,14 @@ export function createTrinityTool(deps) {
           suggestions.push(`\ud83d\udca1 ${byRule["todo-comment"]} TODO/FIXME left \u2014 clean up or track in issue tracker`)
         }
         if (deps.loadSelection().flow_enabled === false) {
-          suggestions.push(`\ud83d\udca1 Flow enforcer is OFF \u2014 enable with \`trinity flow on\` to catch anti-patterns`)
+          suggestions.push(`\ud83d\udca1 Flow enforcer is OFF \u2014 enable with \`vibe flow on\` to catch anti-patterns`)
         }
         for (const ptn of deps.promotedProjectPatterns(fp)) {
           suggestions.push(`Learned ${ptn.label} pattern: ${ptn.summary}`)
         }
         const credit = deps.loadCredit()
         if (credit < 40) {
-          suggestions.push(`\ud83d\udca1 Credit at ${credit}% \u2014 switch to medium/cheap slot with \`trinity medium\``)
+          suggestions.push(`\ud83d\udca1 Credit at ${credit}% \u2014 switch to medium/cheap slot with \`vibe medium\``)
         }
 
         if (suggestions.length > 0) {
@@ -1145,7 +1145,7 @@ export function createTrinityTool(deps) {
             lines.push(`  [${c.label}/${tag}] ${c.summary} (${c.count} hit${c.count === 1 ? "" : "s"}, ${c.sessions} session${c.sessions === 1 ? "" : "s"})`)
           }
           lines.push("")
-          lines.push("Use \`trinity patterns\` to see this project's own patterns.")
+          lines.push("Use \`vibe patterns\` to see this project's own patterns.")
           return lines.join("\n")
         }
         const rows = deps.projectPatternRows(fp)
@@ -1162,7 +1162,7 @@ export function createTrinityTool(deps) {
           lines.push(`  [${r.label}/${tag}] ${r.summary} (${r.sessions} session${r.sessions === 1 ? "" : "s"}, ${r.count} hit${r.count === 1 ? "" : "s"})`)
         }
         lines.push("")
-        lines.push("Use \`trinity patterns clear\` to clear project pattern memory.")
+        lines.push("Use \`vibe patterns clear\` to clear project pattern memory.")
         return lines.join("\n")
       }
 
@@ -1175,7 +1175,7 @@ export function createTrinityTool(deps) {
           try { deps.ensureProjectSkill(deps.directory, _fp) } catch {}
         }
         if (result.created.length === 0 && result.skipped.length > 0) {
-          return `AGENTS.md and README.md already exist. Use \`trinity guard\` to check for missing features.`
+          return `AGENTS.md and README.md already exist. Use \`vibe guard\` to check for missing features.`
         }
         const lines = [`Project Guard: ${deps.directory.split("/").pop() || "unknown"}`]
         for (const f of result.created) lines.push(`  Created ${f}`)
@@ -1198,7 +1198,7 @@ export function createTrinityTool(deps) {
         return lines.join("\n")
       }
       if (action === "todo-done") {
-        if (!slot) return "Usage: trinity todo-done <id>\nMark a todo as done by its ID."
+        if (!slot) return "Usage: vibe todo-done <id>\nMark a todo as done by its ID."
         deps.markTodoDone(slot)
         return "Todo " + slot + " marked done."
       }
@@ -1210,7 +1210,7 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "api-token") {
-        if (!token) return "Usage: trinity api-token <token|invalidate>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation, or 'invalidate' to disable it for alpha."
+        if (!token) return "Usage: vibe api-token <token|invalidate>\nProvide a valid VIBEOS_API_TOKEN to enable remote control-vector computation, or 'invalidate' to disable it for alpha."
         const cleanToken = String(token).trim()
         if (["invalidate", "disable", "clear", "revoke"].includes(cleanToken.toLowerCase())) {
           invalidateApiToken()
@@ -1221,7 +1221,7 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "api-bootstrap-token") {
-        if (!token) return "Usage: trinity api-bootstrap-token <token>\nProvide an alpha bootstrap token to exchange for a normal API token on alpha builds."
+        if (!token) return "Usage: vibe api-bootstrap-token <token>\nProvide an alpha bootstrap token to exchange for a normal API token on alpha builds."
         deps.setApiBootstrapToken(token)
         const ok = typeof deps.ensureBootstrapExchange === "function" ? await deps.ensureBootstrapExchange() : false
         if (ok) return "[vibeOS] Alpha bootstrap token exchanged successfully. Remote API re-enabled."
@@ -1438,7 +1438,7 @@ export function createTrinityTool(deps) {
             okLabel: deps.existsSync(c.path) ? "\u2705" : "\u274c",
             label: c.label,
             detail: deps.existsSync(c.path) ? "exists" : "missing",
-            fix: deps.existsSync(c.path) ? null : (c.label === "model-tiers.json" ? "run \`trinity rebuild\` to create it" : undefined),
+            fix: deps.existsSync(c.path) ? null : (c.label === "model-tiers.json" ? "run \`vibe rebuild\` to create it" : undefined),
           })
         }
         const configuredPluginRefs = ocConfigPaths.flatMap((configPath) => {
@@ -1471,12 +1471,12 @@ export function createTrinityTool(deps) {
               ok, okLabel: ok ? "\u2705" : "\u274c",
               label: `${s} slot`,
               detail: ok ? m : (m.length > 0 ? `placeholder: ${m}` : "unset"),
-              fix: ok ? null : "run \`trinity rebuild\` to auto-assign",
+              fix: ok ? null : "run \`vibe rebuild\` to auto-assign",
             })
           }
         } catch {
           for (const s of ["brain","medium","cheap"]) {
-            results.push({ ok: false, okLabel: "\u274c", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run \`trinity rebuild\` to create it" })
+            results.push({ ok: false, okLabel: "\u274c", label: `${s} slot`, detail: "cannot read model-tiers.json", fix: "run \`vibe rebuild\` to create it" })
           }
         }
 
@@ -1486,7 +1486,7 @@ export function createTrinityTool(deps) {
             okLabel: "\u26A0",
             label: "model probe",
             detail: "API fallback active",
-            fix: "re-enter `trinity api-token <token>` to retry the remote API",
+            fix: "re-enter `vibe api-token <token>` to retry the remote API",
           })
         } else if (deps.currentModel || !deps.existsSync(deps.TIERS_FILE)) {
           try {
@@ -1529,7 +1529,7 @@ export function createTrinityTool(deps) {
           detail: apiFallbackActive
             ? `active${apiFallbackSince ? ` since ${apiFallbackSince}` : ""}`
             : "off",
-          fix: apiFallbackActive ? "re-enter `trinity api-token <token>` to retry the remote API" : null,
+          fix: apiFallbackActive ? "re-enter `vibe api-token <token>` to retry the remote API" : null,
         })
         const runway = typeof deps.estimateTurnsRemaining === "function"
           ? deps.estimateTurnsRemaining(totalBal, cheapModel)
@@ -1547,7 +1547,7 @@ export function createTrinityTool(deps) {
           ok: creditOk, okLabel: creditOk ? "\u2705" : "\u274c",
           label: "credits",
           detail: `${credit}%${totalBal > 0 ? ` ($${totalBal.toFixed(2)} of $${budget})` : ` (of $${budget})`}`,
-          fix: creditOk ? null : "run \`trinity medium\` to reduce spend",
+          fix: creditOk ? null : "run \`vibe medium\` to reduce spend",
         })
         results.push({
           ok: runwayOk,
@@ -1609,7 +1609,7 @@ export function createTrinityTool(deps) {
       if (action === "repair-state") {
         const mode = slot || "preview"
         if (mode !== "preview" && mode !== "apply") {
-          return "\u274c Use \`trinity repair-state preview\` or \`trinity repair-state apply\`."
+          return "\u274c Use \`vibe repair-state preview\` or \`vibe repair-state apply\`."
         }
         const cascadeChanges = previewVibeUltraXRepair(deps)
         const tiers = readJsonFile(deps, deps.TIERS_FILE) || {}
@@ -1638,7 +1638,7 @@ export function createTrinityTool(deps) {
             lines.push(`  - ${change.field}: ${JSON.stringify(change.from)} -> ${JSON.stringify(change.to)}`)
           }
           if (mode === "preview") {
-            lines.push("", "Run `trinity repair-state apply` to execute with backups.")
+            lines.push("", "Run `vibe repair-state apply` to execute with backups.")
             return lines.join("\n")
           }
           const repaired = applyVibeUltraXRepair(deps)
@@ -1672,7 +1672,7 @@ export function createTrinityTool(deps) {
           lines.push(`  - ${change.field}: ${JSON.stringify(change.from)} -> ${JSON.stringify(change.to)}`)
         }
         if (mode === "preview") {
-          lines.push("", "Run \`trinity repair-state apply\` to execute with backups.")
+          lines.push("", "Run \`vibe repair-state apply\` to execute with backups.")
           return lines.join("\n")
         }
 
@@ -1772,55 +1772,55 @@ export function createTrinityTool(deps) {
             }
           }
           lines.push("")
-          lines.push("Usage: trinity blackbox on|off|status|reset")
+          lines.push("Usage: vibe blackbox on|off|status|reset")
           return lines.join("\n")
         }
-        return `\u274c Use \`trinity blackbox on|off|status|reset\``
+        return `\u274c Use \`vibe blackbox on|off|status|reset\``
       }
 
       if (action === "help") {
         return [
-          "vibeOS \u2014 trinity commands",
+          "vibeOS commands",
           "",
           "TIERS:",
-          "  trinity status            See plugin state, credit, model assignment",
-          "  trinity brain             Switch to brain tier (most capable)",
-          "  trinity medium            Switch to medium tier (balanced)",
-          "  trinity cheap             Switch to cheap tier (most savings)",
-          "  trinity dashboard / gui   Print the live dashboard URL",
-          "  trinity rebuild           Auto-detect available models",
+          "  vibe status            See plugin state, credit, model assignment",
+          "  vibe brain             Switch to brain tier (most capable)",
+          "  vibe medium            Switch to medium tier (balanced)",
+          "  vibe cheap             Switch to cheap tier (most savings)",
+          "  vibe dashboard / gui   Print the live dashboard URL",
+          "  vibe rebuild           Auto-detect available models",
           "",
           "CONTROLS:",
-          "  trinity enable/disable    Toggle vibeOS plugin on/off",
-          "  trinity enforce on        Block brain-tier writes/edits (save $$)",
-          "  trinity lock on/off       Lock model at session start (skip auto-reconcile)",
-          "  trinity mode <profile>   Set optimization profile (balanced|budget|quality|speed|longrun|audit|forensic|auto + branded modes)",
-          "  trinity thinking full|brief|off  Set reasoning depth",
+          "  vibe enable/disable    Toggle vibeOS plugin on/off",
+          "  vibe enforce on        Block brain-tier writes/edits (save $$)",
+          "  vibe lock on/off       Lock model at session start (skip auto-reconcile)",
+          "  vibe mode <profile>   Set optimization profile (balanced|budget|quality|speed|longrun|audit|forensic|auto + branded modes)",
+          "  vibe thinking full|brief|off  Set reasoning depth",
           "",
           "GUARDRAILS:",
-          "  trinity flow on/off       Toggle flow enforcer (code quality checks)",
-          "  trinity tdd on/off        Toggle auto test skeleton creation",
-          "  trinity setup             Create a compatibility profile for new users",
-          "  trinity guard             Ensure AGENTS.md/README.md exist and are current",
-          "  trinity reality-check     Read live state and report only verified facts",
-          "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
-          "  trinity api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
-          "  trinity flow              Show flow violations this session",
+          "  vibe flow on/off       Toggle flow enforcer (code quality checks)",
+          "  vibe tdd on/off        Toggle auto test skeleton creation",
+          "  vibe setup             Create a compatibility profile for new users",
+          "  vibe guard             Ensure AGENTS.md/README.md exist and are current",
+          "  vibe reality-check     Read live state and report only verified facts",
+          "  vibe api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
+          "  vibe api-token <token|invalidate>  Update or invalidate VIBEOS_API_TOKEN",
+          "  vibe flow              Show flow violations this session",
           "",
           "DIAGNOSTICS:",
-          "  trinity diagnose          Self-check: config, files, model probes, budget",
-          "  trinity project           Project analytics and optimization tips",
-          "  trinity patterns          Show learned friction/routine patterns",
-          "  trinity patterns suggest  Suggest relevant patterns from similar stack projects",
-          "  trinity patterns clear    Clear learned patterns for this project",
+          "  vibe diagnose          Self-check: config, files, model probes, budget",
+          "  vibe project           Project analytics and optimization tips",
+          "  vibe patterns          Show learned friction/routine patterns",
+          "  vibe patterns suggest  Suggest relevant patterns from similar stack projects",
+          "  vibe patterns clear    Clear learned patterns for this project",
           "",
           "REPAIR:",
-          "  trinity repair-state      Fix fingerprint collisions (preview/apply)",
+          "  vibe repair-state      Fix fingerprint collisions (preview/apply)",
           "",
           "DECISION ENGINE:",
-          "  trinity blackbox on/off   Toggle theWay blackbox decision engine",
-          "  trinity blackbox status   View resolution state, momentum, project history",
-          "  trinity blackbox reset    Clear resolution tracker for current session",
+          "  vibe blackbox on/off   Toggle theWay blackbox decision engine",
+          "  vibe blackbox status   View resolution state, momentum, project history",
+          "  vibe blackbox reset    Clear resolution tracker for current session",
         ].join("\n")
       }
 
