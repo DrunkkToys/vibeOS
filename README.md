@@ -331,7 +331,7 @@ The plugin persists state to `VIBEOS_HOME/` for cross-session continuity:
 
 Core features work fully offline: model tier classification, static pricing, stress scoring, context budget, VibeBoX fallback, TDD skeletons, flow enforcement, savings ledger, session metrics, reports, footer, dashboard.
 
-Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeBoX with full session history, dynamic per-prompt delegation, cross-session calibration, live pricing fetch, learned subagent routing. Falls back gracefully when unreachable.
+Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeBoX with full session history, dynamic per-prompt delegation, learned subagent routing. Falls back gracefully when unreachable.
 
 ### Live Footer
 

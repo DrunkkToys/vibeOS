@@ -396,14 +396,6 @@ export class VibeOSApiClient {
     return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome })
   }
 
-  async blackboxCalibrate(projectId: string): Promise<unknown> {
-    return this.request("/api/v1/blackbox/calibrate", { project_id: projectId || "global" })
-  }
-
-  async blackboxCalibration(projectId: string): Promise<unknown> {
-    return this.request("/api/v1/blackbox/calibration?project_id=" + (projectId || "global"), null)
-  }
-
   async blackboxControlVector(state: unknown, action: unknown, optimizationMode: string | Record<string, unknown>): Promise<unknown> {
     const decision = typeof optimizationMode === "string"
       ? { optimization_mode: optimizationMode }
@@ -481,10 +473,6 @@ export class VibeOSApiClient {
 
   async patternsClear(sessionId: string): Promise<unknown> {
     return this.request("/api/v1/patterns/clear", { session_id: sessionId })
-  }
-
-  async pricingFetch(openrouterKey: string, force = false): Promise<unknown> {
-    return this.request("/api/v1/pricing/fetch", { openrouter_key: openrouterKey, force })
   }
 
   async pricingLookup(model: string): Promise<unknown> {
