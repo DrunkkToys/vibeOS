@@ -362,3 +362,21 @@ test("diagnose: appears in help", async () => {
   const help = await hooks.tool.trinity.execute({ action: "help" })
   assert.ok(help.includes("diagnose"), "diagnose listed in help")
 })
+
+// Regression: help text described `vibe repair-state` as fixing "fingerprint
+// collisions", but the actual implementation repairs cascade/pipeline/slot
+// config drift (active_pipeline, vector_changed_pipeline, cascade_root, agent
+// wiring) -- nothing about fingerprints. Live-noticed the mismatch while
+// re-verifying `vibe help` against what `repair-state preview` actually does.
+test("help: repair-state description matches what the command actually repairs", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeState()
+
+  const hooks = await freshPlugin()
+
+  const help = await hooks.tool.trinity.execute({ action: "help" })
+  assert.ok(!help.includes("fingerprint collisions"), "help must not claim repair-state fixes fingerprint collisions")
+  assert.ok(help.includes("repair-state"), "repair-state still listed in help")
+})

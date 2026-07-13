@@ -1815,7 +1815,7 @@ export function createTrinityTool(deps) {
           "  vibe patterns clear    Clear learned patterns for this project",
           "",
           "REPAIR:",
-          "  vibe repair-state      Fix fingerprint collisions (preview/apply)",
+          "  vibe repair-state      Fix cascade/slot config drift (preview/apply)",
           "",
           "DECISION ENGINE:",
           "  vibe blackbox on/off   Toggle theWay blackbox decision engine",
