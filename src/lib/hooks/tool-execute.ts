@@ -1452,6 +1452,29 @@ export const onToolExecuteAfter = async (input, output) => {
     }
   }
 
+  // Loop guard: nudge when the same edit/write target has failed repeatedly.
+  // Bash's loop-guard (see _loopGuard.observe above) can't see this -- edit/write
+  // aren't in SOFT_QUOTA and retries often carry different args each time (e.g.
+  // a re-guessed oldString), so an exact-repeat signature match would miss it.
+  // This instead tracks consecutive FAILURES per file, independent of args.
+  if (t === "write" || t === "edit" || t === "multiedit") {
+    const _loopFp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""
+    if (_loopFp) {
+      const _loopKey = `${t}:${_loopFp}`
+      const _editFailed = Boolean(output?.error || output?.isError || output?.status === "error")
+      if (_editFailed) {
+        const verdict = _loopGuard.observeEditFailure(_loopKey)
+        if (verdict.shouldWarn) {
+          const note = `\n\n[loop-guard] This ${t} on ${_loopFp} has failed ${verdict.count}x in a row. Stop retrying with a guessed oldString -- re-read the file fresh with Read and base the next edit on its exact current content.`
+          if (typeof output?.text === "string") output.text += note
+          else if (typeof output?.result === "string") output.result += note
+        }
+      } else {
+        _loopGuard.clearEditFailure(_loopKey)
+      }
+    }
+  }
+
   // Test-reminder: nudge when source code is written/edited.
   if (t === "write" || t === "edit" || t === "multiedit") {
     const fp = input?.args?.filePath || input?.args?.file_path || input?.args?.path || ""

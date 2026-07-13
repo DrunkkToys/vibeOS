@@ -8,6 +8,7 @@ import {
   isInspectionCommand,
   LOOP_WARN_THRESHOLD,
   LOOP_BLOCK_THRESHOLD,
+  EDIT_FAILURE_WARN_THRESHOLD,
 } from "../src/lib/loop-guard.js"
 
 describe("loop-guard: signature normalization", () => {
@@ -105,5 +106,50 @@ describe("loop-guard: escalation (the PR-348 loop)", () => {
     g.observe("ls a"); g.observe("ls b"); g.observe("ls c"); g.observe("ls d")
     const v = g.observe("gh pr view 348")
     assert.equal(v.level, "none")
+  })
+})
+
+// Regression: repeated edit/write FAILURES on the same file burn a full model
+// turn each retry, exactly like a bash poll loop -- but edit/write aren't in
+// SOFT_QUOTA and retries often carry different args each time (a re-guessed
+// oldString), so the exact-repeat bash signature match can't catch it. Live-
+// reproduced: OpenCode Desktop retried a failing `edit` 8+ times in a row
+// before eventually re-reading the file and succeeding.
+describe("loop-guard: edit/write failure tracking", () => {
+  it("does not warn before the threshold is reached", () => {
+    const g = new ToolLoopGuard()
+    let v
+    for (let i = 0; i < EDIT_FAILURE_WARN_THRESHOLD - 1; i++) {
+      v = g.observeEditFailure("edit:/repo/src/foo.ts")
+    }
+    assert.equal(v.shouldWarn, false)
+  })
+
+  it("warns once consecutive failures on the same file reach the threshold", () => {
+    const g = new ToolLoopGuard()
+    let v
+    for (let i = 0; i < EDIT_FAILURE_WARN_THRESHOLD; i++) {
+      v = g.observeEditFailure("edit:/repo/src/foo.ts")
+    }
+    assert.equal(v.shouldWarn, true)
+    assert.equal(v.count, EDIT_FAILURE_WARN_THRESHOLD)
+  })
+
+  it("tracks failure counts independently per file", () => {
+    const g = new ToolLoopGuard()
+    g.observeEditFailure("edit:/repo/src/foo.ts")
+    g.observeEditFailure("edit:/repo/src/foo.ts")
+    const other = g.observeEditFailure("edit:/repo/src/bar.ts")
+    assert.equal(other.count, 1)
+    assert.equal(other.shouldWarn, false)
+  })
+
+  it("clearEditFailure resets the counter after a successful edit", () => {
+    const g = new ToolLoopGuard()
+    g.observeEditFailure("edit:/repo/src/foo.ts")
+    g.observeEditFailure("edit:/repo/src/foo.ts")
+    g.clearEditFailure("edit:/repo/src/foo.ts")
+    const v = g.observeEditFailure("edit:/repo/src/foo.ts")
+    assert.equal(v.count, 1)
   })
 })
