@@ -407,6 +407,40 @@ value, not a broken promise. Left alone, noted only.
   "OpenCode" alone is not resolvable by `request_access`) after every
   `npm run build` deploy; an already-running session keeps the old in-memory
   plugin code.
+- **Pivot capture live-verified**: confirmed working via a real forward-pivot
+  + pivot-back sequence in OpenCode Desktop. A quick 3-message test didn't
+  show an immediate snapshot for the newest topic switch -- traced to
+  `chat-transform.ts:1631-1634`, which deliberately gates pivot
+  detection/injection to 1-in-5 turns or a sub_regime change (cost control,
+  not a bug). Confirmed via direct inspection of
+  `$VIBEOS_HOME/pivot-cache/<session>/.vibeos-pivot-cache.json` that the
+  earlier real pivot (todo -> JSON-parser topic switch) WAS captured
+  correctly (PR #438's fix already covers this; no new work needed).
+- **Haiku-audited 3 more CLAUDE.md claims (items 8, 9, 20)**, findings
+  verified directly:
+  - Item 8 stress mitigation: fully wired (`scoreStress`, footer gauge,
+    system-prompt inoculation, stress>1.5 tier upgrade all present and
+    reachable). One doc-only inaccuracy: CLAUDE.md says stress "upgrades Task
+    to MEDIUM"; the actual code (`cascade.ts` `QUALITY_STRESS_THRESHOLD`)
+    upgrades all the way to `quality`/brain, which is stricter than claimed,
+    not a defect -- not fixing, since the real behavior is safer than
+    documented.
+  - Item 9 context7 directive injection: fully wired and confirmed to vary
+    with `context7_urgency` (`chat-transform.ts` `context7Directive()`).
+  - Item 20 blackbox sub-regimes: confirmed real gap.
+    `ResolutionTracker.SUB_REGIMES` (resolution-tracker.ts:7) lists only 11 of
+    the 13 documented regimes (missing FORENSIC, AUDIT), and the tracker's own
+    inline classify logic (lines 384-407) can only ever assign 7 of the 13:
+    INIT, LOOPING, CLOSED, DIVERGENT, EXPLORING, REFINING, CONVERGING.
+    IMPLEMENTING/RESEARCH/REVIEWING/DESIGNING/FORENSIC/AUDIT are only ever
+    produced by the remote API's classifier, never by the local fallback
+    tracker. Per CLAUDE.md, the API is authoritative and the local tracker is
+    the fallback ONLY when the API is unreachable/slow -- so this gap is real
+    but narrow: it only surfaces in degraded/offline mode, and fixing it
+    requires designing 6 new heuristic classification branches with no
+    existing spec for what distinguishes e.g. FORENSIC from AUDIT locally.
+    Logging as a known gap rather than guessing at heuristics; same
+    treatment as the already-logged `axis`/`level` enum mismatch.
 
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
