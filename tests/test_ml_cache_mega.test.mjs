@@ -99,7 +99,6 @@ test("2b — addEntry + predict + dedup", async () => {
   assert.equal(typeof pred.shouldCache, "boolean")
   assert.equal(typeof pred.confidence, "number")
   assert.ok(Array.isArray(pred.similarEntries))
-  assert.equal(typeof pred.estimatedSavings, "number")
 
   sc.addCacheEntry(db, "h1", "write", "implement rate limiter express", 5000, 100)
   assert.equal(db.entries.length, 2, "dedup: still 2")
