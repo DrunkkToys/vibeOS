@@ -63,7 +63,7 @@ At the core of vibeOS is a real-time decision engine that classifies every user 
 - **LOOPING** -- You are stuck or the session needs intervention. Speed mode and escalating intervention levels activate to break cycles.
 - **FORENSIC / AUDIT** -- You are doing deep investigation or security-style review. Brain tier, strict enforcement, detailed verification.
 
-For VibeMaX, feature extraction currently yields 14 numeric features per turn: 8 normalized metrics plus 6 raw/boolean indicators. Four escalating intervention levels prevent infinite loops. PIVOT/SWITCH detection recognizes context changes and injects scope-confirmation directives.
+For VibeMaX, feature extraction currently yields 11 numeric features per turn: length, word count, sentence count, average word length, question ratio, code blocks, urgency, repetition, sentiment, complexity, and instruction density. Four escalating intervention levels prevent infinite loops. PIVOT/SWITCH detection recognizes context changes and injects scope-confirmation directives.
 
 When the VibeBoX is disabled, a lightweight classifyTurnSimple fallback distinguishes Q&A from implementation intent using regex patterns.
 
@@ -212,7 +212,7 @@ Stress > 1.5 escalates any regime to quality mode regardless of the above mappin
 | Flow enforcer | Pattern-rule checks on write/edit. Extracts TODO/FIXME into append-only queue. |
 | TDD enforcer | Auto-creates test skeletons for changed source. Strict mode fails TODO tests. |
 | Pattern learner | Tracks recurring struggle/routine patterns per project, cross-project too |
-| VibeBoX | 14 sub-regimes, 14 features per turn, loop intervention, PIVOT/SWITCH detection |
+| VibeBoX | 13 sub-regimes, 11 features per turn, loop intervention, PIVOT/SWITCH detection |
 | Stress-aware routing | Real-time stress scoring, auto-escalation, system prompt inoculation |
 | Cache savings | Separate cache_savings_usd tracking for scratchpad cache hits |
 | Report tools | report-save, report-list, report-read, research-audit |

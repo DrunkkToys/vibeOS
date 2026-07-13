@@ -475,14 +475,6 @@ export class VibeOSApiClient {
     return this.request("/api/v1/patterns/clear", { session_id: sessionId })
   }
 
-  async pricingLookup(model: string): Promise<unknown> {
-    return this.request("/api/v1/pricing/lookup", { model })
-  }
-
-  async pricingStatic(): Promise<unknown> {
-    return this.request("/api/v1/pricing/static", null)
-  }
-
   async webSearch(input: {
     query: string
     provider?: string
