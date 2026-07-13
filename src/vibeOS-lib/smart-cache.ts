@@ -48,7 +48,6 @@ export interface CachePrediction {
   confidence: number
   reason: string
   similarEntries: SimilarityResult[]
-  estimatedSavings: number
 }
 
 function cacheEntryValue(entry: CacheEntry, stats?: CacheStats): number {
@@ -275,7 +274,6 @@ export function predictCacheHit(
       confidence: toolHitRate,
       reason: `no similar entries found; tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
       similarEntries: [],
-      estimatedSavings: 0,
     }
   }
 
@@ -288,7 +286,6 @@ export function predictCacheHit(
       confidence: best.score,
       reason: `high similarity (${(best.score * 100).toFixed(0)}%) with previous cache entry`,
       similarEntries: similarEntries.slice(0, 3),
-      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.10 / 1_000_000 * 1000) / 1000,
     }
   }
 
@@ -299,7 +296,6 @@ export function predictCacheHit(
       confidence: best.score,
       reason: `moderate similarity (${(best.score * 100).toFixed(0)}%) with previous entry`,
       similarEntries: similarEntries.slice(0, 2),
-      estimatedSavings: Math.round(best.entry.sizeBytes / 4 * 0.10 / 1_000_000 * 1000) / 1000 * 0.5,
     }
   }
 
@@ -309,7 +305,6 @@ export function predictCacheHit(
     confidence: Math.max(0.2, toolHitRate),
     reason: `low similarity, relying on tool hit rate: ${(toolHitRate * 100).toFixed(0)}%`,
     similarEntries: [],
-    estimatedSavings: 0,
   }
 }
 

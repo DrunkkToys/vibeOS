@@ -50,7 +50,7 @@ declare module "./vibeOS-lib/smart-cache.js" {
     ageSec: number,
   ): void
   export function recordCacheStats(db: unknown, tool: string, hit: boolean, bytesSaved: number): void
-  export function predictCacheHit(db: unknown, tool: string, prompt: string): { shouldWarm: boolean; confidence: number; reason: string }
+  export function predictCacheHit(db: unknown, tool: string, prompt: string): { shouldCache: boolean; shouldWarm: boolean; confidence: number; reason: string; similarEntries: Array<{ hash: string; score: number; entry: unknown; index?: number }> }
   export function evictStaleEntries(db: unknown, maxAgeSec: number): void
   export function serializeCacheDb(db: unknown): unknown
   export function deserializeCacheDb(raw: unknown): unknown

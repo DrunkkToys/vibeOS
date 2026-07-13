@@ -43,7 +43,7 @@ const TEST_SKELETONS = {
     return content
   },
   js: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
-    const importPath = `../${name}`
+    const importPath = `../${name}.js`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     if (framework === "node-test") {
       content += `import { test, describe } from 'node:test';\n`
@@ -110,7 +110,7 @@ const TEST_SKELETONS = {
     return content
   },
   mjs: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
-    const importPath = `../${name}`
+    const importPath = `../${name}.js`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     if (framework === "node-test") {
       content += `import { test, describe } from 'node:test';\n`
@@ -179,7 +179,7 @@ const TEST_SKELETONS = {
     return content
   },
   ts: (name, exports = [], depth = "full", strict = true, quality = true, sourceContent = "", framework = null) => {
-    const importPath = `../${name}`
+    const importPath = `../${name}.js`
     let content = `// [vibeOS-enforced] Skeleton test — replace with real assertions\n`
     if (framework === "node-test") {
       content += `import { test, describe, it } from 'node:test';\n`
