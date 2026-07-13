@@ -562,6 +562,37 @@ value, not a broken promise. Left alone, noted only.
   control vector), not a bug -- the status line's "(extract)" suffix only appears
   when both `flow_enabled` and `flow_enforce` are true, and it was accurate.
 
+## Round 11 (PR #462) -- `vibe lock on` fix is real but incomplete; found the deeper cause
+
+- **`vibe lock on` locked the wrong model** (`active_slot`'s configured tier model,
+  read from a stale tiers snapshot) instead of what's actually running. Fixed to
+  prefer `deps.currentModel` -- merged as PR #462, tested, a genuine improvement over
+  the old stale-`active_slot`+stale-cache bug.
+- **Live-reverify after rebuild/restart showed the fix is still incomplete**: with
+  `brain` shown "(active)" in `vibe status` while the footer displayed
+  `cheap | Opencode | Big Pickle` as the real running model, `vibe lock on` locked
+  `opencode-go/mimo-v2.5` (brain) -- not the footer's `big-pickle`. Root cause:
+  `deps.currentModel` (`state.ts`) is the STATIC primary-model config value, updated
+  only by `_refreshModel()` reading `opencode.json`'s configured model -- it is NOT
+  the true per-turn cascade-selected model. Per the documented Model Switch Contract,
+  the actual per-turn model is applied by the `chat.params` middleware / subagent
+  delegation and deliberately never written back to any watched file or to
+  `currentModel`. The footer instead resolves the real per-turn model via
+  `getLatestRouteEvent` (turn-ledger) + `resolveActiveCascadeTier` +
+  `resolveCurrentExecution` -- a materially more complex, multi-signal chain
+  (live/disk blackbox state, cascade depth recency, displayModel/liveModel fallback
+  order) that `vibe lock` does not have access to.
+- **This is the same architectural tension as the already-documented, deliberately-
+  not-re-attempted cascade-icon/model mismatch** (see Round 8 notes: "a
+  corroboration-override attempt broke a legit delegation test... do not re-attempt
+  without a new disambiguation signal"). Properly fixing `lock` requires wiring the
+  same `getLatestRouteEvent` corroboration into trinity-tool.ts's lock handler --
+  identified as the correct disambiguation signal this time, but NOT attempted here:
+  fully replicating footer.ts's cascade-resolution chain is real scope, and rushing
+  it late in a long session is exactly the kind of change that caused the earlier
+  regression. Logged as a scoped, well-understood follow-up for its own branch/PR,
+  not fixed in PR #462.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
