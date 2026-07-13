@@ -93,24 +93,30 @@ const REALITY_CHECK_RULE_IDS = new Set([
   "verify-state-on-disk",
   "postmortem-trigger",
 ])
-const RULES_PATH_CANDIDATES = [
-  join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
-  join(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
-  join(process.cwd(), "dist", "assets", "flow-rules.json"),
-  join(__dirname, "flow-rules.json"),
-]
+function getRulesPathCandidates(): string[] {
+  return [
+    join(process.cwd(), "src", "vibeOS-lib", "flow-rules.json"),
+    join(process.cwd(), "dist-ts", "vibeOS-lib", "flow-rules.json"),
+    join(process.cwd(), "dist", "assets", "flow-rules.json"),
+    join(__dirname, "flow-rules.json"),
+    join(__dirname, "assets", "flow-rules.json"),
+  ]
+}
 
 export function resolveRulesPath(): string {
   if (process.env.VIBEOS_FLOW_RULES_PATH && existsSync(process.env.VIBEOS_FLOW_RULES_PATH)) {
     return process.env.VIBEOS_FLOW_RULES_PATH
   }
-  for (const candidate of RULES_PATH_CANDIDATES) {
+  const candidates = getRulesPathCandidates()
+  for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate
   }
   const override = process.env.VIBEOS_FLOW_RULES_PATH
   if (override) return override
-  return RULES_PATH_CANDIDATES[0]
+  return candidates[0]
 }
+
+export const __MODULE_DIRNAME = __dirname
 
 const GUARD_AGENTS_TEMPLATE = [
   "# AGENTS.md",
@@ -404,7 +410,9 @@ function loadRules(): FlowRule[] {
     _realityCheckCacheKey = cacheKey
     _cachedRules = mergeLearnedRules(_cachedRules)
     return _cachedRules
-  } catch {
+  } catch (err) {
+    console.error(`[flow-enforcer] Failed to load rules from ${rulesPath}: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(`[flow-enforcer] Tried candidates: ${getRulesPathCandidates().join(", ")}`)
     _cachedRules = []
     return _cachedRules
   }
