@@ -224,7 +224,48 @@ export function loadTurnTruth(sessionId = getCurrentSessionId(), limit = 200): T
   }
 }
 
+// turn.route event's own _ts must be within this window of "now" to count as
+// a still-live delegation. See getLatestRouteEvent for why merged
+// TurnTruth.updatedAt is unsafe for this purpose.
+export const CASCADE_ROUTE_RECENCY_MS = 30_000
+
 export function getLatestTurnTruth(sessionId = getCurrentSessionId()): TurnTruth | null {
   const turns = loadTurnTruth(sessionId, 400)
   return turns.length > 0 ? turns[turns.length - 1] : null
+}
+
+export interface RouteEventTruth {
+  ts: string
+  turnId: string
+  executedRoute: TurnRouteSnapshot | null
+}
+
+// A turn's merged TurnTruth.updatedAt gets bumped forward by every later
+// event that reuses its turnId (e.g. repeated turn.finalize writes across
+// many unrelated conversation turns, since turnId is keyed off the last
+// Task-dispatch decision, not the current conversational turn). That makes
+// a 45-minute-stale brain-tier route look "just updated." This reads the RAW
+// turn.route event's own timestamp -- the actual moment a delegation was
+// dispatched -- so callers can require genuine recency before trusting an
+// elevated cascade depth.
+export function getLatestRouteEvent(sessionId = getCurrentSessionId(), limit = 50): RouteEventTruth | null {
+  const sid = String(sessionId || "").trim()
+  if (!sid) return null
+  try {
+    const file = ledgerFile()
+    if (!existsSync(file)) return null
+    const lines = readFileSync(file, "utf-8").trim().split("\n").filter(Boolean)
+    for (let i = lines.length - 1, seen = 0; i >= 0 && seen < limit; i--) {
+      let event: TurnLedgerEvent | null
+      try { event = JSON.parse(lines[i]) as TurnLedgerEvent } catch { continue }
+      if (!event || event.sessionId !== sid) continue
+      seen++
+      if (event.kind === "turn.route") {
+        return { ts: event._ts, turnId: event.turnId, executedRoute: normalizeRoute(event.executedRoute) }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
 }

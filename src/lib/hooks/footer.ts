@@ -18,7 +18,7 @@ import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { evaluateClaimEvidence, getSessionHealthSnapshot } from "../session-health.js"
-import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
+import { getLatestTurnTruth, getLatestRouteEvent, recordTurnFinalize, CASCADE_ROUTE_RECENCY_MS } from "../turn-ledger.js"
 import { extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 
@@ -1032,9 +1032,30 @@ async function resolveFooterDisplayState(
     classify,
   })
   const ultraResolvedTier = ultraCascadeResolution.tier
-  const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
-    ? latestExecutedRoute.routePath.length
-    : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
+  // ultraCascadeResolution.depth and latestFinalized.cascadeDepth are both
+  // derived from (or repeatedly re-persist) route_path/cascade_depth, which
+  // is regime+mode-planned and can stay pinned at a deep tier long after a
+  // delegation stopped -- confirmed live: a session's turn.finalize events
+  // kept recording cascadeDepth:3 for 45 minutes across 28 turns after the
+  // one real Task dispatch, because footer.ts's own displayModel logic
+  // reused the same stale turnId. Only a turn.route event's own timestamp
+  // (getLatestRouteEvent, not the merged/re-touched TurnTruth.updatedAt)
+  // proves a delegation actually dispatched recently; otherwise fall back to
+  // classifying the model actually shown, not the route-path-derived tier.
+  const ultraCascadeDepth = (() => {
+    try {
+      const recentRoute = getLatestRouteEvent(sid, 10)
+      if (recentRoute?.executedRoute?.cascadeDepth != null) {
+        const routeTs = Date.parse(recentRoute.ts)
+        const ageMs = Date.now() - routeTs
+        if (Number.isFinite(routeTs) && ageMs >= 0 && ageMs <= CASCADE_ROUTE_RECENCY_MS) {
+          return recentRoute.executedRoute.cascadeDepth
+        }
+      }
+    } catch {}
+    const liveModelTier = String(classify(displayModel || liveModel || currentModel || "") || "").toLowerCase()
+    return liveModelTier === "high" ? 3 : liveModelTier === "mid" ? 2 : 0
+  })()
   const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
     : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
     : null)

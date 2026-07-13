@@ -55,7 +55,7 @@ import { computeDifficulty, cascadeDecide, hashQuery } from "../../vibeOS-lib/ml
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
-import { buildTurnId, recordTurnRoute } from "../turn-ledger.js"
+import { buildTurnId, getLatestRouteEvent, recordTurnRoute, CASCADE_ROUTE_RECENCY_MS } from "../turn-ledger.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 import { runtimeTierCoherence } from "../runtime-config.js"
 import { ToolLoopGuard } from "../loop-guard.js"
@@ -302,6 +302,31 @@ function _modelForSlot(slot: string | null, trinityCheap: string | null, trinity
 export function taskSubagentTypeForSlot(slot: string | null): string | null {
   if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
   return null
+}
+
+// rawCascadeDepth reflects the last-recorded ROUTE PLAN (blackbox control
+// vector / route_path), which is regime+mode driven and can stay pinned at a
+// deep tier (e.g. brain) long after the orchestrator stopped delegating, or
+// even when a delegation was only ever planned and never dispatched. The
+// only trustworthy signal that a cascade actually executed is a turn.route
+// event recorded moments ago (a real Task dispatch, gated in this file's
+// onToolExecuteBefore). If no such recent event exists, fall back to
+// liveModelDepth -- classification of the model actually shown -- not the
+// route-path-derived tier, which is the same signal that's polluted.
+export function clampCascadeDepthToTurnTruth(
+  rawCascadeDepth: number,
+  liveModelDepth: number,
+  recentRoute: { ts: string; executedRoute: { cascadeDepth?: number | null } | null } | null,
+  nowMs: number = Date.now(),
+  recencyWindowMs: number = CASCADE_ROUTE_RECENCY_MS,
+): number {
+  if (recentRoute?.executedRoute?.cascadeDepth != null) {
+    const routeTs = Date.parse(recentRoute.ts)
+    if (Number.isFinite(routeTs) && (nowMs - routeTs) <= recencyWindowMs && (nowMs - routeTs) >= 0) {
+      return Math.min(rawCascadeDepth, recentRoute.executedRoute.cascadeDepth)
+    }
+  }
+  return Math.min(rawCascadeDepth, liveModelDepth)
 }
 
 function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
@@ -1194,7 +1219,7 @@ export const onToolExecuteAfter = async (input, output) => {
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
       const cascadeState = loadBlackboxState()
       const cascadeSession = cascadeState?.sessions?.[currentSid] || {}
-      const cascadeDepth = Number(cascadeSession?.cascade_depth ?? cascadeState?.control_vector?.cascade_depth ?? 0) || 0
+      const rawCascadeDepth = Number(cascadeSession?.cascade_depth ?? cascadeState?.control_vector?.cascade_depth ?? 0) || 0
       // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the
       // header stays coherent (cheap entry \u2192 "\u26A1 cheap | Big Pickle"; escalated
       // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
@@ -1217,6 +1242,20 @@ export const onToolExecuteAfter = async (input, output) => {
       const activeSlot = displayMode === "vibeultrax"
         ? _ultraSlot()
         : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
+      // liveModelDepth classifies the model actually being shown, independent
+      // of route_path/cascade_depth (which is regime+mode-planned and can
+      // stay pinned at a deep tier long after delegation stops -- the same
+      // signal activeSlot/_ultraSlot reads for its route-path branch, so it
+      // must NOT be reused here as the fallback).
+      const _liveModelTier = classify(displayModel || resolvedModel || currentModel || "")
+      const liveModelDepth = _liveModelTier === "high" ? 3 : _liveModelTier === "mid" ? 2 : 0
+      const cascadeDepth = (() => {
+        try {
+          return clampCascadeDepthToTurnTruth(rawCascadeDepth, liveModelDepth, getLatestRouteEvent(currentSid, 10))
+        } catch {
+          return Math.min(rawCascadeDepth, liveModelDepth)
+        }
+      })()
       const vibeBrand = resolveBrand(displayMode, activeSlot)
       const sessionSlot = loadSessionSlot(currentSid)
       const flashIcon = isApiConnected() ? " \u26A1" : ""
