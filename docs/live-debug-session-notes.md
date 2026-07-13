@@ -357,6 +357,94 @@ value, not a broken promise. Left alone, noted only.
   autocomplete/placeholder text, not a vibeOS defect -- noted only so a future pass
   doesn't waste time chasing it as a plugin bug.
 
+## Round 8 — cascade icon (real fix), scratchpad-cache footer pollution, todo cross-project leak
+
+- **Cascade icon depth vs model mismatch**: first attempt trusted
+  `turn.finalize`'s `cascadeDepth` as ground truth -- wrong, because
+  `recordTurnFinalize`'s `turnId` is `state.latestTurnTruth.turnId` (the LAST
+  known turnId, not tied to the current conversational turn), so a Task
+  dispatch to brain at 08:15:24 had its `turnId` reused by 28 subsequent
+  `turn.finalize` writes over 45 minutes, all still recording `cascadeDepth: 3`.
+  Real fix: added `getLatestRouteEvent()` (turn-ledger.ts) reading the raw
+  `turn.route` event's own `_ts` directly, and
+  `clampCascadeDepthToTurnTruth()` (tool-execute.ts) which only trusts a route
+  event's `cascadeDepth` if it's within `CASCADE_ROUTE_RECENCY_MS` (30s) of
+  now; otherwise falls back to live-model-tier classification (not the
+  route-path-derived tier, which was the actual pollutant). Also applied in
+  `footer.ts`'s `ultraCascadeDepth` computation. PR #450, merged, live-reverified
+  after restart: fresh session shows `cascadeDepth: 0` for a cheap-tier turn,
+  no stray cascade icon.
+- **Scratchpad cache-hit defeated by footer noise (this round's most valuable
+  find)**: `compressToolOutputs` (chat-transform.ts) content-hashes tool
+  output including the live footer line vibeOS itself prepends
+  (`_prependFooterAlert`), which changes every turn (savings figures, XP,
+  regime). So two calls with byte-identical *real* output never hashed the
+  same, and the scratchpad cache-hit path (`getScratchpadHit` in
+  tool-execute.ts) could never fire in practice. Fixed by hashing
+  `_stripLeadingFooterForHash(raw)` instead of raw (stored content unchanged
+  -- full raw output including footer is still what's written to
+  `scratch/by-hash/<hash>.txt`). PR #451, merged.
+- **`vibe todo` global cross-project leak**: `todos.json` had no project
+  scoping at all -- a real user's file had 1,609 pending entries, most from
+  unrelated repos (VibeBrainUltra), and `vibe todo` reported "1,609 pending"
+  regardless of which project you were in. Fixed: `TodoEntry.projectFingerprint`
+  field, `upsertTodo()` stamps it from `currentProjectFingerprint`, new
+  `loadTodosForCurrentProject()` filters by it (falls back to the full list
+  only when no fingerprint is set), trinity-tool.ts's `todo` handler uses the
+  scoped loader. Legacy unscoped entries from other projects correctly
+  excluded once a fingerprint is set. PR #452, merged, live-reverified after
+  restart: fresh session's `vibe todo` now reports "No pending todos" instead
+  of leaking unrelated-project entries.
+- Logged, not fixed (no live impact found): `axis` action's `level` param
+  JSON schema enum (`["full","brief","off","on"]`) doesn't match the actual
+  axis values needed (`strict|relaxed|required|optional` etc.) -- OpenCode
+  doesn't strictly enforce the declared enum, so it worked live anyway.
+- Non-bugs ruled out this round: a "△12 verify" footer glyph (font rendering
+  of `⚠` U+26A0, raw stored string was correct); a stale `▸▸▸` cascade icon in
+  an already-open pre-restart session (confirmed stale in-memory plugin code,
+  not a new bug -- OpenCode Desktop does not hot-reload the plugin, confirmed
+  again this round); a "need" prefix in one message bubble (computer-use
+  typing artifact).
+- **Operational note reconfirmed**: OpenCode Desktop must be fully quit
+  (`osascript -e 'tell application "OpenCode" to quit'`) and reopened
+  (`open_application` with bundle id `ai.opencode.desktop` -- display name
+  "OpenCode" alone is not resolvable by `request_access`) after every
+  `npm run build` deploy; an already-running session keeps the old in-memory
+  plugin code.
+- **Pivot capture live-verified**: confirmed working via a real forward-pivot
+  + pivot-back sequence in OpenCode Desktop. A quick 3-message test didn't
+  show an immediate snapshot for the newest topic switch -- traced to
+  `chat-transform.ts:1631-1634`, which deliberately gates pivot
+  detection/injection to 1-in-5 turns or a sub_regime change (cost control,
+  not a bug). Confirmed via direct inspection of
+  `$VIBEOS_HOME/pivot-cache/<session>/.vibeos-pivot-cache.json` that the
+  earlier real pivot (todo -> JSON-parser topic switch) WAS captured
+  correctly (PR #438's fix already covers this; no new work needed).
+- **Haiku-audited 3 more CLAUDE.md claims (items 8, 9, 20)**, findings
+  verified directly:
+  - Item 8 stress mitigation: fully wired (`scoreStress`, footer gauge,
+    system-prompt inoculation, stress>1.5 tier upgrade all present and
+    reachable). One doc-only inaccuracy: CLAUDE.md says stress "upgrades Task
+    to MEDIUM"; the actual code (`cascade.ts` `QUALITY_STRESS_THRESHOLD`)
+    upgrades all the way to `quality`/brain, which is stricter than claimed,
+    not a defect -- not fixing, since the real behavior is safer than
+    documented.
+  - Item 9 context7 directive injection: fully wired and confirmed to vary
+    with `context7_urgency` (`chat-transform.ts` `context7Directive()`).
+  - Item 20 blackbox sub-regimes: confirmed real gap.
+    `ResolutionTracker.SUB_REGIMES` (resolution-tracker.ts:7) lists only 11 of
+    the 13 documented regimes (missing FORENSIC, AUDIT), and the tracker's own
+    inline classify logic (lines 384-407) can only ever assign 7 of the 13:
+    INIT, LOOPING, CLOSED, DIVERGENT, EXPLORING, REFINING, CONVERGING.
+    IMPLEMENTING/RESEARCH/REVIEWING/DESIGNING/FORENSIC/AUDIT are only ever
+    produced by the remote API's classifier, never by the local fallback
+    tracker. Per CLAUDE.md, the API is authoritative and the local tracker is
+    the fallback ONLY when the API is unreachable/slow -- so this gap is real
+    but narrow: it only surfaces in degraded/offline mode, and fixing it
+    requires designing 6 new heuristic classification branches with no
+    existing spec for what distinguishes e.g. FORENSIC from AUDIT locally.
+    Logging as a known gap rather than guessing at heuristics; same
+    treatment as the already-logged `axis`/`level` enum mismatch.
 ## Round 9 (PR #454) -- dashboard todo/session leaks were bigger than #452 fixed, plus UX simplification
 
 - **Live-driving `vibe dashboard` found the todo leak was NOT actually closed by #452.**
