@@ -593,6 +593,56 @@ value, not a broken promise. Left alone, noted only.
   regression. Logged as a scoped, well-understood follow-up for its own branch/PR,
   not fixed in PR #462.
 
+## Round 12 (PRs #465, #466) -- release version-drift sync (again), shell TDD quality assertions, delegation warn-cap infra bug
+
+- **v0.26.4 release + version-drift sync** (PR #464): identical recurring bug as
+  #456/#457 -- release workflow published v0.26.4 to npm/GitHub but its version-bump
+  commit landed on an orphaned `release/v0.26.4` branch, leaving master's
+  `package.json`/`CHANGELOG.md` stuck at v0.26.3. Same scoped-diff-sync fix applied.
+  Still not fixed at the workflow level (needs explicit user sign-off per CLAUDE.md).
+- **Shell TDD skeletons silently got bare TODO comments, not real quality
+  assertions** (PR #465). `buildQualityAssertionsForFunc()` had real-assertion cases
+  for js/ts/py/rs/rb/java/kt/go but none for `sh` -- shell source files (a
+  recognized TDD target per `SOURCE_EXT_RE`) fell into the `default` branch and got
+  placeholder `# TODO: ...` text even with `vibe tdd quality on`. Same bug class as
+  the rust/ruby/java/kotlin/go fix in #437, just missed for shell. Fixed with real
+  output/exit-code assertions matching the existing per-language pattern.
+- **Delegation warn-cap: direct-edit "cheap lane" nudge was never capped, unlike
+  every other warning** (PR #466). CLAUDE.md item 13 claims per-session warning caps
+  for all delegation warnings. The lowCredit nudge correctly checked
+  `_warnCounts`/`MAX_WARNS_PER_TOOL` (5) before setting the UI note; the direct-edit
+  "cheap lane" nudge -- the one users see most often, firing whenever the remote
+  delegate-check API is offline/fallback or returns a low-savings verdict -- set
+  `pendingUiNote` unconditionally on every call. A user editing 7 files in one
+  session with brain-tier enforcement on saw 7 identical warnings instead of 5.
+  Fixed by mirroring the exact lowCredit cap pattern.
+- **Found while verifying #466's own test: a real, separate test-harness bug that
+  was silently defeating the entire warn-cap feature under CI.**
+  `_resetWarnCountsForTest()` was called unconditionally inside
+  `onToolExecuteBefore`'s hot path, gated only on `VIBEOS_TEST_CONTEXT=1` --
+  `run-test-suite.mjs` sets this on every CI invocation. That means `_warnCounts`
+  was wiped before *every single tool call* in CI, so no test (old or new) could
+  ever observe more than one accumulated warning. This had been latent since the PR
+  that introduced it (commit 6e890bd4, "reset warn counts on each test invocation")
+  because no prior test actually asserted on cap behavior across repeated calls in
+  one process -- the new #466 test was the first to do so, and it caught this by
+  failing in CI while passing when run as an isolated single test file (different
+  env). Root-caused via a temporary debug print showing `_warnCounts` size resetting
+  to 0 before every call; confirmed by bisecting env vars (`VIBEOS_TEST_CONTEXT=1`
+  alone reproduces it, `VIBEOS_FAST_CI=1` alone does not). Fixed by moving the reset
+  to fire once per fresh `DelegationEnforcer()` instantiation -- the real
+  test-isolation boundary it was meant to protect (module state shared across test
+  files reusing Node's module cache) -- instead of once per tool call. Verified with
+  a full local `node scripts/run-test-suite.mjs ci` run (the exact CI invocation):
+  1719 pass, 0 fail.
+- Haiku-subagent audits (2 rounds this session) surfaced several already-known items
+  (smart-cache dead field, `vibe lock` partial fix, JSONL rotation edge case -- not
+  yet acted on, low severity) and one false positive: LOOPING regime intentionally
+  escalates to "quality"/brain mode per explicit test assertions in
+  `cascade_real_proof.test.mjs` (tighten rigor to break a stuck loop) -- CLAUDE.md's
+  own documented regime table calling for LOOPING -> speed/medium is the thing
+  that's stale, not the code.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
