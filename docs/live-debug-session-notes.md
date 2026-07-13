@@ -244,6 +244,34 @@ value, not a broken promise. Left alone, noted only.
 - **Stress mitigation pipeline, Context7 injection**: both independently confirmed
   fully wired and live (haiku audit + spot-checked), no action needed.
 
+## Round 6: dead smart-cache field + dead API-client methods (PRs #443, #444)
+
+- **`estimatedSavings` field on `CachePrediction` (`smart-cache.ts`)** — computed in
+  all 4 `predictCacheHit()` return paths but never consumed by its only call site
+  (`tool-execute.ts` ~663-719, which only reads `.shouldWarm`/`.confidence`/
+  `.similarEntries`/`.reason`). Removed the field from the interface, all 4 return
+  paths, and `local-modules.d.ts` (which was also separately missing
+  `shouldCache`/`similarEntries` from its type declaration — a bonus pre-existing
+  drift bug caught while touching the file). Investigated and initially edited by
+  OpenCode Desktop live (dogfooding); reviewed the diff before accepting, found it
+  correct. PR #443's CI caught 2 pre-existing tests (`test_ml_cache_mega.test.mjs`,
+  `test_smart_cache_regression.test.mjs`) that asserted `typeof
+  pred.estimatedSavings === "number"` as part of a structure check — updated both to
+  drop the now-invalid assertion.
+- **Dead `pricingFetch`/`blackboxCalibrate`/`blackboxCalibration` API client methods**
+  (PR #444) — all three defined in `src/lib/api-client.ts` with zero callers anywhere
+  in `src/` or `tests/`. Delegated the judgment call to OpenCode Desktop live (told it
+  to STOP and report a recommendation before editing, given it had applied an edit
+  without waiting once before on the smart-cache task — this time it correctly
+  complied). Its recommendation: remove all three, update CLAUDE.md/README.md claims,
+  leave the remote API server endpoints untouched (they may still be wired up
+  server-side or reactivated later; only the dead client wrappers are gone). Verified
+  the diff, typecheck, and zero remaining references before merging.
+- **Follow-up spotted, not yet fixed**: `pricingLookup()` in `api-client.ts` is ALSO
+  dead code (zero callers in `src/` or `tests/`) — same class of bug as the three just
+  removed, but wasn't in the original approved scope so it was deliberately left alone
+  rather than scope-creeping the PR. Flagged for a follow-up pass.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
