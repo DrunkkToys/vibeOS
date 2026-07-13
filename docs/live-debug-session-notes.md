@@ -306,6 +306,30 @@ value, not a broken promise. Left alone, noted only.
   any trinity action this way: verify which action actually got called, don't trust
   the summary text alone.
 
+- **Scratchpad cache-hit feature silently defeated by footer noise** (PR #451, the
+  session's most valuable find so far) — `tool-execute.ts`'s `onToolExecuteAfter`
+  prepends a live footer alert (savings/regime/XP/connectivity icon) onto virtually
+  every non-task tool output, and `chat-transform.ts`'s `compressToolOutputs()` hashed
+  that raw, footer-and-all string for its content-addressed scratchpad cache. Since
+  the footer changes turn to turn, two calls reading the identical unchanged file
+  almost never hashed the same, so cache-hit detection almost never fired session-wide
+  (confirmed: `delegation-state.json` showed 0 `cache_hits` for the whole session
+  despite many repeated reads; lifetime data showed only 42 hits ever recorded across
+  33 historical sessions — the feature "works" occasionally by luck when the footer
+  happens to be byte-identical between two calls, not reliably). Fixed by stripping
+  the leading footer line before hashing (same regex as `tool-execute.ts`'s own
+  `_stripLeadingFooter`, duplicated rather than imported to avoid a new
+  `footer.ts`/`chat-transform.ts`/`tool-execute.ts` import cycle). Found by literally
+  reading the same file twice live in OpenCode Desktop and diffing the two resulting
+  `scratch/by-hash/*.txt` files byte-for-byte.
+- **Minor, lower-priority schema mismatch (not fixed, just logged)**: `vibe axis`'s
+  own error message advertises values like `strict|relaxed|required|optional`, but
+  the `level` parameter's JSON schema enum only declares
+  `["full","brief","off","on"]`. Tested live: `vibe axis tdd level="strict"` worked
+  anyway (OpenCode doesn't appear to strictly enforce the enum), so no live user
+  impact found, but the schema declaration doesn't match the documented values. Worth
+  a follow-up pass to widen the enum or use a separate untyped field for axis values.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
