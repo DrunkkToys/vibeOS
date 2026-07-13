@@ -885,8 +885,22 @@ function oneShot(key: string): boolean {
   return false
 }
 
+// tool-execute.ts's onToolExecuteAfter prepends a live footer alert line
+// (savings, regime, XP, connectivity icon -- all of which change turn to
+// turn) onto the raw output of virtually every non-task tool call before it
+// ever reaches here. Hashing that raw, footer-and-all string means two
+// otherwise-identical tool calls (e.g. reading the same unchanged file
+// twice) almost never produce the same content hash, defeating cache-hit
+// detection for the entire session. Strip it before hashing -- matches
+// tool-execute.ts's own _stripLeadingFooter regex (duplicated here rather
+// than imported, to avoid a footer.ts/chat-transform.ts/tool-execute.ts
+// import cycle in an area with a history of subtle breakage).
+function _stripLeadingFooterForHash(s: string): string {
+  return s.replace(/^(?:— [^\n]*—\n\n)+/, "")
+}
+
 // -- Context compression --------------------------------------------
-function compressToolOutputs(messages: unknown[]): number {
+export function compressToolOutputs(messages: unknown[]): number {
   let compressedBytes = 0
   const hotStart = Math.max(0, messages.length - KEEP_HOT)
 
@@ -905,8 +919,9 @@ function compressToolOutputs(messages: unknown[]): number {
       if (!raw || typeof raw !== "string" || raw.length < COMPRESS_THRESHOLD) continue
       if (raw.includes(COMPRESS_MARKER)) continue
 
+      const hashableContent = _stripLeadingFooterForHash(raw)
       const hash = createHash("sha256")
-        .update(`tool_result\n${raw}\n`).digest("hex").slice(0, 16)
+        .update(`tool_result\n${hashableContent}\n`).digest("hex").slice(0, 16)
       const globalDir = join(SCRATCHPAD_ROOT, "by-hash")
       const sessPath = join(getSessionScratchpadDir(), `${hash}.txt`)
       const globalPath = join(globalDir, `${hash}.txt`)
