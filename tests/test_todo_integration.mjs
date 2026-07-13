@@ -25,7 +25,7 @@ function restoreHome() {
 }
 
 // ── Import state module ───────────────────────────────────────────────
-let loadTodos, saveTodos, upsertTodo, markTodoDone, TODOS_FILE
+let loadTodos, saveTodos, upsertTodo, markTodoDone, TODOS_FILE, loadTodosForCurrentProject, setCurrentProjectFingerprint
 
 before(async () => {
   isolateHome()
@@ -35,6 +35,8 @@ before(async () => {
   upsertTodo = state.upsertTodo
   markTodoDone = state.markTodoDone
   TODOS_FILE = state.TODOS_FILE
+  loadTodosForCurrentProject = state.loadTodosForCurrentProject
+  setCurrentProjectFingerprint = state.setCurrentProjectFingerprint
 })
 
 after(() => {
@@ -133,5 +135,46 @@ describe("todo persistence", () => {
     saveTodos([])
     upsertTodo({ content: "default source" })
     assert.strictEqual(loadTodos()[0].source, "manual")
+  })
+
+  // Regression: todos.json is a single global file with no project scoping.
+  // Confirmed live: a real user's todos.json had 1609 pending entries, most
+  // from unrelated repos (VibeBrainUltra), none from the current project --
+  // `vibe todo` reported "1,609 pending" instead of anything meaningful.
+  it("upsertTodo stamps the current project's fingerprint", () => {
+    saveTodos([])
+    setCurrentProjectFingerprint("proj-a")
+    upsertTodo({ content: "todo in project a" })
+    assert.strictEqual(loadTodos()[0].projectFingerprint, "proj-a")
+    setCurrentProjectFingerprint("")
+  })
+
+  it("loadTodosForCurrentProject only returns todos matching the current project", () => {
+    saveTodos([])
+    setCurrentProjectFingerprint("proj-a")
+    upsertTodo({ content: "todo in project a" })
+    setCurrentProjectFingerprint("proj-b")
+    upsertTodo({ content: "todo in project b" })
+    setCurrentProjectFingerprint("proj-a")
+    const scoped = loadTodosForCurrentProject()
+    assert.strictEqual(scoped.length, 1)
+    assert.strictEqual(scoped[0].content, "todo in project a")
+    setCurrentProjectFingerprint("")
+  })
+
+  it("loadTodosForCurrentProject excludes legacy entries with no projectFingerprint", () => {
+    saveTodos([{ id: "legacy-1", content: "legacy todo from before project scoping existed", status: "pending", filePath: "", priority: "medium", source: "manual", createdAt: "", updatedAt: "" }])
+    setCurrentProjectFingerprint("proj-a")
+    const scoped = loadTodosForCurrentProject()
+    assert.strictEqual(scoped.length, 0, "legacy unscoped entries from unrelated projects must not leak into the current project's view")
+    setCurrentProjectFingerprint("")
+  })
+
+  it("loadTodosForCurrentProject falls back to the full list when no project fingerprint is set", () => {
+    saveTodos([])
+    setCurrentProjectFingerprint("")
+    upsertTodo({ content: "todo with no project context" })
+    const scoped = loadTodosForCurrentProject()
+    assert.strictEqual(scoped.length, 1)
   })
 })

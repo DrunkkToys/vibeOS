@@ -314,6 +314,14 @@ test("guard creates project docs on first run", async () => {
 test("todo, todo-done, and todo-sync cover the native todo bridge", async () => {
   setTiers()
   const hooks = await getHooks()
+  // loadTodos() is scoped by the module-level currentProjectFingerprint, which
+  // persists across tests in this file (state.js is a shared singleton across
+  // getHooks()'s cache-busted index.js reloads -- only index.js is re-imported
+  // fresh, not state.js). Clear it explicitly so this test's fixture (written
+  // without a projectFingerprint, predating project-scoped todos) is visible
+  // regardless of what an earlier test in this file left behind.
+  const state = await import("../src/lib/state.js")
+  state.setCurrentProjectFingerprint("")
   const todosPath = join(sandbox, ".claude/todos.json")
   writeFileSync(todosPath, JSON.stringify([
     {

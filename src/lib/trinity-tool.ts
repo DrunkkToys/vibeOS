@@ -1187,7 +1187,7 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "todo") {
-        const todos = deps.loadTodos()
+        const todos = typeof deps.loadTodosForCurrentProject === "function" ? deps.loadTodosForCurrentProject() : deps.loadTodos()
         const pending = todos.filter((t: unknown) => t.status === "pending")
         if (pending.length === 0) return "No pending todos."
         const lines = ["Pending todos: " + pending.length]

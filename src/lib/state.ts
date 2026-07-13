@@ -93,6 +93,7 @@ type TodoEntry = {
   source: "manual" | "flow" | "intercepted"
   createdAt: string
   updatedAt: string
+  projectFingerprint?: string
 }
 
 function getTodosFile(): string { return join(getVibeOSHome(), "todos.json") }
@@ -105,6 +106,19 @@ export function loadTodos(): TodoEntry[] {
     const parsed = safeJsonParse(raw)
     return Array.isArray(parsed) ? parsed : []
   } catch { return [] }
+}
+
+// todos.json is a single global file with no project scoping -- entries from
+// every project ever used with vibeOS accumulate together forever (confirmed
+// live: 1609 pending todos in one project's session, most from unrelated
+// repos, none from the current project). Scope the default view to the
+// current project; legacy entries with no projectFingerprint at all (written
+// before this field existed) are excluded from the scoped view since they
+// can't be attributed to any specific project.
+export function loadTodosForCurrentProject(): TodoEntry[] {
+  const fp = currentProjectFingerprint
+  if (!fp) return loadTodos()
+  return loadTodos().filter((t) => t.projectFingerprint === fp)
 }
 
 export function saveTodos(todos: TodoEntry[]): void {
@@ -132,6 +146,7 @@ export function upsertTodo(entry: Partial<TodoEntry> & { content: string }): voi
     source: (entry.source as TodoEntry["source"]) || "manual",
     createdAt: entry.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    projectFingerprint: entry.projectFingerprint || currentProjectFingerprint || undefined,
   }
   if (existing >= 0) {
     todos[existing] = { ...todos[existing], ...newEntry, updatedAt: new Date().toISOString() }
