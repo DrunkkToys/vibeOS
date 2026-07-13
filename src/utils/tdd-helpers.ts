@@ -246,6 +246,23 @@ export function buildQualityAssertionsForFunc(funcName, params, lang, indent, fr
       block += `${indent}if result == nil {\n${indent}\tt.Error("${funcName}: expected a non-nil result for valid input")\n${indent}}\n`
       break
     }
+    case "sh": {
+      const shArgs = params.map(p => {
+        const t = p.type || inferTypeFromName(p.name, p.defaultValue)
+        if (t === "number" || t === "int" || t === "float") return "42"
+        if (t === "boolean" || t === "bool") return "true"
+        return "sample_input"
+      }).join(" ")
+      block += `${indent}test_${funcName}_valid_input() {\n`
+      block += `${indent}    result=$(${funcName} ${shArgs})\n`
+      block += `${indent}    [ -n "$result" ] || { echo "FAIL: ${funcName} returned empty output for valid input"; exit 1; }\n`
+      block += `${indent}}\n\n`
+      block += `${indent}test_${funcName}_invalid_input() {\n`
+      block += `${indent}    ${funcName} "" >/dev/null 2>&1\n`
+      block += `${indent}    [ "$?" -ne 0 ] || { echo "FAIL: ${funcName} should fail on empty/invalid input"; exit 1; }\n`
+      block += `${indent}}\n\n`
+      break
+    }
     default: {
       block += `${indent}${cmt} TODO: Quality assertion for ${funcName} — valid input\n`
       block += `${indent}${cmt} ${funcName}(${args}) should return expected result\n\n`

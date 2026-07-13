@@ -32,4 +32,8 @@ test("buildQualityAssertionsForFunc emits real assertions for rust, ruby, java, 
   const go = buildQualityAssertionsForFunc("Add", params, "go", "\t")
   assert.ok(/t\.Error|t\.Fatal/.test(go), `go block should use real testing.T failure calls:\n${go}`)
   assert.ok(!/TODO: Quality assertion/.test(go), `go block should not be a bare TODO comment:\n${go}`)
+
+  const sh = buildQualityAssertionsForFunc("add", params, "sh", "")
+  assert.ok(/\[ -n "\$result" \]|\[\[ -n "\$result" \]\]/.test(sh), `shell block should assert on real command output:\n${sh}`)
+  assert.ok(!/TODO: Quality assertion/.test(sh), `shell block should not be a bare TODO comment:\n${sh}`)
 })
