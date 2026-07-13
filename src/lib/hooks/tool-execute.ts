@@ -55,7 +55,7 @@ import { computeDifficulty, cascadeDecide, hashQuery } from "../../vibeOS-lib/ml
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
-import { buildTurnId, recordTurnRoute } from "../turn-ledger.js"
+import { buildTurnId, loadTurnTruth, recordTurnRoute } from "../turn-ledger.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
 import { runtimeTierCoherence } from "../runtime-config.js"
 import { ToolLoopGuard } from "../loop-guard.js"
@@ -302,6 +302,31 @@ function _modelForSlot(slot: string | null, trinityCheap: string | null, trinity
 export function taskSubagentTypeForSlot(slot: string | null): string | null {
   if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
   return null
+}
+
+// rawCascadeDepth reflects the last-recorded ROUTE PLAN (blackbox control
+// vector), which can be deeper than what actually executed this turn -- e.g.
+// a Task delegation was planned/dispatched but never confirmed to have
+// contributed to the final visible answer. Clamp against turn-ledger's own
+// confirmed-executed history; if there is no corroborating record at all,
+// fall back to the depth implied by the LIVE active tier (activeSlotDepth)
+// rather than the unexecuted plan, so the footer icon can never claim a
+// deeper cascade than the model actually shown.
+export function clampCascadeDepthToTurnTruth(
+  rawCascadeDepth: number,
+  activeSlotDepth: number,
+  turns: Array<{ finalized?: { cascadeDepth?: number | null } | null; executedRoute?: { contributedToFinalAnswer?: boolean; cascadeDepth?: number | null } | null }>,
+): number {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (t.finalized?.cascadeDepth != null) {
+      return Math.min(rawCascadeDepth, t.finalized.cascadeDepth)
+    }
+    if (t.executedRoute?.contributedToFinalAnswer === true && t.executedRoute?.cascadeDepth != null) {
+      return Math.min(rawCascadeDepth, t.executedRoute.cascadeDepth)
+    }
+  }
+  return Math.min(rawCascadeDepth, activeSlotDepth)
 }
 
 function _normalizeCascadeRoot(activePipeline: unknown, fallbackSlot: string | null): string[] {
@@ -1194,7 +1219,7 @@ export const onToolExecuteAfter = async (input, output) => {
       const displayMode = backendMode || autoSelectMode(currentSubRegime, latestUserIntent ? scoreStress(latestUserIntent) : 0)
       const cascadeState = loadBlackboxState()
       const cascadeSession = cascadeState?.sessions?.[currentSid] || {}
-      const cascadeDepth = Number(cascadeSession?.cascade_depth ?? cascadeState?.control_vector?.cascade_depth ?? 0) || 0
+      const rawCascadeDepth = Number(cascadeSession?.cascade_depth ?? cascadeState?.control_vector?.cascade_depth ?? 0) || 0
       // VibeUltraX cascade: tier follows the LIVE model's trinity slot so the
       // header stays coherent (cheap entry \u2192 "\u26A1 cheap | Big Pickle"; escalated
       // to the medium-slot model \u2192 "\u25D0 medium | V4 Flash"), instead of pinning
@@ -1217,6 +1242,14 @@ export const onToolExecuteAfter = async (input, output) => {
       const activeSlot = displayMode === "vibeultrax"
         ? _ultraSlot()
         : selNow.active_slot || resolveOptimizationSlot(displayMode) || (execution.quality === "brain" ? "brain" : execution.quality === "medium" ? "medium" : "cheap")
+      const activeSlotDepth = activeSlot === "brain" ? 3 : activeSlot === "medium" ? 2 : 0
+      const cascadeDepth = (() => {
+        try {
+          return clampCascadeDepthToTurnTruth(rawCascadeDepth, activeSlotDepth, loadTurnTruth(currentSid, 10))
+        } catch {
+          return Math.min(rawCascadeDepth, activeSlotDepth)
+        }
+      })()
       const vibeBrand = resolveBrand(displayMode, activeSlot)
       const sessionSlot = loadSessionSlot(currentSid)
       const flashIcon = isApiConnected() ? " \u26A1" : ""

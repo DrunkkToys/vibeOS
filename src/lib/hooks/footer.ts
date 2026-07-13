@@ -18,7 +18,7 @@ import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { evaluateClaimEvidence, getSessionHealthSnapshot } from "../session-health.js"
-import { getLatestTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
+import { getLatestTurnTruth, loadTurnTruth, recordTurnFinalize } from "../turn-ledger.js"
 import { extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 
@@ -1032,9 +1032,22 @@ async function resolveFooterDisplayState(
     classify,
   })
   const ultraResolvedTier = ultraCascadeResolution.tier
-  const ultraCascadeDepth = latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length
-    ? latestExecutedRoute.routePath.length
-    : (latestFinalized?.cascadeDepth ?? ultraCascadeResolution.depth) || 0
+  const ultraCascadeDepth = (() => {
+    if (latestRouteDrivesVisibleAnswer && Array.isArray(latestExecutedRoute?.routePath) && latestExecutedRoute.routePath.length) {
+      return latestExecutedRoute.routePath.length
+    }
+    if (latestFinalized?.cascadeDepth != null) return latestFinalized.cascadeDepth
+    try {
+      const turns = loadTurnTruth(sid, 10)
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i]
+        if (t.turnId !== latestTurnTruth?.turnId && t.finalized?.cascadeDepth != null) {
+          return Math.min(t.finalized.cascadeDepth, ultraCascadeResolution.depth || 0)
+        }
+      }
+    } catch {}
+    return ultraCascadeResolution.depth || 0
+  })()
   const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
     : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
     : null)
