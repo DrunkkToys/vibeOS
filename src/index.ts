@@ -27,7 +27,7 @@ import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
 import { _appendFooter, buildFooterAlert, didTextCompletePainted, resetFooterRuntimeState } from "./lib/hooks/footer.js"
 import { buildResilientFooterLine } from "./lib/hooks/footer.js"
-import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory } from "./lib/hooks/tool-execute.js"
+import { onToolExecuteBefore, onToolExecuteAfter, setToolDirectory, _resetWarnCountsForTest } from "./lib/hooks/tool-execute.js"
 import { onMessagesTransform, onSystemTransform, latestUserIntent, ensureProjectSkill, resetChatTransformState } from "./lib/hooks/chat-transform.js"
 import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks/chat-params.js"
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
@@ -947,6 +947,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   resetPendingLiveSwitch()
   resetFooterRuntimeState()
   resetTurnClassifyRuntimeState()
+  // Reset once per fresh plugin instance (test isolation across test files sharing
+  // the module cache), not per tool call -- resetting per call would defeat the
+  // per-session warn cap itself under VIBEOS_TEST_CONTEXT=1 (every CI test run).
+  if (process.env.VIBEOS_TEST_CONTEXT === "1") _resetWarnCountsForTest()
   setVibeOSHomeContext(resolvedVibeOSHome)
   setRuntimeVibeOSHome(resolvedVibeOSHome)
   resetSessionId(hookSessionId)
