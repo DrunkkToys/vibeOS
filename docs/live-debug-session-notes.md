@@ -330,6 +330,29 @@ value, not a broken promise. Left alone, noted only.
   impact found, but the schema declaration doesn't match the documented values. Worth
   a follow-up pass to widen the enum or use a separate untyped field for axis values.
 
+- **`vibe todo` returned a global cross-project dump instead of anything project-relevant**
+  (PR #452) — live-tested `vibe todo` action and it reported "1,609 pending TODOs" in
+  this small repo's session. `todos.json` (`$VIBEOS_HOME/todos.json`) is a single
+  global file with zero project scoping; confirmed several of the 1609 entries
+  reference `theog:instinct-v2`/`router.py`/M5-M1 model training -- clearly
+  VibeBrainUltra content, not theSaver-oc. Same class of cross-project leak as the
+  footer/scratchpad/PivotCache bugs found earlier. Fixed by adding an optional
+  `projectFingerprint` field to `TodoEntry`, stamped on write by `upsertTodo()`, and a
+  new `loadTodosForCurrentProject()` used only by the `vibe todo` action (dashboard/MCP
+  consumers deliberately left unscoped, since a cross-project overview may be
+  intentional there). Legacy entries with no fingerprint are excluded from the scoped
+  view rather than silently attributed to whichever project happens to be open.
+- Live-verified several more trinity actions this round, all working correctly:
+  `reality-check`, `verify-claims`, `patterns`, `axis status`/`axis <name> <value>`,
+  `project`, `blackbox status`, `repair-state preview`, `guard` (correctly reported
+  AGENTS.md/README.md already present, made zero file changes), `mode` (round-tripped
+  vibemax -> vibeultrax cleanly), `help`.
+- **Minor, not a plugin bug**: while live-testing, one sent message rendered with a
+  stray "need" prefix ("needCall the vibe tool with action=..."). This is an artifact
+  of the computer-use automation's typing interacting with OpenCode's own input-field
+  autocomplete/placeholder text, not a vibeOS defect -- noted only so a future pass
+  doesn't waste time chasing it as a plugin bug.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
