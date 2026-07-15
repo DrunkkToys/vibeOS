@@ -198,6 +198,43 @@ function resolveLoadedPluginPath(deps) {
   return candidates.find((p) => p && deps.existsSync(p)) || candidates[0] || ""
 }
 
+// Translates a `vibe axis <name> <value>` pin into the underlying selection
+// keys it governs, and writes them immediately. Without this, the override
+// only ever gets stored -- nothing reads axis_overrides directly at
+// enforcement/flow/TDD/thinking decision time, so the command silently did
+// nothing beyond echoing the value back on `axis status`.
+function applyAxisOverrideNow(axisName, value, deps) {
+  const v = String(value || "").toLowerCase()
+  const truthy = v === "on" || v === "strict" || v === "required"
+  if (axisName === "enforcement") {
+    deps.writeSelection("delegation_enforce", truthy)
+  } else if (axisName === "flow") {
+    if (v === "audit") {
+      deps.writeSelection("flow_enabled", true)
+      deps.writeSelection("flow_enforce", false)
+    } else if (truthy) {
+      deps.writeSelection("flow_enabled", true)
+      deps.writeSelection("flow_enforce", true)
+    } else {
+      deps.writeSelection("flow_enabled", false)
+      deps.writeSelection("flow_enforce", false)
+    }
+  } else if (axisName === "tdd") {
+    const quality = v === "quality"
+    if (truthy || quality) {
+      deps.writeSelection("tdd_enforce", true)
+      deps.writeSelection("tdd_strict", true)
+      deps.writeSelection("tdd_quality", quality)
+    } else {
+      deps.writeSelection("tdd_enforce", false)
+      deps.writeSelection("tdd_strict", false)
+      deps.writeSelection("tdd_quality", false)
+    }
+  } else if (axisName === "thinking") {
+    if (v === "full" || v === "brief" || v === "off") deps.writeSelection("thinking_level", v)
+  }
+}
+
 function countStaleActiveJobs(deps) {
   const path = join(deps.VIBEOS_HOME || getVibeOSHome(), "active-jobs.json")
   const jobs = readJsonFile(deps, path)
@@ -330,7 +367,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -700,7 +737,8 @@ export function createTrinityTool(deps) {
           const value = level || model
           if (!value) return `❌ Provide value for axis '${slot}'. e.g. on|off|strict|relaxed|full|brief|required|optional`
           const ok = writeAxisOverride(slot, value)
-          return ok ? `Axis override: ${slot} = ${value}. Takes effect next turn.` : `❌ Failed to write axis override.`
+          if (ok) applyAxisOverrideNow(slot, value, deps)
+          return ok ? `Axis override: ${slot} = ${value}. Active now, and pinned against auto-mode.` : `❌ Failed to write axis override.`
         }
         return `❌ Unknown axis '${slot}'. Valid axes: ${AXIS_NAMES.join(" | ")} | reset | status`
       }

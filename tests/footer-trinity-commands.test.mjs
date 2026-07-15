@@ -691,6 +691,38 @@ test("trinity: lock off works", async () => {
   assert.ok(result.includes("LOCK OFF") || result.includes("lock"))
 })
 
+test("trinity: axis tdd off immediately disables TDD enforcement, not just stores the override", async () => {
+  // Before this fix, `vibe axis <name> <value>` only called writeAxisOverride()
+  // -- nothing ever read axis_overrides back to change delegation_enforce/
+  // flow_enforce/tdd_enforce/thinking_level, so the command silently did
+  // nothing beyond echoing the value back on `axis status`.
+  //
+  // writeAxisOverride()/loadAxisOverrides() bypass the mock `deps` entirely and
+  // read the real state.js getVibeOSHome(), so VIBEOS_HOME must point at this
+  // sandbox's .claude dir or the write silently fails outside a dev machine
+  // with a pre-existing global vibeOS home (which is why this passed locally
+  // but failed in CI).
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-axis-"))
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  const deps = makeMockDeps(sandbox)
+  deps.writeSelection("tdd_enforce", true)
+  deps.writeSelection("tdd_strict", true)
+  deps.writeSelection("tdd_quality", true)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+
+  const result = await tool.execute({ action: "axis", slot: "tdd", level: "off" })
+  if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
+  else process.env.VIBEOS_HOME = prevVibeHome
+  assert.ok(typeof result === "string" && result.includes("tdd"), "axis command returns confirmation: " + result)
+
+  const sel = deps.loadSelection()
+  assert.equal(sel.tdd_enforce, false, "axis tdd=off must immediately clear tdd_enforce")
+  assert.equal(sel.tdd_strict, false, "axis tdd=off must immediately clear tdd_strict")
+  assert.equal(sel.tdd_quality, false, "axis tdd=off must immediately clear tdd_quality")
+})
+
 test("trinity: patterns shows project patterns", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "trinity-patterns-"))
   const deps = makeMockDeps(sandbox)
