@@ -1398,6 +1398,26 @@ export function createTrinityTool(deps) {
             }
           }
         }
+        // Every-turn cross-check (index.ts's _checkAndRecordUnsubstantiatedClaims,
+        // wired to the footer's [unverified claim] tag) writes to this same log --
+        // surface it here too so a manual `vibe verify-claims` run sees what the
+        // automatic per-turn check already found, not just its own re-derived scan.
+        try {
+          const driftFile = join(AUDIT_DIR, "drift-alerts.jsonl")
+          if (deps.existsSync(driftFile)) {
+            const driftLines = deps.readFileSync(driftFile, "utf-8").trim().split(String.fromCharCode(10)).filter(Boolean).slice(-5)
+            if (driftLines.length > 0) {
+              lines.push("")
+              lines.push("Automatic per-turn drift alerts (last 5):")
+              for (const dl of driftLines) {
+                try {
+                  const d = JSON.parse(dl)
+                  lines.push("  " + String(d.ts || "").slice(0, 19) + ": " + d.count + " unsubstantiated — " + (d.claims || []).join(" | ").substring(0, 80))
+                } catch {}
+              }
+            }
+          }
+        } catch {}
         return lines.join(String.fromCharCode(10))
       }
 

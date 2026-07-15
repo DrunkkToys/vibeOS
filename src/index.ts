@@ -107,6 +107,56 @@ function scanClaimsInOutput(output) {
     appendFileSync(auditFile, entry + String.fromCharCode(10))
   } catch {}
 }
+// This cross-check already ran every turn in both hooks below -- it just threw
+// its own answer away. `_unsubstantiatedClaims` was computed and reassigned
+// here but never read anywhere else in the codebase, so a real fabricated
+// claim (e.g. "Cascade Diagnosis: Healthy... no degradation" while
+// cheap_first_degraded was actually true) never surfaced to a human unless
+// they ran `vibe verify-claims` by hand. Now it also appends to
+// drift-alerts.jsonl so the footer (see footer.ts's readLatestDriftAlert)
+// and `vibe reality-check` can pick it up without a manual command.
+function _checkAndRecordUnsubstantiatedClaims() {
+  try {
+    const auditDir = join(getVibeOSHome(), "cascade-audit")
+    const claimFile = join(auditDir, "claim-audit.jsonl")
+    const cascadeFile = join(auditDir, "cascade-audit.jsonl")
+    if (!existsSync(claimFile) || statSync(claimFile).size === 0) return
+    const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
+    const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
+    const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
+    let unsub = 0
+    const unsubClaimTexts = []
+    for (const cl of claimLines) {
+      if (!cl.trim()) continue
+      let entry
+      try { entry = JSON.parse(cl) } catch { continue }
+      if (!entry) continue
+      const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
+      if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
+      let cascadeMatch = false
+      for (const cr of cascadeRuns) {
+        const cTs = cr._ts || ""
+        if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
+          cascadeMatch = true
+          break
+        }
+      }
+      if (!cascadeMatch) {
+        unsub++
+        for (const c of (entry.claims || [])) unsubClaimTexts.push(c.text)
+      }
+    }
+    _unsubstantiatedClaims = unsub
+    if (unsub > 0) {
+      const driftFile = join(auditDir, "drift-alerts.jsonl")
+      appendFileSync(driftFile, JSON.stringify({
+        ts: new Date().toISOString(),
+        count: unsub,
+        claims: unsubClaimTexts.slice(0, 5),
+      }) + "\n")
+    }
+  } catch {}
+}
 function ensureFooterFallback(input, output, directory, hookName = "fallback") {
   try {
     const messageID =
@@ -1294,37 +1344,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       scanClaimsInOutput(output)
       await _appendFooter(_input, output, directory, undefined, "experimental.text.complete")
       ensureFooterFallback(_input, output, directory, "experimental.text.complete")
-      try {
-        const auditDir = join(getVibeOSHome(), "cascade-audit")
-        const claimFile = join(auditDir, "claim-audit.jsonl")
-        const cascadeFile = join(auditDir, "cascade-audit.jsonl")
-        if (existsSync(claimFile) && statSync(claimFile).size > 0) {
-          const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
-          const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
-          const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
-          let unsub = 0
-          for (const cl of claimLines) {
-            if (!cl.trim()) continue
-            let entry
-            try { entry = JSON.parse(cl) } catch { continue }
-            if (!entry) continue
-            const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
-            if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
-            let cascadeMatch = false
-            for (const cr of cascadeRuns) {
-              const cTs = cr._ts || ""
-              if (cTs && entry.ts) {
-                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
-                  cascadeMatch = true
-                  break
-                }
-              }
-            }
-            if (!cascadeMatch) unsub++
-          }
-          _unsubstantiatedClaims = unsub
-        }
-      } catch {}
+      _checkAndRecordUnsubstantiatedClaims()
 
     },
     "message.updated": async (_input, output) => {
@@ -1338,37 +1358,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       await _appendFooter(_input, output, directory, undefined, "message.updated")
       ensureFooterFallback(_input, output, directory, "message.updated")
       // auto-verify: cross-check against cascade-audit
-      try {
-        const auditDir = join(getVibeOSHome(), "cascade-audit")
-        const claimFile = join(auditDir, "claim-audit.jsonl")
-        const cascadeFile = join(auditDir, "cascade-audit.jsonl")
-        if (existsSync(claimFile) && statSync(claimFile).size > 0) {
-          const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
-          const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
-          const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
-          let unsub = 0
-          for (const cl of claimLines) {
-            if (!cl.trim()) continue
-            let entry
-            try { entry = JSON.parse(cl) } catch { continue }
-            if (!entry) continue
-            const claimTexts = (entry.claims || []).map(function(c) { return c.text }).join(" | ")
-            if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
-            let cascadeMatch = false
-            for (const cr of cascadeRuns) {
-              const cTs = cr._ts || ""
-              if (cTs && entry.ts) {
-                if (Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
-                  cascadeMatch = true
-                  break
-                }
-              }
-            }
-            if (!cascadeMatch) unsub++
-          }
-          _unsubstantiatedClaims = unsub
-        }
-      } catch {}
+      _checkAndRecordUnsubstantiatedClaims()
 
     },
     tool: {
@@ -1530,6 +1520,7 @@ export { extractExports, buildTestSkeleton, enforceTestFile, buildTestReminder, 
 export { classifyAndRankModels, modelToCcAlias } from "./lib/trinity-rebuild.js"
 export { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxResolution } from "./lib/cascade.js"
 export { loadMcpPort as _loadMcpPort }
+export { _checkAndRecordUnsubstantiatedClaims }
 export { _resetCostAnomalyDetectorForTest } from "./lib/cost-anomaly.js"
 export { remoteCall } from "./lib/api-client.js"
 export { observeToolPattern, noteProjectPattern, recordSaving, compressText } from "./lib/index-helpers.js"
