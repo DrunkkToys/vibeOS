@@ -135,6 +135,15 @@ function _checkAndRecordUnsubstantiatedClaims() {
       if (!CLAIM_PATTERNS.some(function(p) { return p.test(claimTexts) })) continue
       let cascadeMatch = false
       for (const cr of cascadeRuns) {
+        // chat-params (chat-params.ts's _writeChatRouteAudit) appends a line to
+        // this SAME file on every single turn regardless of whether any tool
+        // ran or anything was actually verified -- it never sets `executed`.
+        // Live-reproduced: without this guard, a claim's timestamp landed ~2s
+        // after a routine chat-params entry and was marked "substantiated" by
+        // pure proximity, even though nothing about the claim's content was
+        // checked. Only count entries that represent a real routing decision
+        // (ml/backend/task cascade writes, which always set executed:true).
+        if (cr.executed !== true) continue
         const cTs = cr._ts || ""
         if (cTs && entry.ts && Math.abs(new Date(cTs).getTime() - new Date(entry.ts).getTime()) < 120000) {
           cascadeMatch = true

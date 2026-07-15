@@ -1338,6 +1338,11 @@ export function createTrinityTool(deps) {
           let cascadeMatch = false
           let emptyAnswers = 0
           for (const cr of recentCascade) {
+            // Same guard as index.ts's _checkAndRecordUnsubstantiatedClaims:
+            // chat-params writes a cascade-audit line every turn with no
+            // `executed` field, which made mere timestamp proximity a false
+            // positive for "substantiated" regardless of what actually ran.
+            if (cr.executed !== true) continue
             const cTs = cr._ts || ""
             if (cTs && cl.ts) {
               const diffMs = Math.abs(new Date(cTs).getTime() - new Date(cl.ts).getTime())

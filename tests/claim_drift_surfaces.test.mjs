@@ -65,7 +65,7 @@ test("_checkAndRecordUnsubstantiatedClaims writes drift-alerts.jsonl when a clai
   }
 })
 
-test("_checkAndRecordUnsubstantiatedClaims does not write drift-alerts.jsonl when the claim is substantiated by a nearby cascade run", async () => {
+test("_checkAndRecordUnsubstantiatedClaims does not write drift-alerts.jsonl when the claim is substantiated by a nearby EXECUTED cascade run", async () => {
   const ctx = withSandbox("vibeos-claim-drift-ok-")
   try {
     const now = new Date().toISOString()
@@ -74,12 +74,49 @@ test("_checkAndRecordUnsubstantiatedClaims does not write drift-alerts.jsonl whe
       claims: [{ text: "the feature works now", pattern: "action" }],
       totalClaims: 1,
     }) + "\n")
-    writeFileSync(ctx.cascadeFile, JSON.stringify({ _ts: now, answer_empty: false }) + "\n")
+    writeFileSync(ctx.cascadeFile, JSON.stringify({ _ts: now, answer_empty: false, executed: true }) + "\n")
 
     const idx = await import("../src/index.js?claim-drift-ok-idx=" + Date.now())
     idx._checkAndRecordUnsubstantiatedClaims()
 
     assert.equal(existsSync(ctx.driftFile), false, "no drift alert should be written for a substantiated claim")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+// Live-reproduced (2026-07-15, driven for real in OpenCode Desktop): a plain
+// conversational claim with zero tool calls still came out "substantiated"
+// because chat-params.ts's _writeChatRouteAudit appends a cascade-audit line
+// on every single turn (no `executed` field at all) -- so mere timestamp
+// proximity to that routine per-turn write made almost any claim look
+// verified, regardless of what actually happened. Only entries with
+// executed:true (real ml/backend/task routing decisions) should count.
+test("_checkAndRecordUnsubstantiatedClaims ignores a nearby chat-params audit entry (no executed field) as false evidence", async () => {
+  const ctx = withSandbox("vibeos-claim-drift-chatparams-")
+  try {
+    const now = new Date().toISOString()
+    writeFileSync(ctx.claimFile, JSON.stringify({
+      ts: now,
+      claims: [{ text: "The bug is fixed and everything is fine now.", pattern: "status" }],
+      totalClaims: 1,
+    }) + "\n")
+    // Shaped exactly like chat-params.ts's _writeChatRouteAudit output: no
+    // `executed` field at all.
+    writeFileSync(ctx.cascadeFile, JSON.stringify({
+      _ts: now,
+      source: "chat-params",
+      slot: "cheap",
+      crossProvider: true,
+      alreadyCorrect: false,
+    }) + "\n")
+
+    const idx = await import("../src/index.js?claim-drift-chatparams-idx=" + Date.now())
+    idx._checkAndRecordUnsubstantiatedClaims()
+
+    assert.equal(existsSync(ctx.driftFile), true, "a chat-params entry must not count as substantiation")
+    const entry = JSON.parse(readFileSync(ctx.driftFile, "utf-8").trim())
+    assert.equal(entry.count, 1)
   } finally {
     ctx.cleanup()
   }
