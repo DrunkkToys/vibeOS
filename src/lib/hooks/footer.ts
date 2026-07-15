@@ -1244,10 +1244,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     const text = _extractText(output)
     if (!text) return
 
-    _footerStage = "resolve"
-    const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
-    const state = await resolveFooterDisplayState(directory, text, hookModel, lastModelError, hookName)
-    state.messageID =
+    const messageID =
       input?.messageID ||
         input?.messageId ||
         input?.message?.id ||
@@ -1255,10 +1252,31 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
-
+    // Both experimental.text.complete and message.updated call _appendFooter
+    // for the same logical turn (message.updated is meant as a fallback for
+    // OpenCode versions where text.complete doesn't fire). Without a guard
+    // they can BOTH fire for one turn with IDENTICAL text -- live-reproduced:
+    // a single `vibe flow enforce on` call painted two different, disagreeing
+    // footer lines ("flow enforce ON" then "flow steady") because this
+    // function had no entry-level dedup of its own; it only ever recorded
+    // messageID into textCompletePainted for ensureFooterFallback (index.ts)
+    // to consult, never checked it against its own re-entry.
+    //
+    // The guard must compare against the STRIPPED length, not just presence
+    // of messageID: streaming legitimately calls this repeatedly for the same
+    // messageID as text grows/gets replaced, and each real content change
+    // must still be repainted (see "re-paints rich footer after streaming
+    // wipes an earlier paint"). Only a truly identical re-fire is a no-op.
+    // See docs/live-debug-session-notes.md round 13.
     const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
     const hasExistingFooter = footerSuffix.test(text)
     const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
+    if (messageID && textCompletePainted.get(messageID) === stripped.length) return
+
+    _footerStage = "resolve"
+    const hookModel = String(input?.args?.model || input?.model || output?.args?.model || "").trim()
+    const state = await resolveFooterDisplayState(directory, text, hookModel, lastModelError, hookName)
+    state.messageID = messageID
     state.stripped = stripped
 
     // Update _prevOutputText for next turn's reward detection
