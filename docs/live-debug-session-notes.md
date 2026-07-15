@@ -643,6 +643,87 @@ value, not a broken promise. Left alone, noted only.
   own documented regime table calling for LOOPING -> speed/medium is the thing
   that's stale, not the code.
 
+## Round 13 (PRs #468, #469, #470) -- answering 4 named customer complaints: ML/cascade, flow, pattern/friction, "lie detector"
+
+Direct response to real customer feedback relayed by the user: "the ML vector driver
+is not helping the quality outcome", "the cascade not working always properly", "the
+flow is not enforced as required and the steps do not match", "pattern/friction and
+lie detector are not doing their jobs" -- after ~10 prior fixes this session that
+never directly closed these four complaints.
+
+- **`vibe axis <name> <value>` was storage-only, never applied** (PR #468). The axis
+  override command wrote to `axis_overrides` in `model-tiers.json` but nothing ever
+  read it back at enforcement/flow/TDD/thinking decision time -- the command silently
+  did nothing beyond echoing the value back on `axis status`. Fixed via
+  `applyAxisOverrideNow()` (writes the derived selection keys immediately) plus a
+  `*Pinned` check in `syncControlSettings()` so a pin survives the next turn's
+  auto-mode regime resync.
+- **ML difficulty engine wired into real Task routing for the first time** (PR #469).
+  `resolveCascadeRouteDecision()`/`computeDifficulty()` were fully unit-tested but had
+  ZERO production callers -- confirmed via grep. The real per-turn Task delegation
+  route only ever read the control-vector's regime-driven `worker_slot`. Per explicit
+  user direction (rejecting an escalate-only design after a prior cautious attempt),
+  implemented full bidirectional per-message adjustment: a cheap-baseline turn now
+  escalates for a genuinely complex prompt, and a brain-baseline turn de-escalates for
+  a genuinely trivial one, gated on `confidence >= ML_CONFIDENCE_THRESHOLD`, `level !=
+  "moderate"`, the suggested tier being on the active cascade route, and a non-empty
+  prompt (blank prompts must not trigger an adjustment -- caught by a CI regression).
+  Live-verified: real cascade-audit log entries show `difficulty_score`/`level`/
+  `confidence`/`suggested_tier` now being computed for real live turns.
+- **`vibe flow on|off` / `vibe flow enforce on|off` never pinned, unlike `vibe axis
+  flow`** (bundled into PR #469). Live-reproduced in OpenCode Desktop: `vibe flow
+  enforce on` confirmed "ENABLED" in the footer, but the very next turn's
+  `syncControlSettings()` regime resync silently reverted `flow_enforce` back to
+  `false` in `model-tiers.json` -- same bug class as the axis fix, just not covered
+  by it since these are a separate command path. Fixed by having these commands also
+  call `writeAxisOverride("flow", ...)`.
+- **CI flake fix**: `test_vibeultrax_pivot_capture.test.mjs` used a hardcoded session
+  id that collided with other test files' pivot-cache entries under the shared-process
+  CI suite -- passed in isolation every time, failed intermittently in the full run.
+  Randomized the id per run.
+- **Double-footer paint bug -- found live by the user, not by me** (PR #470). A single
+  `vibe flow enforce on` call painted TWO different, disagreeing footer lines back to
+  back: "flow enforce ON" then "flow steady" moments later, with no ON tag. Root
+  cause: both `experimental.text.complete` and `message.updated` fire for the same
+  logical turn (the latter is meant as a fallback for OpenCode versions where the
+  former doesn't fire), and `_appendFooter` had no entry-level dedup of its own -- it
+  only ever recorded `messageID` into `textCompletePainted` for a *different*
+  function (`ensureFooterFallback` in `index.ts`) to consult, never checked it against
+  its own re-entry. Fixed by comparing the stripped-text length against what was last
+  recorded for that `messageID` (not just messageID presence, which would have broken
+  legitimate streaming repaints where the same messageID legitimately gets
+  growing/replaced text). **Also found: the one existing "test" for this exact
+  scenario (`footer-trinity-commands.test.mjs`'s "textCompletePainted prevents
+  double-painting") never called the real functions at all -- it only asserted native
+  `Set.has()`/`.add()` behavior on a throwaway local `Set`, so it could never have
+  caught this regardless of whether the real dedup logic worked.** This is exactly
+  the class of "claims but doesn't deliver" bug the whole complaint is about: a green
+  test suite that looks like coverage but tests nothing real.
+- **Pattern learner / friction detection: live-verified WORKING.** `vibe patterns`
+  against real `global-learning.json` state correctly showed 4 stored patterns (1
+  promoted after 3 sessions/4 hits, 3 single-session "Learning" entries) -- not a
+  stub. Friction detection (`semantic-observer.ts`) feeds the same pattern store
+  under `kind: "friction"`.
+- **"Lie detector" complaint: root cause found, not fixed this round.** No feature
+  literally named this in CLAUDE.md; `src/vibeOS-lib/lie-detector.ts` is an orphaned,
+  zero-caller compatibility shim. The REAL mechanism is `evaluateClaimEvidence()` in
+  `session-health.ts`, which IS wired into both `chat-transform.ts` (system prompt)
+  and `footer.ts` -- it computes `contradictionDetected`/claim status every turn. But
+  the only user-visible surface of a detected contradiction is an unlabeled `-N XP`
+  delta in the footer (via `reward-engine.ts`'s `liePenalty`/`contradictionPenalty`)
+  -- there is no explicit "contradiction detected" message a user would ever see or
+  understand. It detects; it does not communicate. Flagged as a follow-up: surface
+  `contradictionDetected`/`claimStatus.status === "contradicted"` as a visible footer
+  tag, not just a silent reward-engine input.
+- **A git mistake mid-session**: ran `git checkout master -- .` without checking
+  `git status` first, which silently discarded the (uncommitted) ML/cascade fix and 3
+  test-file edits. Caught immediately, disclosed to the user, and fully reconstructed
+  from context plus git history (some files were recoverable straight from HEAD since
+  a related fix was already committed on the branch) -- re-verified via typecheck and
+  the full CI-equivalent suite before treating any of it as done again. No work was
+  ultimately lost, but it cost real time and trust; the lesson is `git status` before
+  every checkout/reset/restore, no exceptions, even mid-flow.
+
 ## Process notes
 - CI job is `test (20)` running `npm run test:ci` -> `scripts/run-test-suite.mjs ci` (different, longer-running mode than local `npm test` -> `full`).
 - Full local suite: 1669 pass / 0 fail baseline (before this session's 2 hang fixes), plus the 2 known-flaky timeout artifacts (now fixed).
