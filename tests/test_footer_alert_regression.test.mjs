@@ -366,3 +366,24 @@ test("footer: bundled runtime records probe entries and split provider/model lab
     assert.equal(updatedProbe.provider_label, "Opencode")
     assert.equal(updatedProbe.model_name, "Big Pickle")
 })
+
+// Live-reproduced: a single `vibe flow enforce on` tool call painted TWO
+// disagreeing footer lines in OpenCode Desktop -- "flow enforce ON" then
+// "flow steady" moments later -- because experimental.text.complete and
+// message.updated both fire for the same logical turn, and _appendFooter had
+// no entry-level dedup of its own (it only ever recorded messageID into
+// textCompletePainted for a *different* function, ensureFooterFallback in
+// index.ts, to consult -- never checked it against its own re-entry). Same
+// messageID both times is the real-world shape of the bug.
+test("footer: _appendFooter is a no-op on the second call for the same messageID", async () => {
+    writeTiers({ active_slot: "cheap" })
+    const { _appendFooter } = await import("../src/lib/hooks/footer.js?ftr-dedup=" + Date.now())
+
+    const firstOut = { text: "Called `vibe` action=flow slot=enforce level=on" }
+    await _appendFooter({ messageID: "msg-dupe-1", args: { model: "opencode/big-pickle" } }, firstOut)
+    assert.ok(/\n\n—.+—\s*$/.test(firstOut.text), "first call must paint a footer: " + firstOut.text.slice(-150))
+
+    const secondOut = { text: "Called `vibe` action=flow slot=enforce level=on" }
+    await _appendFooter({ messageID: "msg-dupe-1", args: { model: "opencode/big-pickle" } }, secondOut)
+    assert.equal(secondOut.text, "Called `vibe` action=flow slot=enforce level=on", "second call with the same messageID must be a no-op, not a second (possibly disagreeing) footer")
+})
