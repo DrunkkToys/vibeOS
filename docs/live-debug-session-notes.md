@@ -715,6 +715,23 @@ never directly closed these four complaints.
   understand. It detects; it does not communicate. Flagged as a follow-up: surface
   `contradictionDetected`/`claimStatus.status === "contradicted"` as a visible footer
   tag, not just a silent reward-engine input.
+- **"Lie detector" follow-up landed (PR #471).** `evaluateClaimEvidence()`'s
+  `claimTag` in `session-health.ts` rendered the identical generic `⚠N verify` tag
+  for both a merely-unverified claim and a claim the system had actually caught
+  contradicting itself -- a user reading the footer could not tell "not checked yet"
+  apart from "caught lying." Fixed: `claimTag` is now `⚠ contradiction` when
+  `status === "contradicted"`, distinct from the `⚠N verify` used for genuinely
+  unsupported-but-not-contradicted claims. TDD test added
+  (`tests/session_health.test.mjs`, confirmed failing before / passing after);
+  targeted 31-test suite and full CI suite (1726 pass / 0 fail) both green; merged
+  to master. Live-verified in OpenCode Desktop: sent a claim ("I fixed the footer
+  bug and verified it works correctly"), then a contradicting follow-up ("It still
+  doesn't work") -- the next turn's footer showed `-15 XP` with a `recover`
+  resolution state, confirming the contradiction was detected and had a real,
+  visible consequence in the running plugin (the specific `⚠ contradiction` string
+  renders only when the assistant's own turn text carries a claim, which the
+  deterministic unit test covers directly). This closes the last of the 4 named
+  complaints with nothing left flagged-but-undone.
 - **A git mistake mid-session**: ran `git checkout master -- .` without checking
   `git status` first, which silently discarded the (uncommitted) ML/cascade fix and 3
   test-file edits. Caught immediately, disclosed to the user, and fully reconstructed
