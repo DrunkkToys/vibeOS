@@ -22,7 +22,10 @@ process.env.VIBEOS_HOME = join(sandbox, ".claude")
 
 test("vibeultraxPipeline captures a workflow snapshot when the user pivots away, and matches it on pivot-back", async () => {
   const state = await import("../src/lib/state.js")
-  state.setCurrentSessionId("session-vibeultrax-pivot-test")
+  // Unique per run -- a hardcoded id collided with other test files' pivot
+  // cache entries when run in the same shared-process CI suite, causing an
+  // intermittent order-dependent failure unrelated to the pipeline logic.
+  state.setCurrentSessionId("session-vibeultrax-pivot-test-" + Date.now())
   const { vibeultraxPipeline } = await import("../src/vibeOS-lib/blackbox/vibeultrax.js")
 
   // detectPivotBack requires at least 2 captured snapshots in the sequence and
