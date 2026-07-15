@@ -1062,8 +1062,8 @@ class _BlackboxStub {
   serialize(): unknown {
     return this.tracker.serialize()
   }
-  recordOutcome(outcome: unknown): void {
-    this.tracker.recordOutcome(outcome)
+  recordOutcome(outcome: unknown, slot?: unknown): void {
+    this.tracker.recordOutcome(outcome, slot)
   }
   getLoopIntervention(): unknown {
     return this.tracker.getLoopIntervention()

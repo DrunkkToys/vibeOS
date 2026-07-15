@@ -3,6 +3,7 @@
 // @ts-nocheck
 // Resolution Tracker — state-of-progress estimator for dialogue trajectory.
 // Ported from theWay: src/decision/resolution_tracker.py
+import { loadBlackboxState } from "../../lib/state.js"
 export class ResolutionTracker {
   static SUB_REGIMES = ["INIT", "DIVERGENT", "EXPLORING", "REFINING", "IMPLEMENTING", "RESEARCH", "REVIEWING", "DESIGNING", "CONVERGING", "CLOSED", "LOOPING"]
   sessionId
@@ -563,15 +564,17 @@ export class ResolutionTracker {
     this.outcomeHistory = []
     this.recentMessageLengths = []
   }
-  recordOutcome(outcome) {
+  recordOutcome(outcome, slot = undefined) {
     const entry = this.history[this.history.length - 1]
     if (entry) {
       entry.outcome = outcome
-      this.outcomeHistory.push({
+      const record = {
         turn: this.history.length,
         outcome,
         timestamp: Date.now() / 1000,
-      })
+      }
+      if (typeof slot === "string" && slot) record.slot = slot
+      this.outcomeHistory.push(record)
     }
   }
   getLoopIntervention() {
@@ -648,6 +651,34 @@ export class ResolutionTracker {
     return tracker
   }
 }
+// cascadeDecide()'s cost-cascade branch needs a real empirical success rate
+// per tier, not a hardcoded guess. Every call site previously passed a fixed
+// 0.85 regardless of how that tier actually performed for this user --
+// recordOutcome() didn't even know which slot was active when an outcome was
+// recorded. Now that recordOutcome(outcome, slot) tags each entry, this
+// aggregates real positive/negative history per slot across sessions. Falls
+// back to `defaultRate` (matching the previous hardcoded constant) until
+// there's enough real data to trust (min 5 samples for that slot).
+export function computeSlotSuccessRate(slot, defaultRate = 0.85) {
+  try {
+    if (!slot) return defaultRate
+    const state = loadBlackboxState()
+    const matches = []
+    for (const session of Object.values(state?.sessions || {})) {
+      if (!Array.isArray(session?.outcomeHistory)) continue
+      for (const o of session.outcomeHistory) {
+        if (o?.slot === slot && typeof o?.outcome === "string") matches.push(o.outcome)
+      }
+    }
+    if (matches.length < 5) return defaultRate
+    const positive = matches.filter((o) => o === "positive").length
+    const ratio = positive / matches.length
+    return Math.min(0.99, Math.max(0.05, ratio))
+  } catch {
+    return defaultRate
+  }
+}
+
 function cosineSimilarity(a, b) {
   const len = Math.min(a.length, b.length)
   let dot = 0, normA = 0, normB = 0
