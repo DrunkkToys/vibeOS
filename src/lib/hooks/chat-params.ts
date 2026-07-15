@@ -17,11 +17,46 @@
 // Every turn logs `[vibeOS] chat.params` with input.model vs the intended tier model so
 // a single live turn proves whether the override is honored by the provider.
 
+import { mkdirSync, appendFileSync } from "node:fs"
+import { join } from "node:path"
 import { resolveOrchestratorState } from "../pricing.js"
 import { writeSelection } from "../selection-manager.js"
+import { getVibeOSHome, getCurrentSessionId } from "../state.js"
 
 let _directory = ""
 export const setChatParamsDirectory = (dir) => { _directory = dir || "" }
+
+// chat.params previously only logged to console.error -- invisible outside a live debug
+// session, and Task-subagent delegation (tool-execute.ts) was the ONLY routing path with a
+// persistent audit trail (cascade-audit.jsonl). That left the primary session's own
+// per-turn model decision unverifiable after the fact. This appends a `source: "chat-params"`
+// line to the same file so both routing paths are auditable from one place.
+function _writeChatRouteAudit(r) {
+  try {
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const dir = join(vibeHome, "cascade-audit")
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, "cascade-audit.jsonl")
+    const line = JSON.stringify({
+      _ts: new Date().toISOString(),
+      sessionId: String(getCurrentSessionId() || ""),
+      source: "chat-params",
+      slot: String(r?.active_slot || ""),
+      entrySlot: String(r?.entry_slot || ""),
+      workerSlot: String(r?.worker_slot || ""),
+      optimizationMode: String(r?.optimization_mode || ""),
+      inputModel: String(r?.input_full || ""),
+      intendedModel: String(r?.intended_full || ""),
+      crossProvider: Boolean(r?.cross_provider),
+      canApply: Boolean(r?.can_apply),
+      overridden: Boolean(r?.can_apply),
+      alreadyCorrect: Boolean(r?.already_correct),
+      cheapFirstPrimaryMiss: Boolean(r?.cheap_first_primary_miss),
+    })
+    appendFileSync(path, line + "\n")
+  } catch {}
+}
 
 /** Split "provider/model-id" into { providerID, modelID } (modelID may contain slashes). */
 export function parseModelId(full) {
@@ -96,6 +131,7 @@ export async function onChatParams(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
     recordCheapFirstState(r)
+    _writeChatRouteAudit(r)
     if (r.already_correct) {
       console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_full} (no override)`)
       return

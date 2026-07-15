@@ -4,7 +4,7 @@
 // the provider matches (no cross-provider switch), and a coherent turn is a no-op.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs"
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -91,4 +91,32 @@ test("chat.headers mirrors the override with the full intended id", async () => 
   const output = { headers: {} }
   await onChatHeaders({ _directory: sandbox, model: { providerID: "openrouter", modelID: "cheap-model" } }, output)
   assert.equal(output.headers["x-vibeos-model"], "big-brain", "header carries the intended tier model id")
+})
+
+// The primary-session model-routing decision (chat.params) previously had NO persistent
+// trail at all -- only a console.error line, invisible outside a live debug session. Only
+// Task-subagent delegation (tool-execute.ts) wrote to cascade-audit.jsonl, so there was no
+// way to verify what model the ORCHESTRATOR'S OWN turn actually ran on after the fact. This
+// closes that gap: every onChatParams call now appends a `source: "chat-params"` line to
+// the same cascade-audit.jsonl used by Task delegation, so both routing paths are auditable
+// from one file.
+test("onChatParams appends a persistent audit trail entry for the primary-session routing decision", async () => {
+  setup("cheap", "openrouter/mid-model")
+  const { onChatParams } = await fresh()
+  const auditPath = join(sandbox, ".claude", "cascade-audit", "cascade-audit.jsonl")
+  const before = existsSync(auditPath) ? readFileSync(auditPath, "utf-8").trim().split("\n").filter(Boolean).length : 0
+
+  const output = { options: {} }
+  await onChatParams({ _directory: sandbox, model: { providerID: "openrouter", modelID: "mid-model" } }, output)
+
+  assert.equal(existsSync(auditPath), true, "chat.params must persist an audit entry, not just console.error")
+  const lines = readFileSync(auditPath, "utf-8").trim().split("\n").filter(Boolean)
+  assert.equal(lines.length, before + 1)
+  const entry = JSON.parse(lines[lines.length - 1])
+  assert.equal(entry.source, "chat-params")
+  assert.equal(entry.slot, "cheap")
+  assert.equal(entry.inputModel, "openrouter/mid-model")
+  assert.equal(entry.intendedModel, "openrouter/cheap-model")
+  assert.equal(entry.canApply, true)
+  assert.equal(entry.overridden, true)
 })
