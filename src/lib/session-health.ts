@@ -326,7 +326,11 @@ export function evaluateClaimEvidence(input: {
     missingEvidence: [...missingEvidence],
     contradictedBy: [...contradictedBy],
     reason,
-    claimTag: status === "supported" ? "✓ evidence" : `⚠${claims.length} verify`,
+    // A contradiction is a much stronger signal than a merely-unverified claim
+    // and must render distinctly -- previously both got the same generic
+    // "⚠N verify" tag, so a user could never tell "not checked yet" apart
+    // from "caught contradicting itself" just by reading the footer.
+    claimTag: status === "supported" ? "✓ evidence" : status === "contradicted" ? "⚠ contradiction" : `⚠${claims.length} verify`,
     unsubstantiatedCount: status === "supported" ? 0 : claims.length,
   }
 }

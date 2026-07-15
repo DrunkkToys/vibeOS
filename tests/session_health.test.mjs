@@ -82,3 +82,29 @@ test("claim evidence: contradiction is reported from user follow-up", async () =
   assert.ok(result.contradictedBy.some((item) => /user follow-up/i.test(item)))
 })
 
+// A contradicted claim (the user directly refuting a claim, or the assistant
+// contradicting its own earlier claim) previously got the exact same generic
+// "⚠N verify" claimTag as a merely-unverified-so-far claim -- there was no way
+// for a user to tell "this hasn't been checked yet" apart from "this was
+// caught contradicting itself" just by reading the footer. This is the
+// concrete gap behind the "lie detector isn't doing its job" complaint: the
+// mechanism detects the contradiction (status: "contradicted") but never
+// communicated it distinctly.
+test("claim evidence: contradicted claims get a distinct, visible tag from merely-unverified claims", async () => {
+  const health = await import("../src/lib/session-health.js?health-claim-tag=" + Date.now())
+
+  const contradicted = health.evaluateClaimEvidence({
+    text: "I fixed the bug and verified the release.",
+    userText: "It still doesn't work.",
+  })
+  assert.equal(contradicted.status, "contradicted")
+  assert.match(contradicted.claimTag, /contradiction/i, "contradicted claims must say so, not just \"verify\": " + contradicted.claimTag)
+
+  const merelyUnverified = health.evaluateClaimEvidence({
+    text: "I fixed the bug and verified the release.",
+  })
+  assert.equal(merelyUnverified.status, "unsupported")
+  assert.doesNotMatch(merelyUnverified.claimTag, /contradiction/i, "an unverified (not contradicted) claim must not claim a contradiction: " + merelyUnverified.claimTag)
+  assert.notEqual(contradicted.claimTag, merelyUnverified.claimTag, "contradicted and merely-unverified must render different tags")
+})
+
