@@ -776,13 +776,43 @@ export const onToolExecuteBefore = async (input, output) => {
     const selection = loadSelection()
     // ── ONE source of truth ──
     // syncControlSettings (onSystemTransform) already decided this turn's worker
-    // tier in selection state. Escalation (loop / web-search / uncertainty)
-    // propagates here via tier_bias -> worker_slot. Read it; never re-derive.
+    // tier in selection state (regime + stress driven). Escalation (loop / web-
+    // search / uncertainty) propagates here via tier_bias -> worker_slot. This
+    // is the baseline; read it, never re-derive the regime from scratch.
+    //
+    // On top of that baseline, per-message ML difficulty (computeDifficulty) may
+    // adjust the tier UP OR DOWN for this one message -- bidirectional, never
+    // regime-sticky. A cheap-baseline turn escalates when the prompt is
+    // genuinely complex; a brain-baseline turn de-escalates when the prompt is
+    // genuinely trivial. This wires the ML difficulty engine (previously
+    // computed via resolveCascadeRouteDecision but never consulted by real Task
+    // routing) into production routing. See docs/live-debug-session-notes.md
+    // round 13.
     const _rawSlot = String(selection.worker_slot || selection.selected_slot || "").trim().toLowerCase()
-    const _slot = (_rawSlot === "cheap" || _rawSlot === "medium" || _rawSlot === "brain")
+    const _regimeSlot = (_rawSlot === "cheap" || _rawSlot === "medium" || _rawSlot === "brain")
       ? _rawSlot
       : (currentTier === "high" ? "medium" : "cheap")
-    const _cascadeRoot = _normalizeCascadeRoot(selection.active_pipeline, _slot)
+    const _cascadeRoot = _normalizeCascadeRoot(selection.active_pipeline, _regimeSlot)
+    let _slot = _regimeSlot
+    let _routeSource = "control-vector"
+    let _routeReason = `worker slot ${_regimeSlot}`
+    if (input?.mlEnabled !== false && _prompt.length > 0) {
+      try {
+        const mlDifficulty = computeDifficulty(_prompt)
+        if (
+          mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD &&
+          mlDifficulty.level !== "moderate" &&
+          _cascadeRoot.includes(mlDifficulty.suggestedTier) &&
+          mlDifficulty.suggestedTier !== _regimeSlot
+        ) {
+          _slot = mlDifficulty.suggestedTier
+          _routeSource = "ml"
+          _routeReason = `ml ${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)} (regime=${_regimeSlot})`
+        }
+      } catch (mlErr) {
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] ML per-turn route adjustment error: ${mlErr.message}`)
+      }
+    }
     const _routePath = normalizeRoutePath(_cascadeRoot, _slot)
     const routeDecision = {
       selectedModel: _modelForSlot(_slot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN),
@@ -790,9 +820,9 @@ export const onToolExecuteBefore = async (input, output) => {
       selectedSubagent: taskSubagentTypeForSlot(_slot),
       requiresDelegation: _slot === "medium" || _slot === "brain",
       shouldOverrideLocal: true,
-      delegationReason: `worker slot ${_slot}`,
-      reason: `worker slot ${_slot}`,
-      source: "control-vector",
+      delegationReason: _routeReason,
+      reason: _routeReason,
+      source: _routeSource,
       routePath: _routePath,
       cascadeRoot: _cascadeRoot,
       cascadeDepth: _routePath.length || 1,

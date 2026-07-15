@@ -237,10 +237,14 @@ testCase("real cascade edge cases: routing ignores per-task remote calls and bla
   primeBrain(projectDir)
   setWorkerSlot("medium")
 
-  // The subagent hook makes NO per-task remote route call — the main turn's
-  // control vector (worker_slot) is the single source of truth. A "remote
-  // target" prompt therefore does NOT win; it follows worker_slot=medium.
-  const remoteArgs = await routeTaskPrompt(hooks, "check build status remote target")
+  // The subagent hook makes NO per-task remote route call, and the literal
+  // words "remote target" in a prompt are not special-cased anywhere -- this
+  // guards against that specific regression. The control vector (worker_slot)
+  // is still the baseline authority; per-message ML difficulty may adjust it
+  // (see vibeultrax_subagent_cascade.test.mjs), but this prompt is worded to
+  // score "moderate" (ambiguous), which never triggers that adjustment, so it
+  // follows worker_slot=medium here.
+  const remoteArgs = await routeTaskPrompt(hooks, "implement a distributed check against the remote target build status across the auth pipeline with database migration and integration tests")
   assert.equal(remoteArgs.model, "deepseek/deepseek-v4-flash")
   assert.equal(remoteArgs.modelID, "deepseek/deepseek-v4-flash")
   const afterRemoteJobs = readActiveJobs()
