@@ -691,6 +691,28 @@ test("trinity: lock off works", async () => {
   assert.ok(result.includes("LOCK OFF") || result.includes("lock"))
 })
 
+test("trinity: axis tdd off immediately disables TDD enforcement, not just stores the override", async () => {
+  // Before this fix, `vibe axis <name> <value>` only called writeAxisOverride()
+  // -- nothing ever read axis_overrides back to change delegation_enforce/
+  // flow_enforce/tdd_enforce/thinking_level, so the command silently did
+  // nothing beyond echoing the value back on `axis status`.
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-axis-"))
+  const deps = makeMockDeps(sandbox)
+  deps.writeSelection("tdd_enforce", true)
+  deps.writeSelection("tdd_strict", true)
+  deps.writeSelection("tdd_quality", true)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+
+  const result = await tool.execute({ action: "axis", slot: "tdd", level: "off" })
+  assert.ok(typeof result === "string" && result.includes("tdd"), "axis command returns confirmation: " + result)
+
+  const sel = deps.loadSelection()
+  assert.equal(sel.tdd_enforce, false, "axis tdd=off must immediately clear tdd_enforce")
+  assert.equal(sel.tdd_strict, false, "axis tdd=off must immediately clear tdd_strict")
+  assert.equal(sel.tdd_quality, false, "axis tdd=off must immediately clear tdd_quality")
+})
+
 test("trinity: patterns shows project patterns", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "trinity-patterns-"))
   const deps = makeMockDeps(sandbox)

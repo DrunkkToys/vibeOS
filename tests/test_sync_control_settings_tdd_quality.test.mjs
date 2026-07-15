@@ -108,3 +108,46 @@ test("syncControlSettings: tdd_mode=lazy disables both tdd_strict and tdd_qualit
   assert.equal(sel.tdd_strict, false, `tdd_mode="lazy" must sync tdd_strict=false, got: ${sel.tdd_strict}`)
   assert.equal(sel.tdd_quality, false, `tdd_mode="lazy" must sync tdd_quality=false, got: ${sel.tdd_quality}`)
 })
+
+// Contract: a manual `vibe axis tdd off` override must survive auto-mode's
+// per-turn syncControlSettings() re-sync -- otherwise the entire per-axis
+// override feature (CLAUDE.md item 4) silently does nothing beyond storing
+// a value nobody reads. Live-reproduced: with axis_overrides={tdd:"off"} on
+// disk, a "quality" control vector still flipped tdd_enforce back to true on
+// the very next turn.
+test("syncControlSettings: an active axis_overrides.tdd pin must not be clobbered by auto-mode", async () => {
+  const { vibeHome } = seedSandbox("vibeos-axis-tdd-pin-", {
+    tdd_enforce: false, tdd_strict: false, tdd_quality: false,
+    axis_overrides: { tdd: "off" },
+  })
+  const prevVibeHome = process.env.VIBEOS_HOME
+  const prevHome = process.env.HOME
+  process.env.VIBEOS_HOME = vibeHome
+  process.env.HOME = vibeHome
+  after(() => {
+    process.env.VIBEOS_HOME = prevVibeHome !== undefined ? prevVibeHome : ""
+    process.env.HOME = prevHome !== undefined ? prevHome : ""
+  })
+
+  const { syncControlSettings } = await import("../src/lib/hooks/chat-transform.js")
+  const { loadSelection } = await import("../src/lib/state.js")
+
+  const controlVector = {
+    optimization_mode: "vibeultrax",
+    tier_bias: "brain",
+    selected_slot: "brain",
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: "full",
+    route_path: ["brain"],
+    pipeline_root: ["brain"],
+    cascade_root: ["brain"],
+  }
+
+  syncControlSettings(controlVector, { authoritative: true, persistOptimizationMode: false })
+
+  const sel = loadSelection()
+  assert.equal(sel.tdd_enforce, false, `axis override tdd=off must survive auto-mode sync, got tdd_enforce=${sel.tdd_enforce}`)
+  assert.equal(sel.tdd_quality, false, `axis override tdd=off must survive auto-mode sync, got tdd_quality=${sel.tdd_quality}`)
+})

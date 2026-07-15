@@ -661,9 +661,21 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
 
     const compatibilityMode = currentSel.onboarding_mode === "assist"
     const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false
-    writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : cv.enforcement_mode !== "relaxed")
+    // A `vibe axis <name> <value>` pin must survive this per-turn auto-mode
+    // re-sync -- otherwise the axis-override feature only ever stores a value
+    // nobody reads, and silently loses to the very next turn's regime-driven
+    // write. See docs/live-debug-session-notes.md round 13.
+    const axisOverrides = currentSel.axis_overrides && typeof currentSel.axis_overrides === "object" ? currentSel.axis_overrides : {}
+    const enforcementPinned = axisOverrides.enforcement != null
+    const flowPinned = axisOverrides.flow != null
+    const tddPinned = axisOverrides.tdd != null
+    const thinkingPinned = axisOverrides.thinking != null
 
-    if (!flowManuallyDisabled) {
+    if (!enforcementPinned) {
+      writeIf("delegation_enforce", compatibilityMode ? cv.enforcement_mode === "strict" : cv.enforcement_mode !== "relaxed")
+    }
+
+    if (!flowManuallyDisabled && !flowPinned) {
       if (compatibilityMode) {
         writeIf("flow_enabled", cv.flow_mode === "strict")
         writeIf("flow_enforce", cv.flow_mode === "strict")
@@ -676,21 +688,23 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
     }
 
-    if (compatibilityMode) {
-      writeIf("tdd_enforce", cv.tdd_mode === "quality")
-      writeIf("tdd_strict", cv.tdd_mode === "quality")
-      writeIf("tdd_quality", cv.tdd_mode === "quality")
-    } else if (cv.tdd_mode === "lazy") {
-      writeIf("tdd_enforce", false)
-      writeIf("tdd_strict", false)
-      writeIf("tdd_quality", false)
-    } else {
-      writeIf("tdd_enforce", true)
-      writeIf("tdd_strict", cv.tdd_mode === "quality")
-      writeIf("tdd_quality", cv.tdd_mode === "quality")
+    if (!tddPinned) {
+      if (compatibilityMode) {
+        writeIf("tdd_enforce", cv.tdd_mode === "quality")
+        writeIf("tdd_strict", cv.tdd_mode === "quality")
+        writeIf("tdd_quality", cv.tdd_mode === "quality")
+      } else if (cv.tdd_mode === "lazy") {
+        writeIf("tdd_enforce", false)
+        writeIf("tdd_strict", false)
+        writeIf("tdd_quality", false)
+      } else {
+        writeIf("tdd_enforce", true)
+        writeIf("tdd_strict", cv.tdd_mode === "quality")
+        writeIf("tdd_quality", cv.tdd_mode === "quality")
+      }
     }
 
-    if (cv.thinking_mode) {
+    if (cv.thinking_mode && !thinkingPinned) {
       const nextThinking = cv.thinking_mode === "auto" ? "off" : cv.thinking_mode
       if (currentSel.thinking_level !== nextThinking) writeIf("thinking_level", nextThinking)
     }
