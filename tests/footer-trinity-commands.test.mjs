@@ -696,7 +696,15 @@ test("trinity: axis tdd off immediately disables TDD enforcement, not just store
   // -- nothing ever read axis_overrides back to change delegation_enforce/
   // flow_enforce/tdd_enforce/thinking_level, so the command silently did
   // nothing beyond echoing the value back on `axis status`.
+  //
+  // writeAxisOverride()/loadAxisOverrides() bypass the mock `deps` entirely and
+  // read the real state.js getVibeOSHome(), so VIBEOS_HOME must point at this
+  // sandbox's .claude dir or the write silently fails outside a dev machine
+  // with a pre-existing global vibeOS home (which is why this passed locally
+  // but failed in CI).
   const sandbox = mkdtempSync(join(tmpdir(), "trinity-axis-"))
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
   const deps = makeMockDeps(sandbox)
   deps.writeSelection("tdd_enforce", true)
   deps.writeSelection("tdd_strict", true)
@@ -705,6 +713,8 @@ test("trinity: axis tdd off immediately disables TDD enforcement, not just store
   const tool = createTrinityTool(deps)
 
   const result = await tool.execute({ action: "axis", slot: "tdd", level: "off" })
+  if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
+  else process.env.VIBEOS_HOME = prevVibeHome
   assert.ok(typeof result === "string" && result.includes("tdd"), "axis command returns confirmation: " + result)
 
   const sel = deps.loadSelection()
