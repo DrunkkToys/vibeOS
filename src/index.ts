@@ -70,6 +70,12 @@ const CLAIM_PATTERNS = [
   /(?:works|working|validated|verified)/i,
   /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i,
   /(?:\d+%|score|scored|passing|passed)/i,
+  // Live-reproduced gap: a confident status assertion ("Cascade Diagnosis: Healthy...
+  // No lock, no stress, no degradation.") slipped past every prior pattern -- none of
+  // them cover a bare health/status claim that doesn't use "fixed/works/passed" wording.
+  // This let a real fabricated "no degradation" claim through with zero claim-audit
+  // trail, so `vibe verify-claims` never had anything to check it against.
+  /\b(?:healthy|no\s+(?:degradation|issues|problems)|all\s+good|everything\s+(?:is\s+)?(?:fine|ok|okay))\b/i,
 ]
 function scanClaimsInOutput(output) {
   let text = ""

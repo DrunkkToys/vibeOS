@@ -28,6 +28,7 @@ const CLAIM_PATTERNS = [
   /(?:works|working|validated|verified)/i,
   /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i,
   /(?:\d+%|score|scored|passing|passed)/i,
+  /\b(?:healthy|no\s+(?:degradation|issues|problems)|all\s+good|everything\s+(?:is\s+)?(?:fine|ok|okay))\b/i,
 ]
 
 test("contract: ACTION pattern matches 'I pushed the release'", () => {
@@ -66,6 +67,18 @@ test("contract: DONE/FIX/WORKS patterns match claim language", () => {
   assert.ok(CLAIM_PATTERNS[4].test("the implementation is done"))
   assert.ok(CLAIM_PATTERNS[5].test("the bug is fixed"))
   assert.ok(CLAIM_PATTERNS[6].test("the feature works now"))
+})
+
+// Live-reproduced gap (2026-07-15): a real "vibe diagnose cascade" turn responded
+// "Cascade Diagnosis: Healthy... No lock, no stress, no degradation." while the actual
+// state on disk showed model-tiers.json's cheap_first_degraded=true with a real reason
+// recorded. None of the prior CLAIM_PATTERNS matched this text at all, so it never got
+// written to claim-audit.jsonl and `vibe verify-claims` had nothing to check.
+test("contract: STATUS pattern catches confident health/status claims prior patterns missed", () => {
+  assert.ok(CLAIM_PATTERNS[9].test("Cascade Diagnosis: Healthy."))
+  assert.ok(CLAIM_PATTERNS[9].test("No lock, no stress, no degradation."))
+  assert.ok(CLAIM_PATTERNS[9].test("Everything is fine now."))
+  assert.ok(CLAIM_PATTERNS[9].test("All good, nothing to report."))
 })
 
 test("contract: neutral language does NOT match any pattern", () => {
