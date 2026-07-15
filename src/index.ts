@@ -307,6 +307,14 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
 // ── Remote API client state ──────────────────────────────────────────
 let _apiClient = null
 
+// Live-reproduced (2026-07-15, driven for real in OpenCode Desktop): this
+// variable was assigned in _checkAndRecordUnsubstantiatedClaims (and, before
+// the refactor, in both duplicated hook blocks) but never declared anywhere
+// in this file's history -- the assignment threw a ReferenceError on every
+// single turn, silently swallowed by the function's own catch block, so the
+// whole cross-check never once completed successfully in production.
+let _unsubstantiatedClaims = 0
+
 let activeJob = null
 let fp = ""
 let _mcpServerRuntime = null
