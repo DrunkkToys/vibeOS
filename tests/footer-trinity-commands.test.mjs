@@ -723,6 +723,46 @@ test("trinity: axis tdd off immediately disables TDD enforcement, not just store
   assert.equal(sel.tdd_quality, false, "axis tdd=off must immediately clear tdd_quality")
 })
 
+test("trinity: flow enforce on survives the next turn's auto-mode regime resync", async () => {
+  // Live-reproduced in OpenCode Desktop: `vibe flow enforce on` confirmed
+  // "ENABLED" in the footer, but the very next turn's syncControlSettings()
+  // regime resync silently reverted flow_enforce back to false in
+  // model-tiers.json -- the command's success message was a lie about what
+  // actually happens on the next turn. `vibe axis flow on` already pins via
+  // axis_overrides (PR #468); this proves the direct `vibe flow` command path
+  // now does too.
+  const sandbox = mkdtempSync(join(tmpdir(), "trinity-flow-pin-"))
+  const prevVibeHome = process.env.VIBEOS_HOME
+  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+  const deps = makeMockDeps(sandbox)
+  deps.writeSelection("flow_enabled", true)
+  deps.writeSelection("flow_enforce", false)
+  const { createTrinityTool } = await import("../src/lib/trinity-tool.js")
+  const tool = createTrinityTool(deps)
+
+  const result = await tool.execute({ action: "flow", slot: "enforce", level: "on" })
+  assert.ok(typeof result === "string" && result.includes("ENABLED"), "flow enforce on returns confirmation: " + result)
+  assert.equal(deps.loadSelection().flow_enforce, true, "flow enforce on must immediately set flow_enforce")
+
+  // Simulate the next turn: a regime that would normally set flow to "audit"
+  // (flow_enforce: false) must NOT win over the pin.
+  const chat = await import("../src/lib/hooks/chat-transform.js?flow-pin=" + Date.now())
+  chat.syncControlSettings({
+    optimization_mode: "vibeultrax",
+    tier_bias: "cheap",
+    selected_slot: "cheap",
+    flow_mode: "audit",
+    enforcement_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: "off",
+  }, { authoritative: true, directory: sandbox })
+
+  if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
+  else process.env.VIBEOS_HOME = prevVibeHome
+
+  assert.equal(deps.loadSelection().flow_enforce, true, "flow enforce pin must survive the next turn's regime resync")
+})
+
 test("trinity: patterns shows project patterns", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "trinity-patterns-"))
   const deps = makeMockDeps(sandbox)

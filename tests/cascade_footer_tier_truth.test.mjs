@@ -155,7 +155,10 @@ async function runTaskRouting(ctx, workerSlot) {
   // tool.execute.before hook itself never rewrites it again.
   const ocMtimeAfterBootstrap = existsSync(ctx.ocConfig) ? statSync(ctx.ocConfig).mtimeMs : null
 
-  const args = { description: "escalated task", prompt: "implement something", subagent_type: null, model: null }
+  // Wording is intentionally ML-neutral ("moderate" score, confidence 0.5) --
+  // this test is about footer/resolveActiveCascadeTier agreement with the
+  // persisted route at each depth, not about ML difficulty routing.
+  const args = { description: "escalated task", prompt: "implement something across the auth pipeline with database migration and integration tests", subagent_type: null, model: null }
   await hooks["tool.execute.before"]({ tool: "task" }, { args })
 
   return { sid, args, ocMtimeAfterBootstrap }

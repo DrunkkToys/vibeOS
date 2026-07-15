@@ -198,6 +198,102 @@ test("vibeultrax task routing normalizes task subagent_type to general", async (
   }
 })
 
+// ML difficulty can escalate or de-escalate the control-vector's regime slot
+// for a single message -- bidirectional, per the explicit design directive:
+// a cheap-baseline turn must escalate for a genuinely complex prompt, and a
+// brain-baseline turn must de-escalate for a genuinely trivial one. Neither
+// direction is allowed to get "stuck" at the regime's baseline tier. See
+// docs/live-debug-session-notes.md round 13.
+test("vibeultrax task routing: ML difficulty escalates a cheap-baseline turn for a genuinely complex prompt", async () => {
+  const ctx = withSandbox("vibeos-ml-escalate-")
+  try {
+    writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "cheap",
+        slot_locked: false,
+        optimization_mode: "vibeultrax",
+        active_pipeline: ["cheap", "medium", "brain"],
+        selected_slot: "cheap",
+        worker_slot: "cheap",
+      },
+      trinity: {
+        cheap: { oc: "opencode/big-pickle" },
+        medium: { oc: "opencode-go/mimo-v2.5" },
+        brain: { oc: "deepseek/deepseek-v4-flash" },
+      },
+      tiers: {
+        high: { regex: "v4-flash|pro|opus|brain" },
+        mid: { regex: "mimo|flash|sonnet|medium" },
+        budget: { regex: "big-pickle|cheap|chat" },
+      },
+    }, null, 2))
+
+    const mod = await import("../src/index.js?ml-escalate=" + Date.now())
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: ctx.sandbox })
+    const args = {
+      description: "Complex migration",
+      prompt: "implement a complex distributed migration with concurrency race condition deadlock byzantine fault tolerance paxos raft consensus CRDT eventual consistency circuit breaker observability security vulnerability exploit injection authentication authorization database schema migration kubernetes docker container orchestration microservice architecture refactor across src/lib/hooks/tool-execute.ts src/lib/hooks/chat-transform.ts src/lib/pricing.ts package.json tsconfig.json",
+      subagent_type: "general",
+      model: null,
+      modelID: null,
+      modelId: null,
+    }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args })
+
+    assert.equal(args.model, "deepseek/deepseek-v4-flash")
+    assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
+    assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("vibeultrax task routing: ML difficulty de-escalates a brain-baseline turn for a genuinely trivial prompt", async () => {
+  const ctx = withSandbox("vibeos-ml-deescalate-")
+  try {
+    writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "brain",
+        slot_locked: false,
+        optimization_mode: "vibeultrax",
+        active_pipeline: ["cheap", "medium", "brain"],
+        selected_slot: "brain",
+        worker_slot: "brain",
+      },
+      trinity: {
+        cheap: { oc: "opencode/big-pickle" },
+        medium: { oc: "opencode-go/mimo-v2.5" },
+        brain: { oc: "deepseek/deepseek-v4-flash" },
+      },
+      tiers: {
+        high: { regex: "v4-flash|pro|opus|brain" },
+        mid: { regex: "mimo|flash|sonnet|medium" },
+        budget: { regex: "big-pickle|cheap|chat" },
+      },
+    }, null, 2))
+
+    const mod = await import("../src/index.js?ml-deescalate=" + Date.now())
+    const hooks = await mod.DelegationEnforcer({ client: {}, directory: ctx.sandbox })
+    const args = {
+      description: "Trivial fix",
+      prompt: "fix typo",
+      subagent_type: "general",
+      model: null,
+      modelID: null,
+      modelId: null,
+    }
+    await hooks["tool.execute.before"]({ tool: "task" }, { args })
+
+    assert.equal(args.model, "opencode/big-pickle")
+    assert.equal(args.modelID, "opencode/big-pickle")
+    assert.equal(args.modelId, "opencode/big-pickle")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test("vibeultrax task routing ignores stale lower-tier worker_model for brain route", async () => {
   const ctx = withSandbox("vibeos-tier-stale-worker-")
   try {

@@ -758,10 +758,21 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "flow") {
+        // `vibe flow on|off` / `vibe flow enforce on|off` must also pin
+        // axis_overrides.flow -- otherwise the very next turn's auto-mode
+        // syncControlSettings() regime resync silently reverts flow_enabled/
+        // flow_enforce back to whatever the current regime dictates, and the
+        // command's own success message misrepresents what happens on the
+        // next turn. Live-reproduced: `vibe flow enforce on` confirmed ON in
+        // the footer, but flow_enforce was back to false in model-tiers.json
+        // one turn later. Mirrors the `vibe axis flow <value>` pin mechanism
+        // (writeAxisOverride) already fixed for the axis command path.
+        // See docs/live-debug-session-notes.md round 13.
         if (slot === "on" || slot === "off") {
           const ok = deps.writeSelection("flow_enabled", slot === "on")
           if (ok) deps.writeSelection("flow_enforce", slot === "on")
           if (ok && slot === "on") deps.writeSelection("onboarding_mode", "strict")
+          if (ok) writeAxisOverride("flow", slot)
           return ok
             ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
             : `\u274c Failed to write model-tiers.json`
@@ -771,6 +782,7 @@ export function createTrinityTool(deps) {
           const enforceOn = level === "on"
           const ok = deps.writeSelection("flow_enforce", enforceOn)
           if (ok && enforceOn) deps.writeSelection("onboarding_mode", "strict")
+          if (ok) writeAxisOverride("flow", enforceOn ? "on" : "audit")
           return ok
             ? `\u2705 Flow enforcement ${enforceOn ? "ENABLED (auto-extract TODOs)" : "DISABLED (log only)"}`
             : `\u274c Failed to write model-tiers.json`
