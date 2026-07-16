@@ -1253,6 +1253,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onChatHeaders(_input, output)
     },
     "experimental.chat.messages.transform": async (_input, output) => {
+      if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
+      setVibeOSHomeContext(hookVibeHome)
       ensureDeferredBootstrap()
       return onMessagesTransform(_input, output)
     },
