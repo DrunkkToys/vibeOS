@@ -565,6 +565,15 @@ export function setCurrentProjectFingerprint(v: string) { currentProjectFingerpr
 export function setCurrentProjectName(v: string) { currentProjectName = v }
 export function setCurrentSessionId(v: string) {
   currentSessionId = String(v || _OC_SID)
+  // _OC_SID is a live module export read DIRECTLY (not via getCurrentSessionId())
+  // by trackBlackbox (chat-transform.ts) and getBlackboxTracker (cascade.ts). Before
+  // this fix only `currentSessionId` was updated here, so _OC_SID stayed pinned to
+  // the per-process fallback id (getOcSessionId()) for the whole process lifetime --
+  // live-reproduced: trackBlackbox kept writing real turn history under the stale
+  // fallback key while recordLiveSessionSnapshot (which uses getCurrentSessionId())
+  // wrote to the REAL session key, leaving every actual session's blackbox record
+  // frozen at n_interactions=0 forever and the blackbox regime stuck at INIT.
+  _OC_SID = currentSessionId
   // Keep the scratchpad cache's session scoping (getOcSessionId, read by
   // scratchpad-cache.ts's getSessionRoot()) in sync with the real conversation
   // identity -- otherwise it stays pinned to the stale per-process placeholder

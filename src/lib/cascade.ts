@@ -1084,6 +1084,7 @@ class _BlackboxStub {
 
 let _blackboxTracker = null
 let _blackboxTrackerHome = ""
+let _blackboxTrackerSid = ""
 let _prevOutputText = ""
 let _latestBlackboxState = null
 let _latestBlackboxStateHome = ""
@@ -1164,12 +1165,25 @@ export function getBlackboxTracker() {
   const currentHome = getVibeOSHome()
   if (_blackboxTrackerHome && _blackboxTrackerHome !== currentHome) {
     _blackboxTracker = null
+    _blackboxTrackerSid = ""
     _latestBlackboxState = null
     _latestBlackboxStateHome = ""
     _latestBlackboxStateSessionId = ""
   }
+  // The tracker used to be a pure process-lifetime singleton, rebuilt only on
+  // a VIBEOS_HOME change. In OpenCode Desktop one long-running plugin process
+  // serves many sessions, so a session opened after the first one kept reusing
+  // (or silently sharing) the first session's tracker instance -- its history
+  // never got its OWN per-session growth, which is why live sessions sat at
+  // n_interactions=0 forever while unrelated one-shot "opencode-PID-..." keys
+  // froze at n_interactions=1. Rebuild (and rehydrate from disk) whenever the
+  // current OpenCode session id changes.
+  if (_blackboxTracker && _blackboxTrackerSid && _OC_SID && _blackboxTrackerSid !== _OC_SID) {
+    _blackboxTracker = null
+  }
   if (!_blackboxTracker) {
     _blackboxTrackerHome = currentHome
+    _blackboxTrackerSid = _OC_SID
     const state = loadBlackboxState()
     if (state.enabled !== undefined) _setGlobalBlackboxEnabled(state.enabled)
     const sid = _OC_SID
