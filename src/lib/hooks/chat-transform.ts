@@ -913,6 +913,13 @@ function _stripLeadingFooterForHash(s: string): string {
   return s.replace(/^(?:— [^\n]*—\n\n)+/, "")
 }
 
+// Floor for the cache-write path only (hash + scratch/by-hash + indexAppend +
+// future-hit pointer). Deliberately much lower than COMPRESS_THRESHOLD, which
+// gates the separate "shrink into a context-saving summary" decision below --
+// a tiny file read is never worth compressing into a longer marker string,
+// but it's still worth caching so a later identical read can hit.
+const MIN_CACHEABLE_BYTES = 40
+
 // -- Context compression --------------------------------------------
 export function compressToolOutputs(messages: unknown[]): number {
   let compressedBytes = 0
@@ -930,7 +937,18 @@ export function compressToolOutputs(messages: unknown[]): number {
       const state = part.state
       if (state?.status !== "completed") continue
       const raw = state.output
-      if (!raw || typeof raw !== "string" || raw.length < COMPRESS_THRESHOLD) continue
+      // Live-reproduced (real end-to-end scenario): reading the same small
+      // file (src/utils.ts, 180 bytes) twice in a row created zero scratchpad
+      // entries and zero cache activity, because this whole block -- hashing,
+      // writing to scratch/by-hash, indexAppend, the future-hit pointer file
+      // -- was gated behind COMPRESS_THRESHOLD (2000 bytes), a limit meant
+      // for "is this worth shrinking into a context-saving summary", not
+      // "is this worth caching for reuse". Most everyday file reads/greps/
+      // command outputs are well under 2000 bytes, so the cache never
+      // engaged for the common case. Only skip genuinely trivial content;
+      // gate the actual context-compression rewrite below on COMPRESS_THRESHOLD
+      // instead, so large cold messages still get shrunk the same as before.
+      if (!raw || typeof raw !== "string" || raw.length < MIN_CACHEABLE_BYTES) continue
       if (raw.includes(COMPRESS_MARKER)) continue
 
       const hashableContent = _stripLeadingFooterForHash(raw)
@@ -969,7 +987,7 @@ export function compressToolOutputs(messages: unknown[]): number {
         continue
       }
 
-      if (!isCold) continue
+      if (!isCold || raw.length < COMPRESS_THRESHOLD) continue
 
       const summary = raw.slice(0, 200).replace(/\n+/g, " ").trim() + (raw.length > 200 ? "\u2026" : "")
       const ref =
