@@ -300,49 +300,6 @@ export function buildEnforcementTags(opts: {
   return tags
 }
 
-// The claim/cascade cross-check in index.ts (_checkAndRecordUnsubstantiatedClaims)
-// already runs every turn and already knows when the assistant said something
-// unsubstantiated -- it just wrote the answer to drift-alerts.jsonl and never
-// surfaced it anywhere a human would actually see it without running
-// `vibe verify-claims` by hand. This reads that log so the tag can show up in
-// the very next footer paint. In-memory dedup (not a file rewrite) so the
-// append-only audit trail stays untouched for `vibe reality-check` and other
-// consumers, but the same alert doesn't repeat forever.
-let _lastDriftAlertShownTs = 0
-function readLatestDriftAlert(sessionId?: string): { count: number; claims: string[] } | null {
-  try {
-    const driftFile = join(getVibeOSHome(), "cascade-audit", "drift-alerts.jsonl")
-    if (!existsSync(driftFile)) return null
-    const lines = readFileSync(driftFile, "utf-8").trim().split("\n").filter(Boolean)
-    if (!lines.length) return null
-    // Live-reproduced: reading only the file's last line, with no session match,
-    // let an unrelated older session's stale unverified-claim count bleed into a
-    // brand-new session's footer that never made any unverified claim itself.
-    // Scan backward for the latest entry that actually belongs to THIS session.
-    // An entry with no sessionId (written before this fix, or by a caller that
-    // couldn't resolve one) must NOT be treated as a wildcard match -- that was
-    // the second half of the leak: every legacy entry lacked sessionId, so the
-    // first "if sessionId && entry.sessionId && mismatch" guard never skipped
-    // them and any session picked up the latest unscoped entry regardless.
-    let last: { ts?: string; count?: number; claims?: string[]; sessionId?: string } | null = null
-    for (let i = lines.length - 1; i >= 0; i--) {
-      let entry
-      try { entry = JSON.parse(lines[i]) } catch { continue }
-      if (sessionId && String(entry?.sessionId || "") !== String(sessionId)) continue
-      last = entry
-      break
-    }
-    if (!last) return null
-    const ts = Date.parse(last?.ts || "")
-    if (!Number.isFinite(ts) || ts <= _lastDriftAlertShownTs) return null
-    if (Date.now() - ts > 10 * 60 * 1000) return null
-    _lastDriftAlertShownTs = ts
-    return { count: Number(last?.count || 0), claims: Array.isArray(last?.claims) ? last.claims : [] }
-  } catch {
-    return null
-  }
-}
-
 export function buildFooterAlert(opts: {
   apiDegraded?: boolean
   apiSlow?: boolean
@@ -368,10 +325,19 @@ export function buildFooterAlert(opts: {
   if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
     alerts.push("⚠ model unreachable")
   }
-  const driftAlert = readLatestDriftAlert(opts.sessionId)
-  if (driftAlert && driftAlert.count > 0) {
-    alerts.push(`⚠ unverified claim (${driftAlert.count})`)
-  }
+  // Live-reproduced (real end-to-end scenario, not a synthetic prompt): a
+  // genuinely test-verified claim ("Fixed. All 3 tests pass again", backed by
+  // a real vitest run and a real patch) showed BOTH "unverified claim (N)" AND
+  // "check evidence" in the SAME footer line. _checkAndRecordUnsubstantiatedClaims
+  // (which fed this tag via drift-alerts.jsonl) only recognizes a cascade
+  // ml/backend/task ROUTING decision as evidence -- it has no concept of "a
+  // real verification command ran and passed", so it flags real, tool-verified
+  // work as unverified purely because the actual test run went through a Bash
+  // tool call rather than a cascade routing decision. evaluateClaimEvidence
+  // (session-health.ts, already wired into claimTag below) checks the right
+  // signals -- real patches, real verification tool exit codes, real
+  // executed cascade runs -- and is the one validator whose verdict should
+  // reach the user. Do not resurrect this second, contradictory tag.
   return alerts.join(" · ")
 }
 
