@@ -277,6 +277,7 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
         lastModelError: undefined,
         pendingLiveModel: pendingSwitch?.model || undefined,
         sessionId: sid,
+        cheapFirstDegraded: loadSelection().cheap_first_degraded === true,
       })
     } catch {}
     const cascadeState = typeof loadBlackboxState === "function" ? loadBlackboxState() : null
