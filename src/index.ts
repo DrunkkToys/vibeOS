@@ -70,6 +70,12 @@ const CLAIM_PATTERNS = [
   /(?:works|working|validated|verified)/i,
   /(?:exit\s*code\s*0|0\s*errors|0\s*failures)/i,
   /(?:\d+%|score|scored|passing|passed)/i,
+  // The PR's own motivating real fabrication ("Cascade Diagnosis: Healthy...
+  // no degradation" while cheap_first_degraded was actually true on disk)
+  // didn't match any pattern above, so the cross-check silently skipped it
+  // as "not a claim" -- the exact kind of status assertion this check exists
+  // to catch.
+  /\b(?:healthy|no degradation|nominal|operating normally)\b/i,
 ]
 function scanClaimsInOutput(output) {
   let text = ""
