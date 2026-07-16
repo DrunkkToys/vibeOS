@@ -43,15 +43,20 @@ function withSandbox(name) {
 test("_checkAndRecordUnsubstantiatedClaims writes drift-alerts.jsonl when a claim has no matching cascade run", async () => {
   const ctx = withSandbox("vibeos-claim-drift-")
   try {
+    const idx = await import("../src/index.js?claim-drift-idx=" + Date.now())
+    idx.setCurrentSessionId("ses_test_claim_drift_1")
     // A claim that matches CLAIM_PATTERNS (the "healthy / no degradation" pattern)
-    // with no nearby cascade-audit run at all -> unsubstantiated.
+    // with no nearby cascade-audit run at all -> unsubstantiated. sessionId must
+    // match what the code under test resolves via getCurrentSessionId() -- claim
+    // entries are now session-scoped so an unrelated session's claims can't bleed
+    // into this one's count (see the cross-session leak this test file guards).
     writeFileSync(ctx.claimFile, JSON.stringify({
       ts: new Date().toISOString(),
+      sessionId: "ses_test_claim_drift_1",
       claims: [{ text: "Cascade Diagnosis: Healthy, no degradation.", pattern: "status" }],
       totalClaims: 1,
     }) + "\n")
 
-    const idx = await import("../src/index.js?claim-drift-idx=" + Date.now())
     idx._checkAndRecordUnsubstantiatedClaims()
 
     assert.equal(existsSync(ctx.driftFile), true, "drift-alerts.jsonl must be created")
@@ -68,15 +73,17 @@ test("_checkAndRecordUnsubstantiatedClaims writes drift-alerts.jsonl when a clai
 test("_checkAndRecordUnsubstantiatedClaims does not write drift-alerts.jsonl when the claim is substantiated by a nearby EXECUTED cascade run", async () => {
   const ctx = withSandbox("vibeos-claim-drift-ok-")
   try {
+    const idx = await import("../src/index.js?claim-drift-ok-idx=" + Date.now())
+    idx.setCurrentSessionId("ses_test_claim_drift_2")
     const now = new Date().toISOString()
     writeFileSync(ctx.claimFile, JSON.stringify({
       ts: now,
+      sessionId: "ses_test_claim_drift_2",
       claims: [{ text: "the feature works now", pattern: "action" }],
       totalClaims: 1,
     }) + "\n")
     writeFileSync(ctx.cascadeFile, JSON.stringify({ _ts: now, answer_empty: false, executed: true }) + "\n")
 
-    const idx = await import("../src/index.js?claim-drift-ok-idx=" + Date.now())
     idx._checkAndRecordUnsubstantiatedClaims()
 
     assert.equal(existsSync(ctx.driftFile), false, "no drift alert should be written for a substantiated claim")
@@ -95,9 +102,12 @@ test("_checkAndRecordUnsubstantiatedClaims does not write drift-alerts.jsonl whe
 test("_checkAndRecordUnsubstantiatedClaims ignores a nearby chat-params audit entry (no executed field) as false evidence", async () => {
   const ctx = withSandbox("vibeos-claim-drift-chatparams-")
   try {
+    const idx = await import("../src/index.js?claim-drift-chatparams-idx=" + Date.now())
+    idx.setCurrentSessionId("ses_test_claim_drift_3")
     const now = new Date().toISOString()
     writeFileSync(ctx.claimFile, JSON.stringify({
       ts: now,
+      sessionId: "ses_test_claim_drift_3",
       claims: [{ text: "The bug is fixed and everything is fine now.", pattern: "status" }],
       totalClaims: 1,
     }) + "\n")
@@ -111,7 +121,6 @@ test("_checkAndRecordUnsubstantiatedClaims ignores a nearby chat-params audit en
       alreadyCorrect: false,
     }) + "\n")
 
-    const idx = await import("../src/index.js?claim-drift-chatparams-idx=" + Date.now())
     idx._checkAndRecordUnsubstantiatedClaims()
 
     assert.equal(existsSync(ctx.driftFile), true, "a chat-params entry must not count as substantiation")
@@ -122,7 +131,17 @@ test("_checkAndRecordUnsubstantiatedClaims ignores a nearby chat-params audit en
   }
 })
 
-test("buildFooterAlert surfaces a recent unverified-claim drift alert", async () => {
+// Live-reproduced in a real end-to-end scenario (not a synthetic prompt):
+// implement a feature, run real tests (pass), introduce a real bug, run real
+// tests (fail, reported honestly), fix the real bug, run real tests (pass).
+// The genuinely test-verified "Fixed. All 3 tests pass again" claim showed
+// BOTH "unverified claim (N)" AND "check evidence" in the same footer line --
+// this drift-alert tag only recognized cascade ROUTING decisions as evidence,
+// not real verification-tool exit codes, so it flagged real, tool-verified
+// work as unverified. evaluateClaimEvidence (session-health.ts) already
+// checks the right signals and is wired into claimTag; this second,
+// contradictory tag was retired from the automatic footer.
+test("buildFooterAlert no longer surfaces the retired unverified-claim drift tag", async () => {
   const ctx = withSandbox("vibeos-claim-drift-footer-")
   try {
     writeFileSync(ctx.driftFile, JSON.stringify({
@@ -133,26 +152,7 @@ test("buildFooterAlert surfaces a recent unverified-claim drift alert", async ()
 
     const footer = await import("../src/lib/hooks/footer.js?claim-drift-footer-idx=" + Date.now())
     const alert = footer.buildFooterAlert({})
-    assert.match(alert, /unverified claim/i)
-  } finally {
-    ctx.cleanup()
-  }
-})
-
-test("buildFooterAlert does not repeat the same drift alert on a second call", async () => {
-  const ctx = withSandbox("vibeos-claim-drift-dedup-")
-  try {
-    writeFileSync(ctx.driftFile, JSON.stringify({
-      ts: new Date().toISOString(),
-      count: 1,
-      claims: ["all good, nothing to report"],
-    }) + "\n")
-
-    const footer = await import("../src/lib/hooks/footer.js?claim-drift-dedup-idx=" + Date.now())
-    const first = footer.buildFooterAlert({})
-    const second = footer.buildFooterAlert({})
-    assert.match(first, /unverified claim/i)
-    assert.doesNotMatch(second, /unverified claim/i)
+    assert.doesNotMatch(alert, /unverified claim/i)
   } finally {
     ctx.cleanup()
   }

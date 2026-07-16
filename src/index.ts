@@ -106,6 +106,12 @@ function scanClaimsInOutput(output) {
     const auditFile = join(auditDir, "claim-audit.jsonl")
     const entry = JSON.stringify({
       ts: new Date().toISOString(),
+      // Live-reproduced: without a sessionId, _checkAndRecordUnsubstantiatedClaims
+      // reads the last 10 lines of this file with no session boundary at all --
+      // a genuinely test-backed claim from THIS session ("All 3 tests pass") got
+      // flagged unverified because unrelated older sessions' claims (a Redis
+      // rate-limiter writeup, old footer-bug claims) shared the scan window.
+      sessionId: getCurrentSessionId() || _OC_SID || "",
       claims: claims.slice(0, 10),
       totalClaims: claims.length,
       responseHash: "",
@@ -127,7 +133,21 @@ function _checkAndRecordUnsubstantiatedClaims() {
     const claimFile = join(auditDir, "claim-audit.jsonl")
     const cascadeFile = join(auditDir, "cascade-audit.jsonl")
     if (!existsSync(claimFile) || statSync(claimFile).size === 0) return
-    const claimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-10)
+    // Live-reproduced: slicing the last 10 RAW lines of claim-audit.jsonl mixed
+    // claims from completely unrelated sessions into this session's count -- a
+    // genuinely test-backed claim ("All 3 tests pass") from THIS session got
+    // flagged alongside an old Redis-rate-limiter claim and old footer-bug
+    // claims from a different conversation entirely. Scan a wider raw window,
+    // then keep only entries that actually belong to the current session
+    // (an entry with no sessionId is a legacy/unscoped write and must not be
+    // treated as a match, same principle as footer.ts's drift-alert reader).
+    const currentSid = getCurrentSessionId() || _OC_SID || ""
+    const rawClaimLines = readFileSync(claimFile, "utf-8").trim().split("\n").slice(-200)
+    const claimLines = currentSid
+      ? rawClaimLines.filter((l) => {
+        try { return String(JSON.parse(l)?.sessionId || "") === String(currentSid) } catch { return false }
+      }).slice(-10)
+      : rawClaimLines.slice(-10)
     const cascadeLines = existsSync(cascadeFile) ? readFileSync(cascadeFile, "utf-8").trim().split("\n").slice(-30) : []
     const cascadeRuns = cascadeLines.filter(Boolean).map(l => { try { return JSON.parse(l) } catch {} }).filter(Boolean)
     let unsub = 0
