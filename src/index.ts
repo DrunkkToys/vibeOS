@@ -166,6 +166,12 @@ function _checkAndRecordUnsubstantiatedClaims() {
       const driftFile = join(auditDir, "drift-alerts.jsonl")
       appendFileSync(driftFile, JSON.stringify({
         ts: new Date().toISOString(),
+        // Live-reproduced: without a sessionId, footer.ts's readLatestDriftAlert
+        // just reads the file's LAST line with no session scoping at all -- an
+        // unrelated older session's stale unsubstantiated-claim count (from
+        // completely different work, e.g. "scratch-flow-test.py") bled into a
+        // brand-new session's footer that never made any unverified claim.
+        sessionId: getCurrentSessionId() || _OC_SID || "",
         count: unsub,
         claims: unsubClaimTexts.slice(0, 5),
       }) + "\n")
@@ -250,6 +256,7 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
         expectedModel: expected || undefined,
         lastModelError: undefined,
         pendingLiveModel: pendingSwitch?.model || undefined,
+        sessionId: sid,
       })
     } catch {}
     const cascadeState = typeof loadBlackboxState === "function" ? loadBlackboxState() : null
