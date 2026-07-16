@@ -309,13 +309,30 @@ export function buildEnforcementTags(opts: {
 // append-only audit trail stays untouched for `vibe reality-check` and other
 // consumers, but the same alert doesn't repeat forever.
 let _lastDriftAlertShownTs = 0
-function readLatestDriftAlert(): { count: number; claims: string[] } | null {
+function readLatestDriftAlert(sessionId?: string): { count: number; claims: string[] } | null {
   try {
     const driftFile = join(getVibeOSHome(), "cascade-audit", "drift-alerts.jsonl")
     if (!existsSync(driftFile)) return null
     const lines = readFileSync(driftFile, "utf-8").trim().split("\n").filter(Boolean)
     if (!lines.length) return null
-    const last = JSON.parse(lines[lines.length - 1])
+    // Live-reproduced: reading only the file's last line, with no session match,
+    // let an unrelated older session's stale unverified-claim count bleed into a
+    // brand-new session's footer that never made any unverified claim itself.
+    // Scan backward for the latest entry that actually belongs to THIS session.
+    // An entry with no sessionId (written before this fix, or by a caller that
+    // couldn't resolve one) must NOT be treated as a wildcard match -- that was
+    // the second half of the leak: every legacy entry lacked sessionId, so the
+    // first "if sessionId && entry.sessionId && mismatch" guard never skipped
+    // them and any session picked up the latest unscoped entry regardless.
+    let last: { ts?: string; count?: number; claims?: string[]; sessionId?: string } | null = null
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let entry
+      try { entry = JSON.parse(lines[i]) } catch { continue }
+      if (sessionId && String(entry?.sessionId || "") !== String(sessionId)) continue
+      last = entry
+      break
+    }
+    if (!last) return null
     const ts = Date.parse(last?.ts || "")
     if (!Number.isFinite(ts) || ts <= _lastDriftAlertShownTs) return null
     if (Date.now() - ts > 10 * 60 * 1000) return null
@@ -333,6 +350,7 @@ export function buildFooterAlert(opts: {
   expectedModel?: string
   lastModelError?: string
   pendingLiveModel?: string
+  sessionId?: string
 } | null = {}): string {
   opts = opts || {}
   const alerts: string[] = []
@@ -350,7 +368,7 @@ export function buildFooterAlert(opts: {
   if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
     alerts.push("⚠ model unreachable")
   }
-  const driftAlert = readLatestDriftAlert()
+  const driftAlert = readLatestDriftAlert(opts.sessionId)
   if (driftAlert && driftAlert.count > 0) {
     alerts.push(`⚠ unverified claim (${driftAlert.count})`)
   }
@@ -1224,6 +1242,7 @@ async function resolveFooterDisplayState(
       expectedModel: _expectedForAlert || undefined,
       lastModelError,
       pendingLiveModel: pendingSwitch?.model || undefined,
+      sessionId: sid,
     })
     if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
       _alertTag = "\u21BB recover"
