@@ -293,7 +293,13 @@ export function evaluateClaimEvidence(input: {
       const runTurn = String(run.turnId || "").trim()
       if (runTurn && runTurn !== turnId) return false
     }
-    return run.executed !== false
+    // Live-reproduced: a chat-params routing entry (source: "chat-params") writes to
+    // this same file on every turn but never sets `executed` at all. `!== false` let
+    // that routine per-turn write count as "evidence" for ANY claim -- including a
+    // zero-tool-call fabrication ("the bug is fixed") that happened to land within
+    // the window. Only an explicit executed:true (a real ml/backend/task routing
+    // decision) counts as proof something ran.
+    return run.executed === true
   })
   if (hasCascadeEvidence) matchedEvidence.add("runtime:cascade-audit")
 
