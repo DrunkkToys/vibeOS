@@ -1490,6 +1490,15 @@ export function createTrinityTool(deps) {
         const _finalTiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
         const _trinity = _finalTiers?.trinity || {}
         const _pMan = (s) => _trinity[s]?.manual === true ? " [manual, preserved]" : ""
+        // Live-reproduced: `applySlot` above deliberately writes ONLY the unwatched
+        // model-tiers.json (rewriting opencode.json mid-turn aborts the active turn --
+        // see the Model Switch Contract). Its own comment says tier agents are meant to
+        // be "installed once at setup / vibe rebuild", but this handler never actually
+        // called installVibeTierAgents -- so opencode.json's vibe-cheap/medium/brain
+        // agent bindings could permanently drift from the real trinity slots and
+        // `vibe rebuild` (the fix this plugin itself tells users to run) could never
+        // close that gap. Sync it here, once, outside any turn.
+        const agentRepair = installVibeTierAgents(deps.directory || "", _trinity, _finalTiers?.selection?.active_slot || null)
         const lines = [
           `\ud83d\udd0d Auto-detected models from provider: ${trinity.provider || "unknown"}`,
           "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705" + _pMan("brain"),
@@ -1501,6 +1510,9 @@ export function createTrinityTool(deps) {
           for (const f of failed) lines.push("  \u274c " + f)
         }
         lines.push("", "\u2705 model-tiers.json updated.", "\ud83e\udde0 Brain slot auto-activated: " + probed.brain.id)
+        lines.push(agentRepair.changed.length > 0
+          ? `\u2705 Synced tier agents to ${agentRepair.changed.length} OpenCode config(s).`
+          : "\u2139\ufe0f Tier agents already in sync with OpenCode config.")
         return lines.join("\n")
       }
 

@@ -301,6 +301,45 @@ test("rebuild preserves manual trinity slots and only refreshes auto slots", asy
   assert.equal(after.selection.executed_model, undefined, "shadow executed_model should not survive rebuild")
 })
 
+// Live-reproduced on a real dev machine: applySlot() deliberately writes ONLY
+// the unwatched model-tiers.json (rewriting opencode.json mid-turn aborts the
+// active turn), with its own comment saying tier agents are meant to be
+// "installed once at setup / vibe rebuild" -- but the rebuild handler never
+// actually called installVibeTierAgents. opencode.json's vibe-cheap/medium/
+// brain agent bindings could permanently drift from the real trinity slots,
+// and cheapFirstDegraded/crossProvider stayed true forever because the fix
+// this plugin itself tells users to run ("vibe rebuild") never closed the gap.
+test("rebuild syncs opencode.json's tier-agent model bindings to the final trinity", async () => {
+  setTiers("legacy-brain", "legacy-medium", "legacy-cheap")
+  const ocPath = join(sandbox, ".opencode/opencode.json")
+  writeFileSync(ocPath, JSON.stringify({
+    model: "deepseek/deepseek-v4-pro",
+    agent: {
+      "vibe-cheap": { model: "some/stale-cheap-model" },
+      "vibe-medium": { model: "some/stale-medium-model" },
+      "vibe-brain": { model: "some/stale-brain-model" },
+    },
+    provider: {
+      deepseek: {
+        models: {
+          "deepseek-v4-pro": { name: "DeepSeek V4 Pro" },
+          "deepseek-v4-flash": { name: "DeepSeek V4 Flash" },
+          "deepseek-chat": { name: "DeepSeek Chat" },
+        },
+      },
+    },
+  }, null, 2))
+
+  await (await getHooks()).tool.trinity.execute({ action: "rebuild" })
+
+  const tiersPath = join(sandbox, ".claude/model-tiers.json")
+  const finalTrinity = JSON.parse(readFileSync(tiersPath, "utf8")).trinity
+  const afterOc = JSON.parse(readFileSync(ocPath, "utf8"))
+  assert.equal(afterOc.agent["vibe-cheap"].model, finalTrinity.cheap.oc, "vibe-cheap agent must match the final cheap trinity slot after rebuild")
+  assert.equal(afterOc.agent["vibe-medium"].model, finalTrinity.medium.oc, "vibe-medium agent must match the final medium trinity slot after rebuild")
+  assert.equal(afterOc.agent["vibe-brain"].model, finalTrinity.brain.oc, "vibe-brain agent must match the final brain trinity slot after rebuild")
+})
+
 test("guard creates project docs on first run", async () => {
   const projectDir = join(sandbox, "guard-project")
   mkdirSync(projectDir, { recursive: true })
