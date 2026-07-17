@@ -308,11 +308,23 @@ export function buildFooterAlert(opts: {
   lastModelError?: string
   pendingLiveModel?: string
   sessionId?: string
+  cheapFirstDegraded?: boolean
 } | null = {}): string {
   opts = opts || {}
   const alerts: string[] = []
   if (opts.apiSlow) alerts.push("⚠ api slow")
   if (opts.apiDegraded && String(opts.lastModelError || "").trim()) alerts.push("⚠ api degraded")
+  // Live-reproduced: chat-params.ts already computes and persists
+  // cheap_first_degraded/cheap_first_reason (a real, correct signal -- the
+  // configured trinity model for this slot is on a different provider than
+  // the live primary model, so the free same-provider param-switch path is
+  // unusable and every turn is forced through the more expensive cross-
+  // provider Task-delegation route instead). It was already read by
+  // trinity-tool.ts for `vibe status`/diagnose, but never surfaced in the
+  // automatic footer -- so a user paying for cross-provider delegation on
+  // every single turn saw the footer say "cheap" with no indication their
+  // cost-saving path was structurally disabled.
+  if (opts.cheapFirstDegraded) alerts.push("⚠ cross-provider (run vibe rebuild)")
   const expectedToCompare = opts.pendingLiveModel || opts.expectedModel
   if (opts.liveModel && expectedToCompare && opts.liveModel !== expectedToCompare) {
     if (opts.pendingLiveModel) {
@@ -1209,6 +1221,7 @@ async function resolveFooterDisplayState(
       lastModelError,
       pendingLiveModel: pendingSwitch?.model || undefined,
       sessionId: sid,
+      cheapFirstDegraded: loadSelection().cheap_first_degraded === true,
     })
     if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
       _alertTag = "\u21BB recover"
