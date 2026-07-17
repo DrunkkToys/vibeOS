@@ -33,7 +33,10 @@ export function commandFamily(command: string): string {
 }
 
 export function commandFailed(output: unknown): boolean {
-  const code = output?.exitCode ?? output?.statusCode ?? output?.code
+  // OpenCode's real bash tool output carries the exit code at
+  // output.metadata.exit, not output.exitCode/statusCode/code -- see
+  // semantic-observer.ts's deriveTags for the live-reproduced detail.
+  const code = output?.metadata?.exit ?? output?.exitCode ?? output?.statusCode ?? output?.code
   if (Number.isFinite(Number(code)) && Number(code) !== 0) return true
   const raw = output?.result ?? output?.text ?? output?.content ?? output?.data ?? ""
   if (typeof raw !== "string") return false

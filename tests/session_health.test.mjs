@@ -108,3 +108,37 @@ test("claim evidence: contradicted claims get a distinct, visible tag from merel
   assert.notEqual(contradicted.claimTag, merelyUnverified.claimTag, "contradicted and merely-unverified must render different tags")
 })
 
+
+// Live-reproduced on a real dev machine: a real `npx vitest run
+// tests/lru-cache.test.ts` bash call passed genuinely (7/7 tests, real
+// output shown), and its own commit implemented a real feature (98 lines of
+// implementation, 86 lines of tests) -- yet the "All 7 tests pass" claim
+// came back status:"unsupported" with claimTag "⚠2 verify". Root cause was
+// semantic-observer.ts's deriveTags reading the exit code from
+// output.exitCode/statusCode/code, none of which exist on OpenCode's real
+// bash tool output shape (the real field is output.metadata.exit) -- so the
+// session event was recorded with exitCode:null forever, and
+// verificationEvidenceFromEvents (which requires exitCode === 0, no text
+// fallback) never counted a real passing test run as evidence.
+test("claim evidence: a real passing verification event (exitCode 0) makes a test-backed claim supported", async () => {
+  const { appendFileSync, mkdirSync } = await import("node:fs")
+  const eventsDir = join(vibeHome, "session-events")
+  mkdirSync(eventsDir, { recursive: true })
+  appendFileSync(join(eventsDir, "sid-health-verified.jsonl"), JSON.stringify({
+    tool: "bash",
+    role: "verification",
+    family: "test",
+    at: Date.now(),
+    isGuardBreach: false,
+    isProtectedTarget: false,
+    exitCode: 0,
+  }) + "\n")
+
+  const health = await import("../src/lib/session-health.js?health-verified-claim=" + Date.now())
+  const result = health.evaluateClaimEvidence({
+    text: "All 7 tests pass.",
+    sessionId: "sid-health-verified",
+  })
+  assert.equal(result.status, "supported", "a real exitCode:0 verification event must make the claim supported: " + JSON.stringify(result))
+  assert.equal(result.claimTag, "✓ evidence")
+})
