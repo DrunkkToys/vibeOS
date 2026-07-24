@@ -8,7 +8,7 @@ import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolv
 import { BRANDED_MODES, RUNTIME_MODES, RAW_MODE, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./cascade.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
-import { getSessionHealthSnapshot } from "./session-health.js"
+import { getSessionHealthSnapshot, getLiveOpenCodeModel } from "./session-health.js"
 import { getVibeOSHome } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
@@ -1338,6 +1338,11 @@ export function createTrinityTool(deps) {
           let cascadeMatch = false
           let emptyAnswers = 0
           for (const cr of recentCascade) {
+            // Same guard as index.ts's _checkAndRecordUnsubstantiatedClaims:
+            // chat-params writes a cascade-audit line every turn with no
+            // `executed` field, which made mere timestamp proximity a false
+            // positive for "substantiated" regardless of what actually ran.
+            if (cr.executed !== true) continue
             const cTs = cr._ts || ""
             if (cTs && cl.ts) {
               const diffMs = Math.abs(new Date(cTs).getTime() - new Date(cl.ts).getTime())
@@ -1398,6 +1403,26 @@ export function createTrinityTool(deps) {
             }
           }
         }
+        // Every-turn cross-check (index.ts's _checkAndRecordUnsubstantiatedClaims,
+        // wired to the footer's [unverified claim] tag) writes to this same log --
+        // surface it here too so a manual `vibe verify-claims` run sees what the
+        // automatic per-turn check already found, not just its own re-derived scan.
+        try {
+          const driftFile = join(AUDIT_DIR, "drift-alerts.jsonl")
+          if (deps.existsSync(driftFile)) {
+            const driftLines = deps.readFileSync(driftFile, "utf-8").trim().split(String.fromCharCode(10)).filter(Boolean).slice(-5)
+            if (driftLines.length > 0) {
+              lines.push("")
+              lines.push("Automatic per-turn drift alerts (last 5):")
+              for (const dl of driftLines) {
+                try {
+                  const d = JSON.parse(dl)
+                  lines.push("  " + String(d.ts || "").slice(0, 19) + ": " + d.count + " unsubstantiated — " + (d.claims || []).join(" | ").substring(0, 80))
+                } catch {}
+              }
+            }
+          }
+        } catch {}
         return lines.join(String.fromCharCode(10))
       }
 
@@ -1419,6 +1444,22 @@ export function createTrinityTool(deps) {
             const oc = deps.safeJsonParse(readFileSync(cfgPath, "utf-8"))
             const model = String(oc?.agent?.build?.model || oc?.model || "").trim()
             if (model) { selectedModel = model; break }
+          }
+          // Live-reproduced: opencode.json's static agent.build.model/model
+          // fields are commonly empty (the live model is chosen entirely at
+          // runtime via the chat dropdown, never persisted there), so this
+          // fell straight through to deps.currentModel -- an in-memory cache
+          // that is itself empty until a chat.params hook has fired at least
+          // once this process. Running `vibe rebuild` as the very first
+          // message of a session therefore had zero live-model context and
+          // silently defaulted to whichever provider happened to be first in
+          // the discovered models list, producing candidates unrelated to
+          // (and unreachable compared to) what the user is actually running.
+          // OpenCode's own session DB is authoritative for what actually ran
+          // most recently, regardless of in-memory cache state.
+          if (!selectedModel) {
+            const live = getLiveOpenCodeModel()
+            if (live) selectedModel = `${live.provider}/${live.model}`
           }
           if (!selectedModel) selectedModel = deps.currentModel || ""
         } catch {
@@ -1465,17 +1506,45 @@ export function createTrinityTool(deps) {
         const _finalTiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
         const _trinity = _finalTiers?.trinity || {}
         const _pMan = (s) => _trinity[s]?.manual === true ? " [manual, preserved]" : ""
+        // Live-reproduced: `applySlot` above deliberately writes ONLY the unwatched
+        // model-tiers.json (rewriting opencode.json mid-turn aborts the active turn --
+        // see the Model Switch Contract). Its own comment says tier agents are meant to
+        // be "installed once at setup / vibe rebuild", but this handler never actually
+        // called installVibeTierAgents -- so opencode.json's vibe-cheap/medium/brain
+        // agent bindings could permanently drift from the real trinity slots and
+        // `vibe rebuild` (the fix this plugin itself tells users to run) could never
+        // close that gap. Sync it here, once, outside any turn.
+        const agentRepair = installVibeTierAgents(deps.directory || "", _trinity, _finalTiers?.selection?.active_slot || null)
+        // Live-reproduced: this display showed the freshly PROBED candidate
+        // (probed[s].id) with a plain checkmark, even on turns where
+        // keepExistingTrinitySlot silently kept the OLD value instead
+        // (correct, deliberate behavior for an already-valid config -- see
+        // "rebuild keeps valid project trinity slots instead of snapping
+        // back to defaults" -- but the chat output never said so). A user
+        // reading "brain -> deepseek/deepseek-v4-flash ... done" had no way
+        // to tell whether that model was actually applied or just discovered
+        // and discarded. Show the REAL persisted value and label it plainly
+        // when it differs from what was probed.
+        const _slotLine = (s, icon) => {
+          const finalOc = _trinity[s]?.oc || probed[s].id
+          const wasKept = finalOc !== probed[s].id
+          const note = wasKept ? " [kept existing]" : ""
+          return `  ${icon} ${s.padEnd(6)} \u2192 ${finalOc} (tier: ${probed[s].tier}, $${probed[s].cost.toFixed(4)}/turn) \u2705${note}${_pMan(s)}`
+        }
         const lines = [
           `\ud83d\udd0d Auto-detected models from provider: ${trinity.provider || "unknown"}`,
-          "  \ud83e\udde0 brain  \u2192 " + probed.brain.id + " (tier: " + probed.brain.tier + ", $" + probed.brain.cost.toFixed(4) + "/turn) \u2705" + _pMan("brain"),
-          "  \u2699  medium \u2192 " + probed.medium.id + " (tier: " + probed.medium.tier + ", $" + probed.medium.cost.toFixed(4) + "/turn) \u2705" + _pMan("medium"),
-          "  \u26a1 cheap  \u2192 " + probed.cheap.id + " (tier: " + probed.cheap.tier + ", $" + probed.cheap.cost.toFixed(4) + "/turn) \u2705" + _pMan("cheap"),
+          _slotLine("brain", "\ud83e\udde0"),
+          _slotLine("medium", "\u2699"),
+          _slotLine("cheap", "\u26a1"),
         ]
         if (failed.length > 0) {
           lines.push("", "Probe failures (skipped):")
           for (const f of failed) lines.push("  \u274c " + f)
         }
-        lines.push("", "\u2705 model-tiers.json updated.", "\ud83e\udde0 Brain slot auto-activated: " + probed.brain.id)
+        lines.push("", "\u2705 model-tiers.json updated.", "\ud83e\udde0 Brain slot auto-activated: " + (_trinity.brain?.oc || probed.brain.id))
+        lines.push(agentRepair.changed.length > 0
+          ? `\u2705 Synced tier agents to ${agentRepair.changed.length} OpenCode config(s).`
+          : "\u2139\ufe0f Tier agents already in sync with OpenCode config.")
         return lines.join("\n")
       }
 

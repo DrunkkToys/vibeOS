@@ -307,11 +307,24 @@ export function buildFooterAlert(opts: {
   expectedModel?: string
   lastModelError?: string
   pendingLiveModel?: string
+  sessionId?: string
+  cheapFirstDegraded?: boolean
 } | null = {}): string {
   opts = opts || {}
   const alerts: string[] = []
   if (opts.apiSlow) alerts.push("⚠ api slow")
   if (opts.apiDegraded && String(opts.lastModelError || "").trim()) alerts.push("⚠ api degraded")
+  // Live-reproduced: chat-params.ts already computes and persists
+  // cheap_first_degraded/cheap_first_reason (a real, correct signal -- the
+  // configured trinity model for this slot is on a different provider than
+  // the live primary model, so the free same-provider param-switch path is
+  // unusable and every turn is forced through the more expensive cross-
+  // provider Task-delegation route instead). It was already read by
+  // trinity-tool.ts for `vibe status`/diagnose, but never surfaced in the
+  // automatic footer -- so a user paying for cross-provider delegation on
+  // every single turn saw the footer say "cheap" with no indication their
+  // cost-saving path was structurally disabled.
+  if (opts.cheapFirstDegraded) alerts.push("⚠ cross-provider (run vibe rebuild)")
   const expectedToCompare = opts.pendingLiveModel || opts.expectedModel
   if (opts.liveModel && expectedToCompare && opts.liveModel !== expectedToCompare) {
     if (opts.pendingLiveModel) {
@@ -324,6 +337,19 @@ export function buildFooterAlert(opts: {
   if (err && (err.includes("EHOSTUNREACH") || err.includes("ENOTFOUND") || err.includes("ETIMEDOUT"))) {
     alerts.push("⚠ model unreachable")
   }
+  // Live-reproduced (real end-to-end scenario, not a synthetic prompt): a
+  // genuinely test-verified claim ("Fixed. All 3 tests pass again", backed by
+  // a real vitest run and a real patch) showed BOTH "unverified claim (N)" AND
+  // "check evidence" in the SAME footer line. _checkAndRecordUnsubstantiatedClaims
+  // (which fed this tag via drift-alerts.jsonl) only recognizes a cascade
+  // ml/backend/task ROUTING decision as evidence -- it has no concept of "a
+  // real verification command ran and passed", so it flags real, tool-verified
+  // work as unverified purely because the actual test run went through a Bash
+  // tool call rather than a cascade routing decision. evaluateClaimEvidence
+  // (session-health.ts, already wired into claimTag below) checks the right
+  // signals -- real patches, real verification tool exit codes, real
+  // executed cascade runs -- and is the one validator whose verdict should
+  // reach the user. Do not resurrect this second, contradictory tag.
   return alerts.join(" · ")
 }
 
@@ -1194,6 +1220,8 @@ async function resolveFooterDisplayState(
       expectedModel: _expectedForAlert || undefined,
       lastModelError,
       pendingLiveModel: pendingSwitch?.model || undefined,
+      sessionId: sid,
+      cheapFirstDegraded: loadSelection().cheap_first_degraded === true,
     })
     if (!_alertTag && sessionHealth.risk !== "low" && sessionHealth.metaWorkDrift) {
       _alertTag = "\u21BB recover"

@@ -106,6 +106,36 @@ function runSqlJson(query: string): any[] {
   }
 }
 
+// Live-reproduced: `vibe rebuild` seeds its model-discovery provider from
+// opencode.json's static agent.build.model / top-level model fields -- both
+// were completely empty on a real dev machine (the live model is chosen
+// entirely at runtime via the chat dropdown, never written to that static
+// config), so rebuild fell back to an in-memory currentModel cache that is
+// empty until a real chat turn has run. Rebuilding as the very first message
+// of a session therefore had no live-model context at all and silently fell
+// through to whichever provider happened to be first in the discovered
+// models list (openrouter, unrelated to the deepseek models actually
+// reachable and in use) -- and those candidates then failed their reachability
+// probes. This queries OpenCode's own session DB for the most recently used
+// real provider/model, the same authoritative source getSessionDbFacts uses,
+// so rebuild can seed its provider from what is ACTUALLY running.
+export function getLiveOpenCodeModel(): { provider: string; model: string } | null {
+  const rows = runSqlJson(`
+    select json_extract(data,'$.providerID') as provider, json_extract(data,'$.modelID') as model
+    from message
+    where json_extract(data,'$.role')='assistant'
+      and json_extract(data,'$.providerID') is not null
+      and json_extract(data,'$.modelID') is not null
+    order by time_created desc
+    limit 1;
+  `)
+  const row = rows[0]
+  const provider = String(row?.provider || "").trim()
+  const model = String(row?.model || "").trim()
+  if (!provider || !model) return null
+  return { provider, model }
+}
+
 function getSessionDbFacts(sessionId: string): Record<string, any> {
   if (!sessionId) return {}
   const sid = sqlString(sessionId)
@@ -293,7 +323,13 @@ export function evaluateClaimEvidence(input: {
       const runTurn = String(run.turnId || "").trim()
       if (runTurn && runTurn !== turnId) return false
     }
-    return run.executed !== false
+    // Live-reproduced: a chat-params routing entry (source: "chat-params") writes to
+    // this same file on every turn but never sets `executed` at all. `!== false` let
+    // that routine per-turn write count as "evidence" for ANY claim -- including a
+    // zero-tool-call fabrication ("the bug is fixed") that happened to land within
+    // the window. Only an explicit executed:true (a real ml/backend/task routing
+    // decision) counts as proof something ran.
+    return run.executed === true
   })
   if (hasCascadeEvidence) matchedEvidence.add("runtime:cascade-audit")
 

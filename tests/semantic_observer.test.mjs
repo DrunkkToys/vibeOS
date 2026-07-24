@@ -283,3 +283,37 @@ test('semantic: event log auto-prunes to 200 events', () => {
   const events = mod.readRecentEvents('test-prune', 300)
   assert.ok(events.length <= 200)
 })
+
+// Live-reproduced on a real dev machine: a real `npx vitest run
+// tests/lru-cache.test.ts` bash call passed genuinely (7/7 tests, real
+// output shown to the user), but the resulting session event was recorded
+// with exitCode: null, so session-health.ts's verificationEvidenceFromEvents
+// (which requires exitCode === 0, no text fallback) never counted it as
+// evidence -- a genuinely test-verified claim was flagged unsupported.
+// OpenCode's real bash tool output carries the exit code at
+// output.metadata.exit, confirmed against the actual raw part row for that
+// exact call: {state:{metadata:{exit:0, output:"...", truncated:false}}}.
+// deriveTags/commandFailed were only checking output.exitCode/statusCode/code,
+// which never exist on OpenCode's real shape -- exitCode silently stayed
+// null for every bash-run test/build/lint command.
+test('semantic: deriveTags reads the real exit code from output.metadata.exit (OpenCode\'s actual bash tool shape)', () => {
+  const realBashOutput = {
+    output: '\n RUN  v1.6.1 /project\n\n ✓ tests/lru-cache.test.ts  (7 tests) 2ms\n\n Test Files  1 passed (1)\n      Tests  7 passed (7)\n',
+    metadata: { output: 'Tests 7 passed (7)', exit: 0, truncated: false },
+    title: 'npx vitest run tests/lru-cache.test.ts',
+  }
+  const tags = mod.deriveTags({ args: { command: 'npx vitest run tests/lru-cache.test.ts' } }, realBashOutput)
+  assert.equal(tags.exitCode, 0, 'deriveTags must read the real exit code from metadata.exit, not stay null')
+  assert.equal(tags.isFailed, false)
+})
+
+test('semantic: deriveTags detects a real failing exit code from output.metadata.exit', () => {
+  const realBashOutput = {
+    output: 'No test files found',
+    metadata: { output: 'No test files found', exit: 1, truncated: false },
+    title: 'npx vitest run tests/nonexistent.test.ts',
+  }
+  const tags = mod.deriveTags({ args: { command: 'npx vitest run tests/nonexistent.test.ts' } }, realBashOutput)
+  assert.equal(tags.exitCode, 1)
+  assert.equal(tags.isFailed, true)
+})

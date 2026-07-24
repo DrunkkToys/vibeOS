@@ -13,7 +13,7 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -89,4 +89,43 @@ test("compressToolOutputs still detects genuinely different content as different
     return m ? m[1] : null
   }
   assert.notEqual(extractHash(compressedA), extractHash(compressedB), "genuinely different content must still hash differently")
+})
+
+// Live-reproduced in a real end-to-end scenario (not a synthetic prompt):
+// reading the same small file (src/utils.ts, 180 bytes) twice in the same
+// OpenCode Desktop session created ZERO scratchpad entries and zero cache
+// activity, because the entire cache-write path (hash, write to
+// scratch/by-hash, indexAppend, future-hit pointer) was gated behind
+// COMPRESS_THRESHOLD (2000 bytes) -- a limit meant for "is this worth
+// shrinking into a context-saving summary", not "is this worth caching for
+// reuse". Most everyday file reads/greps/command outputs are well under
+// 2000 bytes, so the cache never engaged for the common case.
+test("compressToolOutputs caches small tool output below COMPRESS_THRESHOLD but does not rewrite it into a compressed summary", async () => {
+  const chat = await import("../src/lib/hooks/chat-transform.js?smallcache=" + Date.now())
+  const state = await import("../src/lib/state.js?smallcache=" + Date.now())
+
+  const smallContent = "export function isPalindrome(str) {\n  return true\n}\n" // well under 2000 bytes, above the cache floor
+  const messages = [{
+    parts: [{
+      type: "tool",
+      tool: "read",
+      state: { status: "completed", output: smallContent },
+    }],
+  }]
+
+  chat.compressToolOutputs(messages)
+
+  // The small output must NOT be rewritten into a "[compressed]" reference --
+  // COMPRESS_THRESHOLD still gates the context-shrinking behavior.
+  assert.equal(messages[0].parts[0].state.output, smallContent, "small content must be left as-is, not compressed into a summary ref")
+
+  // But it MUST have been written to the content-addressed cache so a later
+  // identical read can hit -- this is the behavior that was previously dead
+  // for any tool output under 2000 bytes.
+  const byHashDir = join(state.SCRATCHPAD_ROOT, "by-hash")
+  assert.ok(existsSync(byHashDir), "by-hash cache directory must exist after caching small content")
+  const cached = readdirSync(byHashDir).some((f) => {
+    try { return readFileSync(join(byHashDir, f), "utf-8") === smallContent } catch { return false }
+  })
+  assert.ok(cached, "the small tool output must be present in the content-addressed cache")
 })

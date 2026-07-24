@@ -30,7 +30,18 @@ function deriveTags(input, output) {
   return {
     isGuardBreach: deriveRole(input?.name || "", input, output) === "bypass",
     isProtectedTarget: typeof cmd === "string" && targetsProtectedBranch(cmd),
-    exitCode: output?.exitCode ?? output?.statusCode ?? output?.code ?? null,
+    // Live-reproduced: OpenCode's real bash tool output carries the exit code
+    // at output.metadata.exit (confirmed against the raw part row for a real
+    // `npx vitest run ...` call: {state:{metadata:{exit:0, ...}}}), never at
+    // output.exitCode/statusCode/code. Those three never matched anything,
+    // so exitCode stayed null for every bash-run test/build/lint command --
+    // and verificationEvidenceFromEvents (session-health.ts) requires
+    // exitCode === 0 with no text-based fallback, so a genuinely passing
+    // real test run NEVER counted as evidence for a claim. (commandFailed
+    // below has the same gap but a regex fallback partly masks it for
+    // failures, which is why FAILED commands were still being detected
+    // while passing ones silently were not.)
+    exitCode: output?.metadata?.exit ?? output?.exitCode ?? output?.statusCode ?? output?.code ?? null,
     family: commandFamily(cmd),
     isFailed: commandFailed(output),
   }
