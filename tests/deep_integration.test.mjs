@@ -92,7 +92,7 @@ const state = await import("../src/lib/state.js?deep=" + Date.now())
 const { DelegationEnforcer, applySlot, classifyAndRankModels, modelToCcAlias,
         modelCostPerTurn, isModelFree, saveReport, listReports, readReport,
         researchAudit, getScratchpadHit, buildTestReminder } = mod
-const { collectConfiguredProviderModels, discoverAvailableModels, _extractModelsDevPricingMap } = await import("../src/lib/trinity-rebuild.js?deep=" + Date.now())
+const { collectConfiguredProviderModels, discoverAvailableModels, _extractModelsDevPricingMap, _resetModelsDevProbeForTests } = await import("../src/lib/trinity-rebuild.js?deep=" + Date.now())
 const { _writeDynamicPricingCache } = await import("../src/lib/pricing.js?deep=" + Date.now())
 
 async function freshPlugin(dir = projectDir) {
@@ -191,6 +191,34 @@ test("discoverAvailableModels: models.dev fills Google and opencode pricing", as
     assert.equal(modelCostPerTurn("opencode/native-model"), 0.00057)
   } finally {
     global.fetch = prevFetch
+  }
+})
+
+test("discoverAvailableModels: models.dev failures are rate-limited", async () => {
+  const prevFetch = global.fetch
+  const prevError = console.error
+  let attempts = 0
+  let errors = 0
+  _resetModelsDevProbeForTests()
+  global.fetch = async (url) => {
+    if (String(url).includes("models.dev/api.json")) {
+      attempts++
+      throw new Error("temporary DNS failure")
+    }
+    throw new Error("unexpected fetch: " + url)
+  }
+  console.error = () => { errors++ }
+
+  try {
+    const providers = { google: { models: { "gemini-3-pro-preview": {} } } }
+    await discoverAvailableModels(providers, {})
+    await discoverAvailableModels(providers, {})
+    assert.equal(attempts, 1, "a failed models.dev probe is retried only after its cooldown")
+    assert.equal(errors, 1, "the transient failure is logged once")
+  } finally {
+    global.fetch = prevFetch
+    console.error = prevError
+    _resetModelsDevProbeForTests()
   }
 })
 

@@ -156,6 +156,14 @@ export function collectConfiguredProviderModels(providers) {
 // ── trinity rebuild helpers: discover, classify, probe ────────────────
 
 const MODEL_RANK = { high: 3, mid: 2, budget: 1 }
+const MODELS_DEV_RETRY_COOLDOWN_MS = 5 * 60 * 1000
+let _modelsDevNextProbeAt = 0
+
+// Test-only reset prevents one simulated transient network failure from leaking
+// into the next isolated discovery test.
+export function _resetModelsDevProbeForTests() {
+  _modelsDevNextProbeAt = 0
+}
 
 function _loadOpenCodeProviders() {
   try {
@@ -271,7 +279,7 @@ export async function discoverAvailableModels(providers, auth) {
 
   const wantsModelsDev = Object.keys(providers || {}).some((name) => /^(google|opencode|qwen)$/i.test(name))
     || all.some((m) => /^(google|opencode|qwen)\//i.test(m.id))
-  if (wantsModelsDev) {
+  if (wantsModelsDev && Date.now() >= _modelsDevNextProbeAt) {
     try {
       const res = await fetch("https://models.dev/api.json", {
         signal: AbortSignal.timeout(5000),
@@ -280,8 +288,12 @@ export async function discoverAvailableModels(providers, auth) {
         const body = await res.json()
         const pricingMap = _extractModelsDevPricingMap(body, wantedIds)
         mergePricing(pricingMap)
+        _modelsDevNextProbeAt = 0
+      } else {
+        _modelsDevNextProbeAt = Date.now() + MODELS_DEV_RETRY_COOLDOWN_MS
       }
     } catch (e) {
+      _modelsDevNextProbeAt = Date.now() + MODELS_DEV_RETRY_COOLDOWN_MS
       console.error("[vibeOS] models.dev pricing probe failed:", e.message)
     }
   }
