@@ -24,7 +24,7 @@ test("blackbox hot path compacts stale history and skips duplicate footer writes
         control_history: Array.from({ length: 80 }, () => ({ control: { route_path: ["cheap", "medium"] } })),
       },
     ]))
-    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }))
+    writeFileSync(join(vibeHome, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions }))
     writeFileSync(join(vibeHome, "blackbox-state.json"), JSON.stringify({ enabled: true, sessions }))
 
     const state = await import(`../src/lib/state.js?blackbox-hot-path=${Date.now()}`)
@@ -43,10 +43,18 @@ test("blackbox hot path compacts stale history and skips duplicate footer writes
     const stateFile = join(vibeHome, "blackbox-state.json")
     const firstWrite = statSync(stateFile).mtimeMs
     const compacted = JSON.parse(readFileSync(stateFile, "utf8"))
+    const compactedDelegation = JSON.parse(readFileSync(join(vibeHome, "delegation-state.json"), "utf8"))
 
     assert.equal(Object.keys(compacted.sessions).length, 30)
+    assert.equal(Object.keys(compactedDelegation.sessions).length, 30)
     assert.ok(compacted.sessions["active-session"])
     for (const session of Object.values(compacted.sessions)) {
+      assert.ok((session.history || []).length <= 50)
+      assert.ok((session.pivotHistory || []).length <= 50)
+      assert.ok((session.outcomeHistory || []).length <= 25)
+      assert.ok((session.control_history || []).length <= 25)
+    }
+    for (const session of Object.values(compactedDelegation.sessions)) {
       assert.ok((session.history || []).length <= 50)
       assert.ok((session.pivotHistory || []).length <= 50)
       assert.ok((session.outcomeHistory || []).length <= 25)

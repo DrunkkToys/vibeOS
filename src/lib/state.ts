@@ -847,6 +847,12 @@ export function withFileLock<T>(filePath: string, fn: () => T, opts: { staleMs?:
           }
         }
       } catch {}
+      // Avoid burning a full CPU core while another hook holds this shared
+      // lock. These state helpers are synchronous, so yield briefly before
+      // retrying instead of hot-spinning until the timeout expires.
+      try {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+      } catch {}
     }
   }
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`)
@@ -946,6 +952,7 @@ function updateState(mutator: (state: DelegationState) => DelegationState | void
         const preGen = Number(preState?._gen || 0)
         let state = preState
         if (!state || typeof state !== "object") state = {}
+        _compactDelegationSessions(state)
         if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
           state.session_started_at = new Date().toISOString()
         }
@@ -956,6 +963,7 @@ function updateState(mutator: (state: DelegationState) => DelegationState | void
         state._ledgerFormatVersion ??= 2
         state._gen = preGen + 1
         const next = mutator(state) ?? state
+        _compactDelegationSessions(next)
         validateState(next, delegationStateFile)
         mkdirSync(dirname(delegationStateFile), { recursive: true })
         const tmp = delegationStateFile + ".tmp"
@@ -975,6 +983,26 @@ function updateState(mutator: (state: DelegationState) => DelegationState | void
     }
   }
   return null
+}
+
+function _compactDelegationSessions(state: DelegationState): void {
+  if (!state || typeof state !== "object") return
+  state.sessions ??= {}
+  _pruneOldSessions(state)
+  for (const session of Object.values(state.sessions)) {
+    if (!session || typeof session !== "object") continue
+    const cap = (key: string, limit: number) => {
+      if (Array.isArray(session[key]) && session[key].length > limit) {
+        session[key] = session[key].slice(-limit)
+      }
+    }
+    cap("history", MAX_BLACKBOX_EVENT_HISTORY)
+    cap("pivotHistory", MAX_BLACKBOX_EVENT_HISTORY)
+    cap("outcomeHistory", MAX_BLACKBOX_OUTCOME_HISTORY)
+    cap("control_history", MAX_BLACKBOX_CONTROL_HISTORY)
+    cap("cache_hits", MAX_BLACKBOX_EVENT_HISTORY)
+    cap("stress_history", MAX_BLACKBOX_EVENT_HISTORY)
+  }
 }
 
 function readFullState(): DelegationState {
