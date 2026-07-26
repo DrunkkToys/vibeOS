@@ -14,6 +14,39 @@ const ROOT = join(__dirname, "..")
 
 const bundlePath = join(ROOT, "dist", "vibeOS.js")
 const assetsPath = join(ROOT, "dist", "assets")
+const retentionScriptPath = join(ROOT, "scripts", "opencode-event-retention.mjs")
+
+function xml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+}
+
+async function installRetentionAgent(pluginDir) {
+  if (process.platform !== "darwin" || !existsSync(retentionScriptPath)) return
+  const runtimePath = join(pluginDir, "opencode-event-retention.mjs")
+  copyFileSync(retentionScriptPath, runtimePath)
+  const label = "com.vibeos.opencode-event-retention"
+  const plistPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`)
+  mkdirSync(dirname(plistPath), { recursive: true })
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${label}</string>
+  <key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(runtimePath)}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>${xml(join(homedir(), ".opencode", "opencode-retention.log"))}</string>
+  <key>StandardErrorPath</key><string>${xml(join(homedir(), ".opencode", "opencode-retention.log"))}</string>
+</dict></plist>\n`
+  writeFileSync(plistPath, plist)
+  try {
+    const { execFileSync } = await import("node:child_process")
+    const domain = `gui/${process.getuid?.() || 0}`
+    try { execFileSync("launchctl", ["bootout", domain, plistPath], { stdio: "ignore" }) } catch {}
+    execFileSync("launchctl", ["bootstrap", domain, plistPath], { stdio: "ignore" })
+  } catch {}
+  process.stderr.write(`[vibeOS deploy] Installed guarded OpenCode event-retention job at ${plistPath}\n`)
+}
 
 if (!existsSync(bundlePath)) {
   process.stderr.write("[vibeOS deploy] ERROR: dist/vibeOS.js not found\n")
@@ -34,6 +67,7 @@ try {
     writeFileSync(tmpDest, bundle)
     renameSync(tmpDest, destPath)
     process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ${home}/plugins/vibeOS.js (${bundle.length} bytes) [atomic]\n`)
+    await installRetentionAgent(pluginDir)
 
     if (existsSync(assetsPath)) {
       const tmpAssets = destAssets + '.deploying'
