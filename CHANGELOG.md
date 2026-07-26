@@ -1,3 +1,12 @@
+## 0.26.8
+- fix: require explicit dashboard MCP opt-in (#492)
+- fix: disable idle MCP dashboard autostart (#491)
+- fix: rate limit models.dev discovery failures (#489)
+- fix: copy retention runtime during deploy (#488)
+- fix: compact idle OpenCode event journals (#487)
+- fix: retain active session during state compaction (#486)
+- fix: prevent OpenCode state-lock CPU spin (#485)
+
 ## 0.26.7
 - feat: vibeultrax mode now captures pivot workflow snapshots (#438)
 - fix: prevent OpenCode blackbox state hot-path churn (#484)
