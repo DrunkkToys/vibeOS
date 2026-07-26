@@ -6,6 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER = "1"
+
 const serialTest = (name, fn) => test(name, { concurrency: false }, fn)
 
 function makeSandbox(name) {

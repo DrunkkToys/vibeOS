@@ -13,7 +13,7 @@ import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTr
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
 import { loadSessionSlot } from "../selection-manager.js"
-import { remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
+import { isApiConnected, isApiFallback } from "../api-client.js"
 import { getSessionCacheSavings } from "../session-savings.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
@@ -720,23 +720,12 @@ function footerDebug(...args: unknown[]) {
 }
 
 export function resetFooterRuntimeState(): void {
-  _cachedAutoMode = null
-  _cachedAutoModeTs = 0
-  _cachedAutoModeSessionId = ""
-  _cachedAutoModeHome = ""
-  _cachedAutoModeKey = ""
   _prevOutputText = ""
   _autoReportCount = 0
   textCompletePainted.clear()
+  footerPaintInFlight.clear()
   _lastStrippedText = ""
 }
-
-let _cachedAutoMode = null
-let _cachedAutoModeTs = 0
-let _cachedAutoModeSessionId = ""
-let _cachedAutoModeHome = ""
-let _cachedAutoModeKey = ""
-const AUTO_CACHE_TTL = 60000
 
 const DEFAULT_REGIME_MAP = {
   LOOPING: "vibemax", DIVERGENT: "vibemax",
@@ -750,41 +739,12 @@ function regimeToMode(regime, stress) {
   return DEFAULT_REGIME_MAP[regime] || "vibemax"
 }
 
-async function apiAutoSelectMode(regime, stress) {
-  const now = Date.now()
-  const sessionId = getSessionId()
-  const home = getVibeOSHome()
-  const cacheKey = `${home}|${sessionId}|${String(regime || "")}|${String(stress || 0)}`
-  if (
-    _cachedAutoMode &&
-    _cachedAutoModeHome === home &&
-    _cachedAutoModeSessionId === sessionId &&
-    _cachedAutoModeKey === cacheKey &&
-    now - _cachedAutoModeTs < AUTO_CACHE_TTL
-  ) return _cachedAutoMode
-  try {
-    const res = await remoteCall("blackboxSelectMode", [regime, stress], null)
-    if (res?.mode) {
-      _cachedAutoMode = res.mode
-      _cachedAutoModeTs = now
-      _cachedAutoModeSessionId = sessionId
-      _cachedAutoModeHome = home
-      _cachedAutoModeKey = cacheKey
-      return res.mode
-    }
-  } catch (e) { footerDebug("[vibeOS] apiAutoSelectMode error:", e.message) }
-  const fallback = regimeToMode(regime, stress)
-  _cachedAutoMode = fallback
-  _cachedAutoModeTs = now
-  _cachedAutoModeSessionId = sessionId
-  _cachedAutoModeHome = home
-  _cachedAutoModeKey = cacheKey
-  return fallback || "balanced"
-}
-
 let _prevOutputText = ""
 let _autoReportCount = 0
 const textCompletePainted = new Map()
+// A footer mutation emits message.updated in OpenCode. Keep the original
+// asynchronous paint as the only pass for a message while it is in progress.
+const footerPaintInFlight = new Set<string>()
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -1040,11 +1000,15 @@ async function resolveFooterDisplayState(
     liveBlackboxState?.optimization_mode ||
     "",
   ).trim().toLowerCase()
-  const displayMode = backendMode || (quietIntent
-    ? regimeToMode("INIT", _footerStress)
-    : (isApiConnected()
-      ? await apiAutoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)
-      : autoSelectMode(liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || ""), _footerStress)))
+  // A completion hook is on OpenCode's visible response path. It must not
+  // await a remote mode-selection request: failures there retry with long
+  // timeouts and previously made an otherwise-complete assistant response
+  // appear frozen. Routing has already happened before this hook; this is
+  // display-only, so derive the label locally.
+  const displayMode = backendMode || regimeToMode(
+    quietIntent ? "INIT" : (liveBlackboxState?.sub_regime || classifyTurnSimple(latestUserIntent || "")),
+    _footerStress,
+  )
   const ultraLiveModel = displayModel || liveModel || currentModel || TRINITY_CHEAP || TRINITY_MEDIUM || TRINITY_BRAIN || ""
   const ultraCascadeResolution = resolveActiveCascadeTier({
     liveSession: liveBlackboxState?.sessions?.[sid],
@@ -1280,6 +1244,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
+    if (messageID && footerPaintInFlight.has(messageID)) return
+    if (messageID) footerPaintInFlight.add(messageID)
+    try {
     // Both experimental.text.complete and message.updated call _appendFooter
     // for the same logical turn (message.updated is meant as a fallback for
     // OpenCode versions where text.complete doesn't fire). Without a guard
@@ -1471,6 +1438,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     if (textCompletePainted.size > 500) {
       const it = textCompletePainted.keys()
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
+    }
+    } finally {
+      if (messageID) footerPaintInFlight.delete(messageID)
     }
   } catch (err) {
     footerDebug(`[vibeOS] footer failed at stage=${_footerStage}: ${err?.message}`)

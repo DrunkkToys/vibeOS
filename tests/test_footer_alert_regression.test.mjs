@@ -8,6 +8,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER = "1"
+
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-footer-alert-"))
 mkdirSync(join(sandbox, ".claude"), { recursive: true })
 mkdirSync(join(sandbox, ".opencode"), { recursive: true })

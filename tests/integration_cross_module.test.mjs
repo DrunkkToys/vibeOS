@@ -8,6 +8,9 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
+process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER = "1"
+process.env.VIBEOS_ENABLE_STARTUP_CONFIG_RECONCILE = "1"
+
 const FOOTER_BRAND_RE = /(?:vibeOS|Vibe(?:MaX|QMaX|UltraX|LiteX)?|Quality|Budget|Speed|Longrun|Balanced|Audit|Forensic)/i
 
 function makeSandbox(name) {

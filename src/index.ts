@@ -1149,7 +1149,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     try {
       const _sel = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))?.selection
       const _activeSlot = String(_sel?.active_slot || "").trim()
-      if (_activeSlot) {
+      // OpenCode watches its configuration and disposes/reloads the active
+      // project when it changes. Writing agents or the default model during
+      // plugin startup can therefore abort or stall the user's current work.
+      // Keep startup observational; legacy hosts can explicitly opt in.
+      if (_activeSlot && process.env.VIBEOS_ENABLE_STARTUP_CONFIG_RECONCILE === "1") {
         // reconcileSlotModel below only re-installs the agent topology as a side
         // effect of applySlot, which it SKIPS when the live model already matches
         // the active slot (no drift). That left a gap: a config with the right
@@ -1408,6 +1412,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
 
     },
     "message.updated": async (_input, output) => {
+      // OpenCode emits this hook for plugin-authored message mutations. A
+      // footer write therefore feeds back into this hook and can repeatedly
+      // run the footer/API/state path. text.complete is the authoritative
+      // completion hook on current OpenCode builds; legacy hosts may opt in.
+      if (process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER !== "1") return
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
