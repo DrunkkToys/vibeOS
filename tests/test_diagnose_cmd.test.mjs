@@ -11,7 +11,8 @@ import { tmpdir } from 'node:os'
 const sandbox = mkdtempSync(join(tmpdir(), "diagnose-test-"))
 const HOME = sandbox
 process.env.HOME = sandbox
-  process.env.VIBEOS_HOME = join(sandbox, ".claude")
+process.env.VIBEOS_HOME = join(sandbox, ".claude")
+process.env.VIBEOS_ENABLE_STARTUP_CONFIG_RECONCILE = "1"
 
 function baseDirs() {
   mkdirSync(join(HOME, ".config/opencode"), { recursive: true })

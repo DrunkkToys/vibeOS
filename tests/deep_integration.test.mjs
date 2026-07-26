@@ -6,6 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rename
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER = "1"
+
 const FOOTER_BRAND_RE = /(?:vibeOS|Vibe(?:MaX|QMaX|UltraX|LiteX)?|Quality|Budget|Speed|Longrun|Balanced|Audit|Forensic)/i
 
 const sandbox = mkdtempSync(join(tmpdir(), "delegation-deep-"))
