@@ -14,6 +14,9 @@ test("MCP dashboard stays disabled by default even when a live stale runtime exi
     baseUrl: "http://127.0.0.1:52000",
     pid: process.pid,
   }))
+  writeFileSync(join(vibeHome, "model-tiers.json"), JSON.stringify({
+    selection: { mcp_port: 52000 },
+  }))
 
   const script = `
     process.env.HOME = ${JSON.stringify(sandbox)};

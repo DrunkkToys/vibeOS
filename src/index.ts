@@ -713,6 +713,12 @@ function loadMcpPort() {
   try {
     if (existsSync(getTiersFile())) {
       const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
+      // mcp_port used to be written automatically after a successful bind, so
+      // an existing value is not proof that the user opted into the expensive
+      // dashboard sync loop. Require an explicit opt-in flag before treating
+      // the stored port as an instruction to start a server.
+      if (tiers?.selection?.dashboard_mcp_enabled !== true)
+        return 0
       const cfg = tiers?.selection?.mcp_port
       if (cfg === false || cfg === "disabled" || cfg === 0)
         return 0
