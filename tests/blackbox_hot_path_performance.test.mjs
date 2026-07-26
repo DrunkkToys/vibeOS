@@ -48,6 +48,7 @@ test("blackbox hot path compacts stale history and skips duplicate footer writes
     assert.equal(Object.keys(compacted.sessions).length, 30)
     assert.equal(Object.keys(compactedDelegation.sessions).length, 30)
     assert.ok(compacted.sessions["active-session"])
+    assert.ok(compactedDelegation.sessions["active-session"], "compaction must retain the active session")
     for (const session of Object.values(compacted.sessions)) {
       assert.ok((session.history || []).length <= 50)
       assert.ok((session.pivotHistory || []).length <= 50)
