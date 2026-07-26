@@ -988,7 +988,20 @@ function updateState(mutator: (state: DelegationState) => DelegationState | void
 function _compactDelegationSessions(state: DelegationState): void {
   if (!state || typeof state !== "object") return
   state.sessions ??= {}
-  _pruneOldSessions(state)
+  const activeSessionId = getCurrentSessionId()
+  const entries = Object.entries(state.sessions)
+  if (entries.length > 30) {
+    entries.sort((a, b) => {
+      const aUpdated = String(a[1]?.last_updated || a[1]?.started || a[1]?.last_costed || "")
+      const bUpdated = String(b[1]?.last_updated || b[1]?.started || b[1]?.last_costed || "")
+      return bUpdated.localeCompare(aUpdated)
+    })
+    const kept = entries.slice(0, 30)
+    if (activeSessionId && state.sessions[activeSessionId] && !kept.some(([id]) => id === activeSessionId)) {
+      kept[kept.length - 1] = [activeSessionId, state.sessions[activeSessionId]]
+    }
+    state.sessions = Object.fromEntries(kept)
+  }
   for (const session of Object.values(state.sessions)) {
     if (!session || typeof session !== "object") continue
     const cap = (key: string, limit: number) => {
