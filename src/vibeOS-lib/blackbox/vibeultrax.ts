@@ -5,11 +5,33 @@
 import { cascadeDecide } from "../ml-router.js"
 import { getCurrentSessionId } from "../../lib/state.js"
 import { PivotCache, pivotCacheDirForSession } from "./pivot-cache.js"
+import { modelCostPerTurn, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN } from "../../lib/pricing.js"
+import { computeSlotSuccessRate } from "./resolution-tracker.js"
 
-const CHEAP = 0.0001
-const MEDIUM = 0.001
-const BRAIN = 0.01
+// Fallback constants for when a trinity slot has no model bound yet (cold
+// start, before `vibe rebuild`) or the bound model has no known pricing.
+// cascadeDecide() previously always received these regardless of what models
+// were actually configured -- real per-turn cost from modelCostPerTurn() is
+// used whenever available, matching the same pricing data the footer/savings
+// math already relies on elsewhere in this codebase.
+const CHEAP_FALLBACK = 0.0001
+const MEDIUM_FALLBACK = 0.001
+const BRAIN_FALLBACK = 0.01
 const VIBEULTRAX_ROOT = ["cheap", "medium", "brain"]
+
+function resolveTierCost(model, fallback) {
+  const cost = model ? modelCostPerTurn(model) : null
+  return typeof cost === "number" && cost > 0 ? cost : fallback
+}
+
+export function cascadeCostInputs() {
+  return {
+    cheap: resolveTierCost(TRINITY_CHEAP, CHEAP_FALLBACK),
+    medium: resolveTierCost(TRINITY_MEDIUM, MEDIUM_FALLBACK),
+    brain: resolveTierCost(TRINITY_BRAIN, BRAIN_FALLBACK),
+    cheapSuccessRate: computeSlotSuccessRate("cheap"),
+  }
+}
 
 function normalizeText(input = {}) {
   return String(input.user_text || input.prompt || input.text || "").trim()
@@ -199,7 +221,8 @@ function setPrevMessage(text) {
 
 export function vibeultraxControlVector(input = {}) {
   const text = normalizeText(input)
-  const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85)
+  const _costs = cascadeCostInputs()
+  const cascade = cascadeDecide(text, _costs.cheap, _costs.medium, _costs.brain, _costs.cheapSuccessRate)
   const profile = profileFromCascade(cascade)
   const orchestrationPlan = buildOrchestrationPlan(input)
 
@@ -241,7 +264,8 @@ export function vibeultraxControlVector(input = {}) {
 export function vibeultraxPipeline(input = {}) {
   const text = normalizeText(input)
   const pc = getPivotCache()
-  const cascade = cascadeDecide(text, CHEAP, MEDIUM, BRAIN, 0.85)
+  const _costs = cascadeCostInputs()
+  const cascade = cascadeDecide(text, _costs.cheap, _costs.medium, _costs.brain, _costs.cheapSuccessRate)
   const profile = profileFromCascade(cascade)
   const orchestrationPlan = buildOrchestrationPlan(input)
   const tokens = text ? pc.tokenize(text) : new Set()

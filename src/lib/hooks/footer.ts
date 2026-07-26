@@ -1174,7 +1174,7 @@ async function resolveFooterDisplayState(
         // metaWorkPenalty) to the user for no textual reason at all.
         if (outcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(outcome)
+          tracker.recordOutcome(outcome, activeSlot)
           try { syncOutcomeToApi(outcome) } catch {}
           try {
             const rewardInput = buildRewardInput({
@@ -1327,7 +1327,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         // trackers/reward engine that the LOOPING classification is derived from.
         if (rewardOutcome) {
           const tracker = getBlackboxTracker()
-          tracker.recordOutcome(rewardOutcome)
+          tracker.recordOutcome(rewardOutcome, state.activeSlot)
           try { syncOutcomeToApi(rewardOutcome) } catch {}
           const rewardResult = computeReward(buildRewardInput({
             finalOutcome: rewardOutcome,
