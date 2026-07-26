@@ -285,6 +285,7 @@ Local dev checkout:
 | `vibe todo` / `vibe todo-done <id>` / `vibe todo-sync` | View pending todos, mark done, sync flow todos |
 | `vibe verify-claims` | Audit recent claim output against cascade evidence |
 | `vibe diagnose` | Health check |
+| `vibe diagnose cascade` | Deep cascade check: slot config, subagent drift, cheap-first cross-provider degradation |
 | `vibe blackbox on|off|status|reset` | Decision engine control |
 | `vibe repair-state preview|apply` | Fix state collisions |
 | `vibe guard` | Refresh AGENTS.md / README.md |

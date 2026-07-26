@@ -16,6 +16,7 @@ Use this as the only vibeOS skill. It covers the command surface, runtime contro
 - \`vibe dashboard\` for the live dashboard URL and browser view
 - \`vibe help\` when the user wants the available command surface
 - \`vibe diagnose\` for runtime health
+- \`vibe diagnose cascade\` for the deeper cascade check: cheap/medium/brain slot config, subagent binding drift, and cheap-first cross-provider degradation (\`cheap_first_degraded\`) that plain \`vibe diagnose\` does not cover
 - \`vibe repair-state preview|apply\` before touching persistent state
 
 ## Runtime controls
@@ -36,11 +37,14 @@ Use this as the only vibeOS skill. It covers the command surface, runtime contro
 | \`vibe tdd strict on|off\` | Toggle strict TDD |
 | \`vibe tdd quality on|off\` | Toggle quality TDD |
 | \`vibe project\` | Show project analytics |
-| \`vibe patterns\` / \`vibe patterns clear\` | Inspect or clear learned patterns |
+| \`vibe patterns\` / \`vibe patterns clear\` / \`vibe patterns suggest\` | Inspect, clear, or get cross-project pattern recommendations |
+| \`vibe axis [status|reset|<name> <value>]\` | Per-axis overrides for enforcement, flow, tdd, tier, thinking, context7_urgency, wbp_verbosity, websearch |
 | \`vibe blackbox on|off|status|reset\` | Control the blackbox engine |
 | \`vibe api-token <token>\` | Update the remote API token |
 | \`vibe report-save|report-list|report-read\` | Manage reports |
+| \`vibe report savings\` | Deep savings breakdown from the append-only ledger |
 | \`vibe research-audit\` | Run research audit tooling |
+| \`vibe diagnose cascade\` | Deep cascade check: slot config, subagent drift, cheap-first cross-provider degradation |
 
 ## Routing and enforcement
 

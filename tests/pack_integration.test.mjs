@@ -65,6 +65,31 @@ test("integration: /vibe skill installer writes directly under OpenCode home", (
   }
 })
 
+// Live-reproduced gap: a real user typed "vibe diagnose cascade" in chat. The model
+// had no way to know that `slot: "cascade"` is a real, richer diagnostic mode (it only
+// checks `cascadeDiagnosticResults()`, which surfaces cheap-first cross-provider
+// degradation among other checks) because neither the skill text nor README documented
+// it -- so the model called the bare `vibe` tool with no params, got the generic status
+// blurb (which doesn't cover degradation either way), and then asserted "no degradation"
+// with no basis. Documenting the sub-mode closes the gap between what the tool can prove
+// and what a user (or the model on their behalf) can actually reach.
+test("VIBE_SKILL_BODY documents the vibe diagnose cascade sub-mode", async () => {
+  const { VIBE_SKILL_BODY } = await import("../scripts/lib/vibe-skill.mjs")
+  assert.match(VIBE_SKILL_BODY, /vibe diagnose cascade/, "skill text must mention the cascade diagnose sub-mode so the model knows to call it with slot: \"cascade\"")
+})
+
+// README.md already documented these three sub-modes correctly (lines 225, 283, 284, 296)
+// but the model-facing skill generator did not -- the same class of gap as the
+// diagnose-cascade case above: README is what a human reads, VIBE_SKILL_BODY is what the
+// model actually reads to decide which tool call to make. A human-only doc fix doesn't
+// help the model reach these paths.
+test("VIBE_SKILL_BODY documents vibe patterns suggest, vibe axis, and vibe report savings", async () => {
+  const { VIBE_SKILL_BODY } = await import("../scripts/lib/vibe-skill.mjs")
+  assert.match(VIBE_SKILL_BODY, /vibe patterns suggest/, "skill text must mention patterns suggest")
+  assert.match(VIBE_SKILL_BODY, /vibe axis/, "skill text must mention the axis command at all")
+  assert.match(VIBE_SKILL_BODY, /vibe report savings/, "skill text must mention the report savings sub-mode")
+})
+
 test("integration: npm pack creates tarball with bin/setup.js", () => {
   const sandbox = mkdtempSync("/tmp/vibeos-pack-")
   const tgz = packTarball()
