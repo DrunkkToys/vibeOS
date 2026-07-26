@@ -728,6 +728,7 @@ export function resetFooterRuntimeState(): void {
   _prevOutputText = ""
   _autoReportCount = 0
   textCompletePainted.clear()
+  footerPaintInFlight.clear()
   _lastStrippedText = ""
 }
 
@@ -785,6 +786,10 @@ async function apiAutoSelectMode(regime, stress) {
 let _prevOutputText = ""
 let _autoReportCount = 0
 const textCompletePainted = new Map()
+// A footer mutation itself produces message.updated in OpenCode. Prevent the
+// re-entrant event from starting a second full footer/API/state pass while the
+// original asynchronous paint is still running.
+const footerPaintInFlight = new Set<string>()
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -1280,6 +1285,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
+    if (messageID && footerPaintInFlight.has(messageID)) return
+    if (messageID) footerPaintInFlight.add(messageID)
+    try {
     // Both experimental.text.complete and message.updated call _appendFooter
     // for the same logical turn (message.updated is meant as a fallback for
     // OpenCode versions where text.complete doesn't fire). Without a guard
@@ -1471,6 +1479,9 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     if (textCompletePainted.size > 500) {
       const it = textCompletePainted.keys()
       for (let i = 0; i < 100; i++) textCompletePainted.delete(it.next().value)
+    }
+    } finally {
+      if (messageID) footerPaintInFlight.delete(messageID)
     }
   } catch (err) {
     footerDebug(`[vibeOS] footer failed at stage=${_footerStage}: ${err?.message}`)
