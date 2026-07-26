@@ -430,7 +430,12 @@ const MAX_SCRATCHPAD_FILES  = 1000
 const MAX_SCRATCHPAD_BYTES  = 10 * 1024 * 1024
 const MAX_SESSION_SCRATCHPAD_FILES = 200
 const MAX_SESSION_SCRATCHPAD_BYTES = 2 * 1024 * 1024
-const MAX_BLACKBOX_SESSIONS = 150
+// The completion footer reads this state on its hot path. Keep it bounded so
+// a long-lived desktop session cannot turn into multi-megabyte JSON parsing.
+const MAX_BLACKBOX_SESSIONS = 30
+const MAX_BLACKBOX_CONTROL_HISTORY = 25
+const MAX_BLACKBOX_OUTCOME_HISTORY = 25
+const MAX_BLACKBOX_EVENT_HISTORY = 50
 const CORRUPTION_BACKUP_MAX = 5
 const CORRUPTION_BACKUP_TTL_MS = 24 * 60 * 60 * 1000
 const LEDGER_ROTATE_MAX_BYTES = 256 * 1024
@@ -1051,12 +1056,17 @@ function saveMLState(): boolean {
 loadMLState()
 
 // ── Blackbox state management ───────────────────────────────────────
+let _blackboxStateCache: { file: string, mtimeMs: number, size: number, state: DelegationState } | null = null
+
 function loadBlackboxState(): DelegationState {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
     if (!existsSync(blackboxFile)) return { enabled: true, sessions: {} }
     const st = statSync(blackboxFile)
     if (st.size > 10485760) { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
+    if (_blackboxStateCache?.file === blackboxFile && _blackboxStateCache.mtimeMs === st.mtimeMs && _blackboxStateCache.size === st.size) {
+      return _blackboxStateCache.state
+    }
     const raw = safeJsonParse(readFileSync(blackboxFile, "utf-8")) || { enabled: false, sessions: {} }
     if (!raw.sessions || typeof raw.sessions !== "object") raw.sessions = {}
     const now = Date.now()
@@ -1069,8 +1079,12 @@ function loadBlackboxState(): DelegationState {
       raw.sessions[sid] = next
       if (recordChanged) changed = true
     }
+    const beforeSessionCount = Object.keys(raw.sessions).length
+    _capBlackboxSessions(raw)
+    if (Object.keys(raw.sessions).length !== beforeSessionCount) changed = true
     if (_normalizeVibeUltraXBlackboxState(raw)) changed = true
     if (_mirrorLiveControlVector(raw)) changed = true
+    _blackboxStateCache = { file: blackboxFile, mtimeMs: st.mtimeMs, size: st.size, state: raw }
     if (changed) {
       try { saveBlackboxState(raw) } catch {}
     }
@@ -1119,6 +1133,8 @@ function saveBlackboxState(state: unknown): void {
     const tmp = blackboxFile + ".tmp"
     writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
     renameSync(tmp, blackboxFile)
+    const st = statSync(blackboxFile)
+    _blackboxStateCache = { file: blackboxFile, mtimeMs: st.mtimeMs, size: st.size, state: next as DelegationState }
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`)
   }
@@ -1145,8 +1161,8 @@ function _pushControlHistoryEntry(session: unknown, entry: unknown): void {
   const last = session.control_history[session.control_history.length - 1]
   if (last?.fingerprint === fingerprint) return
   session.control_history.push({ ...entry, fingerprint })
-  if (session.control_history.length > 100) {
-    session.control_history = session.control_history.slice(-100)
+  if (session.control_history.length > MAX_BLACKBOX_CONTROL_HISTORY) {
+    session.control_history = session.control_history.slice(-MAX_BLACKBOX_CONTROL_HISTORY)
   }
 }
 
@@ -1491,10 +1507,7 @@ export function recordLiveSessionSnapshot(input: {
     const ses = bb.sessions[sid]
     const mergedLoop = _mergeLiveLoopSnapshot(ses, input, { resolutionState, resolutionReason, now: Date.now() })
     if (ses.live_snapshot_fingerprint === snapshotFingerprint) {
-      ses.updatedAt = updatedAt
-      ses.last_snapshot_at = updatedAt
       _liveSnapshotFingerprints.set(sid, snapshotFingerprint)
-      saveBlackboxState(bb)
       return { sessionId: sid, updatedAt, resolutionState, resolutionReason }
     }
     if (input.projectFingerprint) ses.project_fingerprint = input.projectFingerprint
@@ -1533,8 +1546,8 @@ export function recordLiveSessionSnapshot(input: {
           source: input.source || "footer",
           fingerprint: outcomeFingerprint,
         })
-        if (ses.outcomeHistory.length > 100) {
-          ses.outcomeHistory = ses.outcomeHistory.slice(-100)
+        if (ses.outcomeHistory.length > MAX_BLACKBOX_OUTCOME_HISTORY) {
+          ses.outcomeHistory = ses.outcomeHistory.slice(-MAX_BLACKBOX_OUTCOME_HISTORY)
         }
       }
     }
@@ -1649,6 +1662,17 @@ function normalizeBlackboxRecord(record: unknown, sid: string, now: number): { r
   if (!Array.isArray(next.history)) { next.history = []; changed = true }
   if (!Array.isArray(next.pivotHistory)) { next.pivotHistory = []; changed = true }
   if (!Array.isArray(next.outcomeHistory)) { next.outcomeHistory = []; changed = true }
+  if (!Array.isArray(next.control_history)) { next.control_history = []; changed = true }
+  const capHistory = (key: string, limit: number) => {
+    if (next[key].length > limit) {
+      next[key] = next[key].slice(-limit)
+      changed = true
+    }
+  }
+  capHistory("history", MAX_BLACKBOX_EVENT_HISTORY)
+  capHistory("pivotHistory", MAX_BLACKBOX_EVENT_HISTORY)
+  capHistory("outcomeHistory", MAX_BLACKBOX_OUTCOME_HISTORY)
+  capHistory("control_history", MAX_BLACKBOX_CONTROL_HISTORY)
   const liveControl = next.cv || next.control_vector || next.live_control || null
   if (liveControl && !next.cv) { next.cv = liveControl; changed = true }
   if (liveControl && !next.control_vector) { next.control_vector = liveControl; changed = true }
