@@ -710,9 +710,6 @@ function loadMcpPort() {
       return 0
     return n
   }
-  const runtime = readPublishedMcpRuntime()
-  if (runtime?.port && Number.isFinite(runtime.port) && runtime.port > 0)
-    return runtime.port
   try {
     if (existsSync(getTiersFile())) {
       const tiers = safeJsonParse(readFileSync(getTiersFile(), "utf-8"))
@@ -725,7 +722,13 @@ function loadMcpPort() {
     }
   }
   catch { }
-  return null
+  // The MCP/dashboard server owns a periodic full-state sync. Reusing a port
+  // from mcp-runtime.json silently re-enabled that loop on every OpenCode
+  // startup, including after a user had disabled it. It made the plugin consume
+  // a CPU core while idle. Start it only when the user explicitly configures a
+  // port (or VIBEOS_MCP_PORT); the published runtime remains readable by an
+  // already-running dashboard but is never an autostart instruction.
+  return 0
 }
 function persistMcpPort(port) {
   try {
