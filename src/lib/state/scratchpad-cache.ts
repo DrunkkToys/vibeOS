@@ -195,7 +195,7 @@ export function recordScratchpadObservation(toolLower: string, args: unknown, fi
 
 // ── Scratchpad decadence pruning ──────────────────────────────────────────
 export function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number, maxBytes?: number, rotate?: boolean } = {}): { dataFiles: number, totalBytes: number, deleted: number, rotated: number } {
-  const { _maxFiles = MAX_SCRATCHPAD_FILES, _maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
+  const { maxFiles = MAX_SCRATCHPAD_FILES, maxBytes = MAX_SCRATCHPAD_BYTES, rotate = true } = opts
   const now = Date.now()
   if (!existsSync(targetDir)) return { dataFiles: 0, totalBytes: 0, deleted: 0, rotated: 0 }
   const entries = readdirSync(targetDir)
@@ -243,6 +243,34 @@ export function _pruneScratchpadDir(targetDir: string, opts: { maxFiles?: number
       } catch {}
     }
   }
+  if (dataFiles > maxFiles || totalBytes > maxBytes) {
+    const kept = []
+    for (const entry of entries) {
+      if (entry.endsWith(".meta.json") || entry.endsWith(".summary.txt")) continue
+      const fullPath = join(targetDir, entry)
+      try {
+        const st = statSync(fullPath)
+        if (!st.isFile()) continue
+        const head = _readHead(fullPath)
+        if (head.includes("[cold-storage]") || head.includes("[warm-storage]")) continue
+        kept.push({ entry, fullPath, mtime: st.mtimeMs, size: st.size })
+      } catch {}
+    }
+    kept.sort((a, b) => b.mtime - a.mtime)
+    while ((kept.length > maxFiles || kept.reduce((s, e) => s + e.size, 0) > maxBytes) && kept.length > 0) {
+      const victim = kept.pop()
+      if (!victim) break
+      try { rmSync(victim.fullPath) } catch {}
+      const hash = victim.entry.replace(/\.txt$/, "")
+      const meta = join(targetDir, hash + ".meta.json")
+      if (existsSync(meta)) try { rmSync(meta) } catch {}
+      const summary = join(targetDir, hash + ".summary.txt")
+      if (existsSync(summary)) try { rmSync(summary) } catch {}
+      deleted++
+      dataFiles--
+      totalBytes -= victim.size
+    }
+  }
   return { dataFiles, totalBytes, deleted, rotated }
 }
 
@@ -270,6 +298,18 @@ export function applyDecadence() {
       }
     } catch (err) {
       console.error(`[vibeOS] session decadence error: ${err.message}`)
+    }
+    try {
+      const glo = _pruneScratchpadDir(getScratchpadGlobalDir(), {
+        maxFiles: MAX_SCRATCHPAD_FILES,
+        maxBytes: MAX_SCRATCHPAD_BYTES,
+        rotate: false,
+      })
+      if (glo.deleted > 0) {
+        console.error(`[vibeOS] global-scratch-decadence: deleted=${glo.deleted} (${glo.dataFiles} files, ${Math.round(glo.totalBytes / 1024)}KB)`)
+      }
+    } catch (err) {
+      console.error(`[vibeOS] global scratchpad decadence error: ${err.message}`)
     }
   }
 }

@@ -810,26 +810,13 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         }
       }
     }
-    if (cv.agent_mode && !isUltraX) {
-      updateOpenCodeConfig((oc) => {
-        const nextAgent = normalizeNativeOpenCodeAgent(cv.agent_mode, "vibe")
-        const currentAgent = normalizeNativeOpenCodeAgent(oc.default_agent, "vibe")
-        if (currentAgent === nextAgent) return false
-        if (nextAgent === "plan" && currentAgent !== "plan") {
-          writeSelection("previous_default_agent", currentAgent)
-        }
-        oc.default_agent = nextAgent
-      })
-    } else if (!isUltraX) {
-      updateOpenCodeConfig((oc) => {
-        const currentAgent = normalizeNativeOpenCodeAgent(oc.default_agent, "vibe")
-        const restoreAgent = currentAgent === "plan" ? resolveRestorableOpenCodeAgent(currentSel) : null
-        if (restoreAgent && currentAgent === "plan") {
-          oc.default_agent = restoreAgent
-          if (currentSel.previous_default_agent) writeSelection("previous_default_agent", null)
-        }
-      })
-    }
+    // The plugin no longer overrides the user's chosen default_agent. The
+    // previous save/restore dance (writing previous_default_agent, forcing
+    // `oc.default_agent = "plan"` during REFINING/CONVERGING regimes, then
+    // restoring) ran on every turn and raced under concurrent OpenCode
+    // instances writing the same opencode.json. Subagent routing already
+    // works through task-tool interception (tool-execute.ts:764) without
+    // touching the user's agent selection.
 
     if (cv.optimization_mode && cv.optimization_mode !== "vibelitex") {
       const finalSel = loadSelection()

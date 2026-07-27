@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs"
+import { withFileLock } from "../lib/state.js"
 
 // ── Directory helper ─────────────────────────────────────────────────
 export function ensureDir(dirPath: string): void {
@@ -29,11 +30,16 @@ export function appendJsonlWithRotation(
   }
   _rotationCounters.set(filePath, 0)
   try {
-    const raw = readFileSync(filePath, "utf-8")
-    const allLines = raw.split("\n").filter(Boolean)
-    if (allLines.length > maxLines) {
-      writeFileSync(filePath, allLines.slice(-maxLines).join("\n") + "\n")
-    }
+    withFileLock(filePath, () => {
+      const raw = readFileSync(filePath, "utf-8")
+      const allLines = raw.split("\n").filter(Boolean)
+      if (allLines.length > maxLines) {
+        const trimmed = allLines.slice(-maxLines).join("\n") + "\n"
+        const tmp = filePath + ".tmp"
+        writeFileSync(tmp, trimmed)
+        renameSync(tmp, filePath)
+      }
+    }, { timeoutMs: 4000 })
   } catch {}
 }
 

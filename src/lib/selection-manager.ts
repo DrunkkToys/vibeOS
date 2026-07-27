@@ -132,16 +132,18 @@ function readSessionRecord(sid: string): any {
 function writeSessionRecord(sid: string, updater: (record: any) => void): boolean {
   const BLACKBOX_FILE = join(getVibeOSHome(), "blackbox-state.json")
   try {
-    const j = existsSync(BLACKBOX_FILE)
-      ? safeJsonParse<any>(readFileSync(BLACKBOX_FILE, "utf-8"))
-      : {}
-    if (!j.sessions) j.sessions = {}
-    if (!j.sessions[sid]) j.sessions[sid] = {}
-    updater(j.sessions[sid])
-    const tmp = BLACKBOX_FILE + ".tmp"
-    writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
-    renameSync(tmp, BLACKBOX_FILE)
-    return true
+    return withFileLock(BLACKBOX_FILE, () => {
+      const j = existsSync(BLACKBOX_FILE)
+        ? safeJsonParse<any>(readFileSync(BLACKBOX_FILE, "utf-8"))
+        : {}
+      if (!j.sessions) j.sessions = {}
+      if (!j.sessions[sid]) j.sessions[sid] = {}
+      updater(j.sessions[sid])
+      const tmp = BLACKBOX_FILE + ".tmp"
+      writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n")
+      renameSync(tmp, BLACKBOX_FILE)
+      return true
+    }, { timeoutMs: 4000 })
   } catch (err) {
     console.error("[vibeOS] writeSessionRecord failed: " + err.message)
     return false
