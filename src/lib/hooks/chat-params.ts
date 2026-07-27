@@ -130,8 +130,8 @@ function recordCheapFirstState(result) {
 export async function onChatParams(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
-    recordCheapFirstState(r)
-    _writeChatRouteAudit(r)
+    queueMicrotask(() => { recordCheapFirstState(r) })
+    queueMicrotask(() => { _writeChatRouteAudit(r) })
     if (r.already_correct) {
       console.error(`[vibeOS] chat.params: coherent — slot=${r.active_slot} model=${r.input_full} (no override)`)
       return
@@ -162,7 +162,7 @@ export async function onChatParams(input, output) {
 export async function onChatHeaders(input, output) {
   try {
     const r = resolveIntendedModel(input?._directory || _directory, input?.model)
-    recordCheapFirstState(r)
+    queueMicrotask(() => { recordCheapFirstState(r) })
     if (r.cheap_first_primary_miss) {
       output.headers = output.headers || {}
       output.headers["x-vibeos-cheap-first"] = "degraded"
