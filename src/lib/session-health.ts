@@ -499,7 +499,7 @@ export function getSessionHealthSnapshot(input: {
     inspectionRatio,
     claimEvidence,
   }
-  queueMicrotask(() => { try { persistSessionHealthSnapshot(snapshot, vibeHome) } catch {} })
+  try { persistSessionHealthSnapshot(snapshot, vibeHome) } catch {}
   return snapshot
 }
 

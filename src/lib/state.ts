@@ -1147,6 +1147,9 @@ function loadBlackboxState(): DelegationState {
     if (_normalizeVibeUltraXBlackboxState(raw)) changed = true
     if (_mirrorLiveControlVector(raw)) changed = true
     _blackboxStateCache = { file: blackboxFile, mtimeMs: st.mtimeMs, size: st.size, state: raw }
+    if (changed) {
+      try { saveBlackboxState(raw) } catch {}
+    }
     return raw
   } catch { _handleStateCorruption(blackboxFile); return { enabled: false, sessions: {} } }
 }

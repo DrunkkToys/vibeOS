@@ -1050,7 +1050,7 @@ async function resolveFooterDisplayState(
         }
       }
     } catch {}
-    return 1
+    return 0
   })()
   const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
     : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
