@@ -1050,6 +1050,8 @@ async function resolveFooterDisplayState(
         }
       }
     } catch {}
+    const persistedDepth = ultraCascadeResolution.depth
+    if (Number.isFinite(persistedDepth) && persistedDepth > 1) return persistedDepth
     return 0
   })()
   const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
@@ -1259,9 +1261,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
+    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
+    const hasExistingFooter = footerSuffix.test(text)
+    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     if (messageID) {
       const lastPaint = _lastPaintTimestamps.get(messageID) || 0
-      if (Date.now() - lastPaint < 200) {
+      const paintedLen = textCompletePainted.get(messageID)
+      if (Date.now() - lastPaint < 200 && paintedLen === stripped.length) {
         _lastPaintTimestamps.set(messageID, Date.now())
         return
       }
@@ -1286,9 +1292,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // must still be repainted (see "re-paints rich footer after streaming
     // wipes an earlier paint"). Only a truly identical re-fire is a no-op.
     // See docs/live-debug-session-notes.md round 13.
-    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
-    const hasExistingFooter = footerSuffix.test(text)
-    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     if (messageID && textCompletePainted.get(messageID) === stripped.length) return
 
     _footerStage = "resolve"
