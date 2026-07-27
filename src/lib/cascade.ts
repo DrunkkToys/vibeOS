@@ -3,6 +3,7 @@
 // DOC: Auto-merged from classifiers.ts, axis-bundle.ts, mode-router.ts, turn-classify.ts
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { join, dirname } from "node:path"
 import { memoCompute } from "./turn-memo.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
@@ -608,6 +609,8 @@ export function lastApiPredictedMode(): string { return _lastApiPredictedMode }
 const REGIME_CACHE_TTL_MS = 60_000
 const REGIME_CACHE_MAX_ENTRIES = 32
 const _regimeCache = new Map<string, { regime: string, ts: number }>()
+
+export function _clearRegimeCache(): void { _regimeCache.clear() }
 
 function _regimeCacheKey(text: string): string {
   const fp = currentProjectFingerprint || "global"
