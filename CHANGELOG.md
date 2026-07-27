@@ -1,3 +1,11 @@
+## 0.26.11
+- fix: defer vibeOS sync I/O in footer and chat-params hooks
+- fix: prevent message footer update recursion (#495)
+- chore: v0.26.9
+Reapply "fix: defer vibeOS sync I/O in footer and chat-params hooks" (#497)
+Revert "fix: defer vibeOS sync I/O in footer and chat-params hooks"
+
+
 ## 0.26.8
 - fix: require explicit dashboard MCP opt-in (#492)
 - fix: disable idle MCP dashboard autostart (#491)
