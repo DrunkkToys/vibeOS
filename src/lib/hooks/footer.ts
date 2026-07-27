@@ -745,7 +745,6 @@ const textCompletePainted = new Map()
 // A footer mutation emits message.updated in OpenCode. Keep the original
 // asynchronous paint as the only pass for a message while it is in progress.
 const footerPaintInFlight = new Set<string>()
-const _lastPaintTimestamps = new Map<string, number>()
 let _lastStrippedText = ""
 
 function isGreetingLike(text) {
@@ -835,8 +834,6 @@ function buildRewardInput({
 
 let _footerCacheText = ""
 let _footerCacheTs = 0
-const _footerDisplayStateCache = new Map<string, { result: any; ts: number }>()
-const _FOOTER_DISPLAY_CACHE_TTL_MS = 500
 
 function recordFooterProbe(input: {
   hook: string
@@ -936,9 +933,6 @@ async function resolveFooterDisplayState(
   lastModelError?: string,
   hookName = "experimental.text.complete",
 ): Promise<any> {
-  const _cacheKey = `${directory}|${String(text).trim().slice(0, 300)}`
-  const _cached = _footerDisplayStateCache.get(_cacheKey)
-  if (_cached && Date.now() - _cached.ts < _FOOTER_DISPLAY_CACHE_TTL_MS) return _cached.result
   _refreshModel(directory)
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
@@ -1204,7 +1198,7 @@ async function resolveFooterDisplayState(
   const showDowngrade = Boolean(sessionSlot && sessionSlot !== activeSlot && sessionRank > activeRankVal)
   const downgradeWorkerSlot = showDowngrade ? `\u2193 ${sessionSlot}` : undefined
 
-  const _footerState = {
+  return {
     activeSlot,
     sessionSlot,
     workerSlot: downgradeWorkerSlot,
@@ -1231,15 +1225,6 @@ async function resolveFooterDisplayState(
     ltTotal, ltCost, ltCache, sesTasks, sesEdit, sesCredit, sesC7, sesQuota,
     sesTaskDelegations, sesModelTurns, claimStatus, sessionHealth, stripped: "",
   }
-  _footerDisplayStateCache.set(_cacheKey, { result: _footerState, ts: Date.now() })
-  if (_footerDisplayStateCache.size > 100) {
-    const it = _footerDisplayStateCache.keys()
-    for (let i = 0; i < 20; i++) {
-      const key = it.next().value
-      if (key) _footerDisplayStateCache.delete(key)
-    }
-  }
-  return _footerState
 }
 
 // ── Gutted _appendFooter (thin orchestrator) ──
@@ -1259,14 +1244,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
-    if (messageID) {
-      const lastPaint = _lastPaintTimestamps.get(messageID) || 0
-      if (Date.now() - lastPaint < 200) {
-        _lastPaintTimestamps.set(messageID, Date.now())
-        return
-      }
-      _lastPaintTimestamps.set(messageID, Date.now())
-    }
     if (messageID && footerPaintInFlight.has(messageID)) return
     if (messageID) footerPaintInFlight.add(messageID)
     try {
@@ -1348,48 +1325,45 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // Auto-report every 5th call
     _autoReportCount = (_autoReportCount || 0) + 1
     if (_autoReportCount % 5 === 0) {
-      const _reportData = {
-        type: "session",
-        summary: "Session cost: $" + formatUsd(state.ltCost) + " | cache saved: $" + formatUsd(state.ltCache) + " | delegation saved: $" + formatUsd(Number(state.sesTasks || 0)) + " | task delegations: " + Number(state.sesTaskDelegations || 0),
-        metrics: {
-          sessionId: state.sid,
-          projectFingerprint: currentProjectFingerprint || "unknown",
-          projectName: currentProjectName || "unknown",
-          sessionCost: state.ltCost,
-          cacheSavings: state.ltCache,
-          delegationSavingsUsd: state.sesTasks,
-          taskDelegationCount: state.sesTaskDelegations,
-          tasksDelegated: state.sesTaskDelegations,
-          model: state.resolvedModel || currentModel,
-          slot: loadSelection().active_slot || "unknown",
-          editSavings: state.sesEdit,
-          creditSavings: state.sesCredit,
-          context7Savings: state.sesC7,
-          quotaSavings: state.sesQuota,
-        },
-        tags: ["auto", "cost"],
-      }
-      queueMicrotask(() => {
-        try { saveReport(_reportData) } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
-      })
+      try {
+        saveReport({
+          type: "session",
+          summary: "Session cost: $" + formatUsd(state.ltCost) + " | cache saved: $" + formatUsd(state.ltCache) + " | delegation saved: $" + formatUsd(Number(state.sesTasks || 0)) + " | task delegations: " + Number(state.sesTaskDelegations || 0),
+          metrics: {
+            sessionId: state.sid,
+            projectFingerprint: currentProjectFingerprint || "unknown",
+            projectName: currentProjectName || "unknown",
+            sessionCost: state.ltCost,
+            cacheSavings: state.ltCache,
+            delegationSavingsUsd: state.sesTasks,
+            taskDelegationCount: state.sesTaskDelegations,
+            tasksDelegated: state.sesTaskDelegations,
+            model: state.resolvedModel || currentModel,
+            slot: loadSelection().active_slot || "unknown",
+            editSavings: state.sesEdit,
+            creditSavings: state.sesCredit,
+            context7Savings: state.sesC7,
+            quotaSavings: state.sesQuota,
+          },
+          tags: ["auto", "cost"],
+        })
+      } catch (e) { footerDebug("[vibeOS] auto-report:", e.message) }
     }
 
     _footerStage = "build"
     const vibeLine = buildFooterLine(state)
-    queueMicrotask(() => {
-      recordFooterProbe({
-        hook: hookName,
-        builder: "rich",
-        providerLabel: state.execution.provider_label,
-        provider: state.execution.provider,
-        modelId: state.execution.model,
-        modelName: modelDisplayName(state.execution.model),
-        activeSlot: state.activeSlot,
-        sessionSlot: state.sessionSlot,
-        mode: state.displayMode,
-        messageID: state.messageID,
-        footerLine: vibeLine,
-      })
+    recordFooterProbe({
+      hook: hookName,
+      builder: "rich",
+      providerLabel: state.execution.provider_label,
+      provider: state.execution.provider,
+      modelId: state.execution.model,
+      modelName: modelDisplayName(state.execution.model),
+      activeSlot: state.activeSlot,
+      sessionSlot: state.sessionSlot,
+      mode: state.displayMode,
+      messageID: state.messageID,
+      footerLine: vibeLine,
     })
     if (stripped === _lastStrippedText && !state.claimTag) return
     if (state.messageID && textCompletePainted.has(state.messageID)) {
@@ -1397,63 +1371,59 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       if (stripped.length <= paintedLen && !state.claimTag) return
     }
     _footerStage = "snapshot"
-    queueMicrotask(() => {
-      try {
-        recordLiveSessionSnapshot({
-          sessionId: state.sid,
-          projectFingerprint: currentProjectFingerprint || "",
-          projectName: currentProjectName || "",
-          outcome: state._rewardOutcome,
-          rewardCredits: state._rewardCredits,
-          rewardBreakdown: state._rewardBreakdown,
-          savingsUsd: state._perTurnCacheDelta,
-          footerLine: vibeLine,
-          control: state.cv,
-          subRegime: state.currentSubRegime,
-          resolutionState: state._rewardOutcome === "positive" ? "working" : state._rewardOutcome === "negative" ? "needs_attention" : (state.liveBlackboxState?.resolution_state || state.liveBlackboxState?.resolution || "unresolved"),
-          resolutionReason: state._rewardOutcome ? (state._rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
-          nextAction: state._rewardOutcome === "negative"
-            ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || "")
-            : (state.sessionHealth.recommendedAction || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || ""),
-          loopInterventionLevel: state.liveBlackboxState?.loop_intervention_level || state.cv?.loop_intervention_level || "none",
-          pivotDetected: Boolean(state.liveBlackboxState?.pivot_detected || state.sessionHealth.metaWorkDrift),
-          stress: state._footerStress,
-          source: "footer",
-        })
-      } catch (innerErr) {
-        console.error("[vibeOS] footer recordLiveSessionSnapshot error:", innerErr?.message || innerErr)
-      }
-    })
+    try {
+      recordLiveSessionSnapshot({
+        sessionId: state.sid,
+        projectFingerprint: currentProjectFingerprint || "",
+        projectName: currentProjectName || "",
+        outcome: state._rewardOutcome,
+        rewardCredits: state._rewardCredits,
+        rewardBreakdown: state._rewardBreakdown,
+        savingsUsd: state._perTurnCacheDelta,
+        footerLine: vibeLine,
+        control: state.cv,
+        subRegime: state.currentSubRegime,
+        resolutionState: state._rewardOutcome === "positive" ? "working" : state._rewardOutcome === "negative" ? "needs_attention" : (state.liveBlackboxState?.resolution_state || state.liveBlackboxState?.resolution || "unresolved"),
+        resolutionReason: state._rewardOutcome ? (state._rewardOutcome === "positive" ? "positive outcome" : "negative outcome") : "no outcome yet",
+        nextAction: state._rewardOutcome === "negative"
+          ? (getLatestBlackboxLoopMsg() || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || "")
+          : (state.sessionHealth.recommendedAction || getLatestBlackboxPivotMsg() || (Array.isArray(state.cv?.directives) ? state.cv.directives[0] : "") || ""),
+        loopInterventionLevel: state.liveBlackboxState?.loop_intervention_level || state.cv?.loop_intervention_level || "none",
+        pivotDetected: Boolean(state.liveBlackboxState?.pivot_detected || state.sessionHealth.metaWorkDrift),
+        stress: state._footerStress,
+        source: "footer",
+      })
+    } catch (innerErr) {
+      console.error("[vibeOS] footer recordLiveSessionSnapshot error:", innerErr?.message || innerErr)
+    }
     _footerStage = "finalize"
-    queueMicrotask(() => {
-      try {
-        if (state.latestTurnTruth?.turnId) {
-          recordTurnFinalize({
-            sessionId: state.sid,
-            turnId: state.latestTurnTruth.turnId,
-            finalized: {
-              finalVisibleModel: state.execution.model,
-              finalVisibleSlot: state.activeSlot,
-              finalVisibleProvider: state.execution.provider,
-              finalVisibleProviderLabel: state.execution.provider_label,
-              finalVisibleModelName: modelDisplayName(state.execution.model),
-              footerLine: vibeLine,
-              claimTag: state.claimTag || "",
-              rewardTag: state.rewardTag || "",
-              rewardCredits: state._rewardCredits,
-              rewardOutcome: state._rewardOutcome || "",
-              subRegime: state.currentSubRegime,
-              enforcementMode: state.cv?.enforcement_mode || "",
-              flowMode: state.cv?.flow_mode || "",
-              tddMode: state.cv?.tdd_mode || "",
-              cascadeDepth: state.cascadeDepthForIcon,
-            },
-          })
-        }
-      } catch (turnLedgerErr) {
-        console.error("[vibeOS] footer turn ledger error:", turnLedgerErr?.message || turnLedgerErr)
+    try {
+      if (state.latestTurnTruth?.turnId) {
+        recordTurnFinalize({
+          sessionId: state.sid,
+          turnId: state.latestTurnTruth.turnId,
+          finalized: {
+            finalVisibleModel: state.execution.model,
+            finalVisibleSlot: state.activeSlot,
+            finalVisibleProvider: state.execution.provider,
+            finalVisibleProviderLabel: state.execution.provider_label,
+            finalVisibleModelName: modelDisplayName(state.execution.model),
+            footerLine: vibeLine,
+            claimTag: state.claimTag || "",
+            rewardTag: state.rewardTag || "",
+            rewardCredits: state._rewardCredits,
+            rewardOutcome: state._rewardOutcome || "",
+            subRegime: state.currentSubRegime,
+            enforcementMode: state.cv?.enforcement_mode || "",
+            flowMode: state.cv?.flow_mode || "",
+            tddMode: state.cv?.tdd_mode || "",
+            cascadeDepth: state.cascadeDepthForIcon,
+          },
+        })
       }
-    })
+    } catch (turnLedgerErr) {
+      console.error("[vibeOS] footer turn ledger error:", turnLedgerErr?.message || turnLedgerErr)
+    }
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`
     _footerCacheTs = Date.now()
