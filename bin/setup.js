@@ -161,13 +161,30 @@ var root = resolve2(__dirname, "..");
 var args = process.argv.slice(2);
 var command = args.find((a) => !a.startsWith("-")) ?? "setup";
 var isInstallCommand = command === "setup" || command === "set";
+var isUninstallCommand = command === "uninstall" || command === "un";
 var isProject = args.includes("--project");
 var writeLine = (text = "") => {
   process.stdout.write(text + "\n");
 };
+if (isUninstallCommand) {
+  const uninstallScript = resolve2(root, "scripts", "uninstall.mjs");
+  if (!existsSync3(uninstallScript)) {
+    console.error("Fatal: scripts/uninstall.mjs not found at", uninstallScript);
+    process.exit(1);
+  }
+  try {
+    execFileSync(process.execPath, [uninstallScript], { stdio: "inherit", cwd: process.cwd() });
+  } catch (err) {
+    console.error("Uninstall failed:", err?.message || err);
+    process.exit(1);
+  }
+  process.exit(0);
+}
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
-  console.error("Usage: npx vibeostheog set [--project]");
-  console.error("       npx vibeostheog setup [--project]");
+  console.error("Usage: npx vibeostheog set [--project]            # install/update plugin");
+  console.error("       npx vibeostheog setup [--project]        # alias of set");
+  console.error("       npx vibeostheog uninstall                 # remove plugin + state + launch agent + cron");
+  console.error("       npx vibeostheog un                       # alias of uninstall");
   process.exit(1);
 }
 writeLine();

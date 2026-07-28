@@ -258,6 +258,8 @@ test("deescalation: system.transform resets a stale escalated route_path back to
     writeFileSync(ctx.ocConfig, JSON.stringify({ model: "test/cheap-model", plugin: ["vibeOS"] }, null, 2))
 
     const idx = await import("../src/index.js?tier-truth-deescalate-idx=" + Date.now())
+    const cascade = await import("../src/lib/cascade.js?tier-truth-deescalate-cascade=" + Date.now())
+    if (typeof cascade._clearRegimeCache === "function") cascade._clearRegimeCache()
     const hooks = await idx.DelegationEnforcer({ client: {}, directory: ctx.sandbox })
 
     const state = await import("../src/lib/state.js?tier-truth-deescalate-state=" + Date.now())

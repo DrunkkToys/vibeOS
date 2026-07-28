@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
+import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
@@ -345,7 +346,7 @@ function _writeCascadeAudit(prompt: string, slot: string | null, model: string |
     mkdirSync(dir, { recursive: true })
     const path = join(dir, "cascade-audit.jsonl")
     if (!existsSync(path)) {
-      appendFileSync(path, "")
+      mkdirSync(dir, { recursive: true })
     }
     const difficulty = computeDifficulty(prompt)
     const line = JSON.stringify({
@@ -373,7 +374,7 @@ function _writeCascadeAudit(prompt: string, slot: string | null, model: string |
       confidence: Number(decision?.confidence || 0),
       reason: String(decision?.reason || ""),
     })
-    appendFileSync(path, line + "\n")
+    appendJsonlWithRotation(path, line + "\n", 5000, 200)
   } catch (err) {
     if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade-audit write error: ${err.message}`)
   }

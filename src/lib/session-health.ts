@@ -499,7 +499,7 @@ export function getSessionHealthSnapshot(input: {
     inspectionRatio,
     claimEvidence,
   }
-  persistSessionHealthSnapshot(snapshot, vibeHome)
+  try { persistSessionHealthSnapshot(snapshot, vibeHome) } catch {}
   return snapshot
 }
 

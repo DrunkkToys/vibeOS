@@ -15,12 +15,13 @@ import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-serv
 import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, syncApiTokenFromDisk, VIBEOS_API_URL } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, getPendingLiveSwitch, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/cascade.js"
-import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, loadTodosForCurrentProject, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration } from "./lib/state.js"
+import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, loadTodosForCurrentProject, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration, withFileLock } from "./lib/state.js"
 import { getRuntimeVibeOSHome, setRuntimeVibeOSHome, resetRuntimeStateForTest as _resetRuntimeGlobalStateForTest } from "./lib/runtime-state.js"
 import { researchAudit } from "./lib/research-audit.js"
 import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnoseStructuredFromText, projectStructuredFromText } from "./lib/runtime-surface.js"
 import { TEMPLATE_LIBRARY } from "./lib/templates.js"
 import { saveReport, listReports, readReport } from "./lib/reporting.js"
+import { appendJsonlWithRotation } from "./utils/fs-helpers.js"
 import { writeSessionSlot, writeSessionOptMode, _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
@@ -301,7 +302,7 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
         if (sid) {
           const eventsDir = join(getVibeOSHome(), "session-events")
         mkdirSync(eventsDir, { recursive: true })
-        appendFileSync(join(eventsDir, `${sid}.jsonl`), JSON.stringify({
+        appendJsonlWithRotation(join(eventsDir, `${sid}.jsonl`), JSON.stringify({
           ts: new Date().toISOString(),
           kind: "footer-probe",
           hook: hookName,
@@ -315,7 +316,7 @@ function ensureFooterFallback(input, output, directory, hookName = "fallback") {
           mode: "",
           message_id: messageID || null,
           footer_line: footer.split("\n").pop() || "",
-        }) + "\n")
+        }) + "\n", 200, 50)
       }
     } catch {}
     if (typeof payload?.text === "string") payload.text = footer
@@ -651,7 +652,13 @@ async function _seedOrRepairModelTiers(directory) {
     trinity: nextTrinity,
   }
   mkdirSync(dirname(TIERS_FILE), { recursive: true })
-  writeFileSync(TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
+  try {
+    withFileLock(TIERS_FILE, () => {
+      const tmp = TIERS_FILE + ".tmp"
+      writeFileSync(tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
+      renameSync(tmp, TIERS_FILE)
+    }, { timeoutMs: 4000 })
+  } catch {}
   return true
 
 }

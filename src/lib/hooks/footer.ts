@@ -8,6 +8,7 @@ import { createHash } from "node:crypto"
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { classify, _refreshModel, readConfig, readLiveOpenCodeModel, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, shortModelName, formatUsd, resolveCurrentExecution, modelDisplayName, getPendingLiveSwitch } from "../pricing.js"
+import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../cascade.js"
 import { saveReport } from "../reporting.js"
@@ -687,7 +688,7 @@ export function recordSessionBridge(bridge: unknown): boolean {
   try {
     const dir = getVibeOSHome()
     mkdirSync(dir, { recursive: true })
-    appendFileSync(join(dir, ".session-bridges.jsonl"), JSON.stringify({ _ts: new Date().toISOString(), ...bridge }) + "\n")
+    appendJsonlWithRotation(join(dir, ".session-bridges.jsonl"), JSON.stringify({ _ts: new Date().toISOString(), ...bridge }) + "\n", 1500, 200)
   } catch {}
   return true
 }
@@ -856,7 +857,7 @@ function recordFooterProbe(input: {
     if (!sid) return
     const dir = join(getVibeOSHome(), "session-events")
     mkdirSync(dir, { recursive: true })
-    appendFileSync(join(dir, `${sid}.jsonl`), JSON.stringify({
+    appendJsonlWithRotation(join(dir, `${sid}.jsonl`), JSON.stringify({
       ts: new Date().toISOString(),
       kind: "footer-probe",
       hook: input.hook,
@@ -870,7 +871,7 @@ function recordFooterProbe(input: {
       mode: input.mode || "",
       message_id: input.messageID || null,
       footer_line: input.footerLine || "",
-    }) + "\n")
+    }) + "\n", 200, 50)
   } catch {}
 }
 
@@ -880,14 +881,14 @@ function recordFooterError(input: { stage: string; message: string; stack?: stri
     if (!sid) return
     const dir = join(getVibeOSHome(), "session-events")
     mkdirSync(dir, { recursive: true })
-    appendFileSync(join(dir, `${sid}.jsonl`), JSON.stringify({
+    appendJsonlWithRotation(join(dir, `${sid}.jsonl`), JSON.stringify({
       ts: new Date().toISOString(),
       kind: "footer-error",
       hook: input.hook || "",
       stage: input.stage || "unknown",
       message: input.message || "",
       stack: (input.stack || "").split("\n").slice(0, 4).join(" | "),
-    }) + "\n")
+    }) + "\n", 200, 50)
   } catch {}
 }
 
@@ -1049,8 +1050,9 @@ async function resolveFooterDisplayState(
         }
       }
     } catch {}
-    const liveModelTier = String(classify(displayModel || liveModel || currentModel || "") || "").toLowerCase()
-    return liveModelTier === "high" ? 3 : liveModelTier === "mid" ? 2 : 0
+    const persistedDepth = ultraCascadeResolution.depth
+    if (Number.isFinite(persistedDepth) && persistedDepth > 1) return persistedDepth
+    return 0
   })()
   const cascadeModel = (ultraCascadeResolution.source === "route" && ultraResolvedTier === "brain" ? TRINITY_BRAIN
     : ultraCascadeResolution.source === "route" && ultraResolvedTier === "medium" ? TRINITY_MEDIUM
@@ -1259,9 +1261,13 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
         output?.messageId ||
         output?.message?.id ||
         null
+        const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
+    const hasExistingFooter = footerSuffix.test(text)
+    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     if (messageID) {
       const lastPaint = _lastPaintTimestamps.get(messageID) || 0
-      if (Date.now() - lastPaint < 200) {
+      const paintedLen = textCompletePainted.get(messageID)
+      if (Date.now() - lastPaint < 200 && paintedLen === stripped.length) {
         _lastPaintTimestamps.set(messageID, Date.now())
         return
       }
@@ -1286,9 +1292,6 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
     // must still be repainted (see "re-paints rich footer after streaming
     // wipes an earlier paint"). Only a truly identical re-fire is a no-op.
     // See docs/live-debug-session-notes.md round 13.
-    const footerSuffix = /\n\n\u2014 [^\n]+\u2014\s*$/
-    const hasExistingFooter = footerSuffix.test(text)
-    const stripped = hasExistingFooter ? text.replace(footerSuffix, "").trimEnd() : text
     if (messageID && textCompletePainted.get(messageID) === stripped.length) return
 
     _footerStage = "resolve"

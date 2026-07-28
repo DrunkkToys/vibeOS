@@ -57,11 +57,32 @@ export function loadGlobalLearning(): unknown {
   }
 }
 
+const MAX_LEXICON_WORDS = 2000
+
+function _capLexiconMap(map: unknown, max: number): boolean {
+  if (!map || typeof map !== "object") return false
+  const entries = Object.entries(map)
+  if (entries.length <= max) return false
+  entries.sort((a, b) => {
+    const av = Date.parse(String((a[1] as unknown)?.lastSeen || "")) || 0
+    const bv = Date.parse(String((b[1] as unknown)?.lastSeen || "")) || 0
+    return bv - av
+  })
+  let changed = false
+  for (const [key] of entries.slice(max)) {
+    delete (map as Record<string, unknown>)[key]
+    changed = true
+  }
+  return changed
+}
+
 export function updateGlobalLearning(mutator: (gl: unknown) => unknown): unknown {
   const globalLearningFile = join(getVibeOSHome(), "global-learning.json")
   return withFileLock(globalLearningFile, () => {
     const s = loadGlobalLearning()
     const next = mutator(s) ?? s
+    _capLexiconMap((next as unknown)?.exploratory_words, MAX_LEXICON_WORDS)
+    _capLexiconMap((next as unknown)?.task_first_words, MAX_LEXICON_WORDS)
     next.updatedAt = new Date().toISOString()
     mkdirSync(dirname(globalLearningFile), { recursive: true })
     const tmp = globalLearningFile + ".tmp"
@@ -811,7 +832,7 @@ function _handleStateCorruption(path: string): string | null {
   const backupPath = join(backupDir, basename(path) + ".corrupted." + Date.now())
   try { copyFileSync(path, backupPath) } catch {}
   const logPath = join(VIBEOS_HOME, ".state-corruption-log.jsonl")
-  try { appendFileSync(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n") } catch {}
+  try { appendJsonlWithRotation(logPath, JSON.stringify({ ts: new Date().toISOString(), path, backup: backupPath }) + "\n", 500, 50) } catch {}
   _pruneCorruptionBackups(backupDir)
   return backupPath
 }
@@ -942,7 +963,7 @@ function appendLoopTransitionAudit(previousSession: unknown, nextSession: unknow
   } catch {}
 }
 
-function updateState(mutator: (state: DelegationState) => DelegationState | void): DelegationState {
+export function updateState(mutator: (state: DelegationState) => DelegationState | void): DelegationState {
   const delegationStateFile = join(getVibeOSHome(), "delegation-state.json")
   const MAX_RETRIES = 3
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -1157,25 +1178,27 @@ function _capBlackboxSessions(state: unknown): void {
 function saveBlackboxState(state: unknown): void {
   const blackboxFile = join(getVibeOSHome(), "blackbox-state.json")
   try {
-    const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} }
-    const previous = readJsonOrEmpty(blackboxFile) as AnyObject
-    next.sessions ??= {}
-    const now = Date.now()
-    for (const [sid, session] of Object.entries(next.sessions)) {
-      if (!session || typeof session !== "object") continue
-      const normalized = normalizeBlackboxRecord(session as unknown, sid, now).record
-      appendLoopTransitionAudit(previous?.sessions?.[sid], normalized, sid)
-      next.sessions[sid] = normalized
-    }
-    _capBlackboxSessions(next)
-    _normalizeVibeUltraXBlackboxState(next)
-    _mirrorLiveControlVector(next)
-    mkdirSync(dirname(blackboxFile), { recursive: true })
-    const tmp = blackboxFile + ".tmp"
-    writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
-    renameSync(tmp, blackboxFile)
-    const st = statSync(blackboxFile)
-    _blackboxStateCache = { file: blackboxFile, mtimeMs: st.mtimeMs, size: st.size, state: next as DelegationState }
+    withFileLock(blackboxFile, () => {
+      const next = state && typeof state === "object" ? state : { enabled: true, sessions: {} }
+      const previous = readJsonOrEmpty(blackboxFile) as AnyObject
+      next.sessions ??= {}
+      const now = Date.now()
+      for (const [sid, session] of Object.entries(next.sessions)) {
+        if (!session || typeof session !== "object") continue
+        const normalized = normalizeBlackboxRecord(session as unknown, sid, now).record
+        appendLoopTransitionAudit(previous?.sessions?.[sid], normalized, sid)
+        next.sessions[sid] = normalized
+      }
+      _capBlackboxSessions(next)
+      _normalizeVibeUltraXBlackboxState(next)
+      _mirrorLiveControlVector(next)
+      mkdirSync(dirname(blackboxFile), { recursive: true })
+      const tmp = blackboxFile + ".tmp"
+      writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n")
+      renameSync(tmp, blackboxFile)
+      const st = statSync(blackboxFile)
+      _blackboxStateCache = { file: blackboxFile, mtimeMs: st.mtimeMs, size: st.size, state: next as DelegationState }
+    }, { timeoutMs: 4000 })
   } catch (err) {
     console.error(`[vibeOS] saveBlackboxState failed: ${err.message}`)
   }
@@ -2684,7 +2707,6 @@ export {
   // State management
   validateState,
   readJsonOrEmpty,
-  updateState,
   readFullState,
   writeFullState,
   loadSessionOrchestration,

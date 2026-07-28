@@ -3,13 +3,14 @@
 // DOC: Auto-merged from classifiers.ts, axis-bundle.ts, mode-router.ts, turn-classify.ts
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { join, dirname } from "node:path"
 import { memoCompute } from "./turn-memo.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
-import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId } from "./state.js"
+import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId, updateState } from "./state.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback, ensureBootstrapExchange, clearRejectedToken } from "./api-client.js"
 
@@ -605,7 +606,45 @@ export function isApiClassified(): boolean { return _lastClassifiedByApi }
 export function lastApiPredictedMode(): string { return _lastApiPredictedMode }
 
 
+const REGIME_CACHE_TTL_MS = 60_000
+const REGIME_CACHE_MAX_ENTRIES = 32
+const _regimeCache = new Map<string, { regime: string, ts: number }>()
+
+export function _clearRegimeCache(): void { _regimeCache.clear() }
+
+function _regimeCacheKey(text: string): string {
+  const fp = currentProjectFingerprint || "global"
+  const intentHash = createHash("sha1").update(String(text || "").slice(0, 512)).digest("hex").slice(0, 12)
+  return `${fp}:${intentHash}`
+}
+
+function _readRegimeCache(key: string, stress: number): string | null {
+  if (stress > 1.5) return null
+  const hit = _regimeCache.get(key)
+  if (!hit) return null
+  if (Date.now() - hit.ts > REGIME_CACHE_TTL_MS) {
+    _regimeCache.delete(key)
+    return null
+  }
+  return hit.regime
+}
+
+function _writeRegimeCache(key: string, regime: string): void {
+  if (_regimeCache.size >= REGIME_CACHE_MAX_ENTRIES) {
+    const oldestKey = _regimeCache.keys().next().value
+    if (oldestKey) _regimeCache.delete(oldestKey)
+  }
+  _regimeCache.set(key, { regime, ts: Date.now() })
+}
+
 export async function classifyTurnRemote(text: string): Promise<string> {
+  const stress = scoreStress(text)
+  const cacheKey = _regimeCacheKey(text)
+  const cached = _readRegimeCache(cacheKey, stress)
+  if (cached) {
+    _lastClassifiedByApi = true
+    return cached
+  }
   try {
     const client = getApiClient()
     if (!client || isApiFallback()) {
@@ -637,7 +676,9 @@ export async function classifyTurnRemote(text: string): Promise<string> {
     if (res && typeof res === "object" && "sub_regime" in (res as Record<string, unknown>)) {
       _lastClassifiedByApi = true
       if (!_lastApiPredictedMode) _lastApiPredictedMode = (res as Record<string, string>).optimization_mode || ""
-      return (res as Record<string, string>).sub_regime
+      const regime = (res as Record<string, string>).sub_regime
+      _writeRegimeCache(cacheKey, regime)
+      return regime
     }
   } catch {}
   _lastClassifiedByApi = false
@@ -1098,52 +1139,6 @@ const warnPerSession = new Map()
 const WARN_MAX_PER_SESSION = 3
 const WARN_COALESCE_THRESHOLD = 10
 const warnCoalesceCounters = new Map()
-
-function updateState(mutator) {
-  const stateFile = join(getVibeOSHome(), "delegation-state.json")
-  const MAX_RETRIES = 3
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const result = withFileLock(stateFile, () => {
-        const preGen = (readJsonOrEmpty(stateFile)._gen || 0)
-        let state = readJsonOrEmpty(stateFile)
-        if (!state || typeof state !== "object") state = {}
-        if (!state.session_started_at || state.session_started_at === "not-a-valid-date" || isNaN(Date.parse(state.session_started_at))) {
-          state.session_started_at = new Date().toISOString()
-        }
-        state.lifetime ??= {}
-        state.lifetime.missed_context7_usd ??= 0
-        state.lifetime.cache_savings_usd ??= 0
-        state.lifetime.total_savings_usd ??= 0
-        state._ledgerFormatVersion ??= 2
-        state._gen = preGen + 1
-        const next = mutator(state) ?? state
-        validateState(next, stateFile)
-        mkdirSync(dirname(stateFile), { recursive: true })
-        const tmp = stateFile + ".tmp"
-        writeFileSync(tmp, JSON.stringify(next, null, 2))
-        renameSync(tmp, stateFile)
-        return next
-      })
-      if (!result || typeof result !== "object") return result
-      const postGen = result._gen
-      const onDiskGen = (readJsonOrEmpty(stateFile)._gen || 0)
-      if (onDiskGen === postGen) return result
-      if (attempt < MAX_RETRIES - 1) continue
-      if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
-        console.error("[vibeOS] WARN: updateState retry exhausted - possible state divergence")
-      }
-      return result
-    } catch (err) {
-      if (attempt < MAX_RETRIES - 1) continue
-      if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
-        console.error("[vibeOS] updateState error: " + err.message)
-      }
-      return null
-    }
-  }
-  return null
-}
 
 function loadTrinityModels() {
   try {
