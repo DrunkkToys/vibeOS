@@ -1,3 +1,7 @@
+## 0.27.1
+- fix: self-heal collapsed brain/medium/cheap trinity in vibe rebuild (#501)
+
+
 ## 0.26.8
 - fix: require explicit dashboard MCP opt-in (#492)
 - fix: disable idle MCP dashboard autostart (#491)
