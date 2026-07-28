@@ -1491,10 +1491,22 @@ export function createTrinityTool(deps) {
         try {
           const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
           const existing = tiers.trinity || {}
+          // A prior rebuild that ran against a single-provider model pool can leave
+          // brain/medium/cheap all pointing at the same model id. keepExistingTrinitySlot
+          // otherwise treats that as a perfectly valid value to preserve, so once collapsed
+          // it stays collapsed on every later rebuild even after more providers/models
+          // become available. Detect the collapse and let this rebuild's freshly probed,
+          // genuinely distinct candidates through instead -- unless a slot was pinned manually.
+          const existingIds = [existing.brain?.oc, existing.medium?.oc, existing.cheap?.oc].map((v) => String(v || "").trim())
+          const anyManual = [existing.brain, existing.medium, existing.cheap].some((s) => s?.manual === true)
+          const probedIds = [probed.brain.id, probed.medium.id, probed.cheap.id]
+          const isCollapsed = !anyManual && existingIds[0] && existingIds.every((id) => id === existingIds[0])
+          const probedDistinct = new Set(probedIds).size > 1
+          const effectiveExisting = isCollapsed && probedDistinct ? {} : existing
           tiers.trinity = {
-            brain: keepExistingTrinitySlot(existing.brain, probed.brain.id),
-            medium: keepExistingTrinitySlot(existing.medium, probed.medium.id),
-            cheap: keepExistingTrinitySlot(existing.cheap, probed.cheap.id),
+            brain: keepExistingTrinitySlot(effectiveExisting.brain, probed.brain.id),
+            medium: keepExistingTrinitySlot(effectiveExisting.medium, probed.medium.id),
+            cheap: keepExistingTrinitySlot(effectiveExisting.cheap, probed.cheap.id),
           }
           const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
           deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")

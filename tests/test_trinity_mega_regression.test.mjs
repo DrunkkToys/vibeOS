@@ -340,6 +340,37 @@ test("rebuild syncs opencode.json's tier-agent model bindings to the final trini
   assert.equal(afterOc.agent["vibe-brain"].model, finalTrinity.brain.oc, "vibe-brain agent must match the final brain trinity slot after rebuild")
 })
 
+// Live-reproduced on a real dev machine: a rebuild that ran while only a
+// single-provider model pool was visible (buildDeterministicTrinity scopes
+// candidates to one provider) collapsed brain/medium/cheap to the same
+// model id. Because keepExistingTrinitySlot only checks "is this existing
+// value non-empty and non-placeholder" -- not "is the existing trinity
+// degenerate" -- every later rebuild kept re-preserving the collapsed
+// single-model trinity forever, even once a richer multi-provider model
+// pool became available. `vibe rebuild`, the exact fix this plugin tells
+// users to run for the resulting cross-provider warning, could never
+// self-heal.
+test("rebuild self-heals a collapsed single-model trinity once multi-provider models are available", async () => {
+  setTiers("opencode/big-pickle", "opencode/big-pickle", "opencode/big-pickle")
+  const ocPath = join(sandbox, ".opencode/opencode.json")
+  writeFileSync(ocPath, JSON.stringify({
+    model: "opencode/big-pickle",
+    provider: {
+      opencode: { models: { "big-pickle": { name: "Big Pickle" } } },
+      deepseek: { models: { "deepseek-v4-flash": { name: "DeepSeek V4 Flash" } } },
+      "opencode-go": { models: { "mimo-v2.5": { name: "Mimo v2.5" } } },
+    },
+  }, null, 2))
+
+  await (await getHooks()).tool.trinity.execute({ action: "rebuild" })
+
+  const tiersPath = join(sandbox, ".claude/model-tiers.json")
+  const finalTrinity = JSON.parse(readFileSync(tiersPath, "utf8")).trinity
+  const ids = [finalTrinity.brain.oc, finalTrinity.medium.oc, finalTrinity.cheap.oc]
+  assert.notEqual(ids[0], ids[1], "brain and medium must not collapse to the same model when other providers are available")
+  assert.notEqual(ids[1], ids[2], "medium and cheap must not collapse to the same model when other providers are available")
+})
+
 test("guard creates project docs on first run", async () => {
   const projectDir = join(sandbox, "guard-project")
   mkdirSync(projectDir, { recursive: true })

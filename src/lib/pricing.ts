@@ -224,7 +224,11 @@ export function buildDeterministicTrinity(models: unknown[], options: {
   const provider = _providerOfModel(selectedModel?.id || selectedModelId, providerHint)
     || _providerOfModel(list[0]?.id || "", providerHint)
   const providerModels = list.filter((m) => _providerOfModel(m.id, provider) === provider)
-  const scoped = providerModels.length > 0 ? providerModels : list
+  // A same-provider pool with fewer than 3 models can't fill brain/medium/cheap with
+  // distinct models (medium and cheap fall back onto brain), collapsing the whole
+  // trinity to one model id. Fall back to the full cross-provider pool so the three
+  // tiers stay distinct; same-provider scoping is a preference, not a requirement.
+  const scoped = providerModels.length >= 3 ? providerModels : list
   const qualityRanked = _sortByQualityDesc(scoped)
   const costRanked = _sortByCostAsc(scoped)
 
