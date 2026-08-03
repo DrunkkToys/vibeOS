@@ -183,7 +183,7 @@ if (isUninstallCommand) {
 if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   console.error("Usage: npx vibeostheog set [--project]            # install/update plugin");
   console.error("       npx vibeostheog setup [--project]        # alias of set");
-  console.error("       npx vibeostheog uninstall                 # remove plugin + state + launch agent + cron");
+  console.error("       npx vibeostheog uninstall                 # clean removal: plugin + state + launch agent + cron + configs");
   console.error("       npx vibeostheog un                       # alias of uninstall");
   process.exit(1);
 }

@@ -45,6 +45,7 @@ Use this as the only vibeOS skill. It covers the command surface, runtime contro
 | \`vibe report savings\` | Deep savings breakdown from the append-only ledger |
 | \`vibe research-audit\` | Run research audit tooling |
 | \`vibe diagnose cascade\` | Deep cascade check: slot config, subagent drift, cheap-first cross-provider degradation |
+| \`vibe uninstall\` | Run the clean uninstaller: removes plugin files, tier agents, the /vibe skill, runtime state, launch agent, cron, npm link, and opencode.json registrations |
 
 ## Routing and enforcement
 
