@@ -1041,10 +1041,6 @@ export const onToolExecuteBefore = async (input, output) => {
         if (shouldLogWarn(`${t}|runtime-drift|${coherence.slot || "unknown"}`)) console.error(`[vibeOS] [runtime-drift] allowing direct ${t}; ${pendingUiNote}`)
         return
       }
-      const originalPath = argSources
-        .flatMap((src) => [src?.filePath, src?.file_path, src?.path])
-        .find((v) => typeof v === "string" && v.trim()) || ""
-      const _basename = originalPath.split("/").pop() || "blocked"
 
       const apiResult = await remoteCall("delegateCheck", [tLower, currentTier, currentModel, _prompt], () => ({
         blocked: false,
@@ -1062,17 +1058,25 @@ export const onToolExecuteBefore = async (input, output) => {
       const isBlocked = apiResult?.blocked !== false && (isFallback || savings >= MIN_MEANINGFUL_SAVINGS)
 
       if (isBlocked) {
-        const _total = recordSaving(t, "delegation enforced", savings, {
+        const _total = recordSaving(t, "delegation suggested", savings, {
           firstWord: _firstWord,
           projectFingerprint: currentProjectFingerprint,
           projectName: currentProjectName || "",
           sessionId: getCurrentSessionId(),
         })
         const taskModel = TRINITY_CHEAP || TRINITY_MEDIUM || currentModel || TRINITY_BRAIN || ""
-        pendingUiNote = `[delegation] ${t} blocked on brain tier. Use a task subagent instead: \`task subagent_type="general" model="${taskModel}" prompt="${t} <file> with the intended content"\`. Keeps brain focused on orchestration.`
-        enforcementBlocked = true
-        _mutateBlockedToolArgs(t, argSources, originalPath, output)
-        if (shouldLogWarn(`${t}|enforced|${_tierWord}`)) console.error(`[vibeOS] [enforcement] BLOCKED direct ${t} on high tier → delegate via Task`)
+        // vibeOS v2: enforcement is NON-BLOCKING. Blocking direct writes on the
+        // strong tier fought the model and spammed the GUI (and blocked user
+        // read/write in search sessions). The deterministic quality gate now
+        // verifies outcomes instead; this path only suggests, capped, and lets
+        // the tool run.
+        const suggestKey = `${getCurrentSessionId()}|${t}|suggest`
+        const suggestCount = _warnCounts[suggestKey] || 0
+        if (suggestCount < MAX_WARNS_PER_TOOL) {
+          _warnCounts[suggestKey] = suggestCount + 1
+          pendingUiNote = `[delegation] ${t} on the strong tier — a task subagent (model="${taskModel}") could do it cheaper. Not blocked.`
+        }
+        if (shouldLogWarn(`${t}|suggest|${_tierWord}`)) console.error(`[vibeOS] [delegation] suggested Task for ${t} on high tier (non-blocking)`)
         return
       }
       const _total = recordSaving(t, "direct edit", _estEdit, {
