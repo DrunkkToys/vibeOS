@@ -14,8 +14,9 @@ import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTr
 import { saveReport } from "../reporting.js"
 import { currentModel, currentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
 import { loadSessionSlot } from "../selection-manager.js"
-import { isApiConnected, isApiFallback } from "../api-client.js"
-import { getSessionCacheSavings } from "../session-savings.js"
+import { isApiConnected, isApiFallback, getApiClient } from "../api-client.js"
+import { getSessionCacheSavings, getSessionVerifiedSavings } from "../session-savings.js"
+import { readLatestGateVerdict, readGateVerdicts, readGateEvents } from "../../vibeOS-lib/quality-gate.js"
 import { computeReward } from "../../vibeOS-lib/reward-engine.js"
 import { detectLaziness } from "../../vibeOS-lib/laziness-detector.js"
 import { evaluateClaimEvidence, getSessionHealthSnapshot } from "../session-health.js"
@@ -33,6 +34,7 @@ export interface FooterLineInput {
   modelName: string
   savingsTotal?: number
   ltTotal?: number
+  savingsEstimated?: boolean
   ltTrend?: string
   vibeBrand: string
   optMode: string
@@ -213,11 +215,13 @@ export function trendGlyph(trend?: string): string {
   return "→"
 }
 
-export function formatSavingsPulse(amountUsd: number, trend?: string): string {
+export function formatSavingsPulse(amountUsd: number, trend?: string, estimated?: boolean): string {
   const amount = Number(amountUsd || 0)
   if (!Number.isFinite(amount) || amount <= 0) return ""
   const arrow = trendGlyph(trend)
-  return `$${amount.toFixed(2)} saved${arrow !== "→" ? ` ${arrow}` : ""}`
+  const prefix = estimated ? "~" : ""
+  const label = estimated ? " est" : ""
+  return `${prefix}$${amount.toFixed(2)} saved${label}${arrow !== "→" ? ` ${arrow}` : ""}`
 }
 
 export function formatCascadePulse(cascadeIcon?: string, cascadeLabel?: string): string {
@@ -250,6 +254,7 @@ export function resolveFooterState(partial?: Partial<FooterLineInput> | null): F
     modelName: typeof p.modelName === "string" && p.modelName ? p.modelName : "unknown",
     savingsTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
     ltTotal: Number.isFinite(savingsTotalNum) ? savingsTotalNum : 0,
+    savingsEstimated: p.savingsEstimated === true,
     ltTrend: p.ltTrend,
     vibeBrand: typeof p.vibeBrand === "string" ? p.vibeBrand : "",
     optMode: typeof p.optMode === "string" ? p.optMode : "",
@@ -366,7 +371,7 @@ export function buildFooterLine(input: FooterLineInput): string {
   let line = `\u2014 ${tierIcon} ${activeSlot} | ${providerLabel} | ${modelName}${workerSuffix}${regimeTag ? ` \u25B6 ${regimeIcon} ${regimeTag}` : ""}`
 
   if (savingsTotal > 0) {
-    const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend)
+    const savingsPulse = formatSavingsPulse(savingsTotal, ltTrend, input.savingsEstimated === true)
     if (savingsPulse) line += ` | ${savingsPulse}`
   } else {
     line += " | VIBE"
@@ -943,7 +948,26 @@ async function resolveFooterDisplayState(
   _refreshModel(directory)
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
-  if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+  // vibeOS v2: stress is derived from real, deterministic signals — tool failure
+  // rate, guard-breach/loop events, and quality-gate failures this session.
+  // The legacy text heuristic is only a fallback when no session evidence exists.
+  try {
+    const events = readGateEvents(getVibeOSHome(), getSessionId(), 50)
+    const failed = events.filter((e) => e.isFailed || (e.exitCode !== null && e.exitCode !== 0))
+    const loopSignals = events.filter((e) => e.isGuardBreach || e.role === "bypass")
+    let stress = 0
+    if (events.length >= 3) stress = Math.min(0.5, failed.length / events.length)
+    const verdicts = readGateVerdicts(getVibeOSHome(), getSessionId(), 10)
+    const gateFails = verdicts.filter((v) => !v.passed).length
+    if (gateFails > 0) stress = Math.max(stress, Math.min(0.3, gateFails * 0.1))
+    if (loopSignals.length > 0) stress = Math.max(stress, 0.4)
+    _footerStress = Math.min(1, stress)
+    if (_footerStress === 0 && events.length === 0 && latestUserIntent) {
+      _footerStress = scoreStress(latestUserIntent)
+    }
+  } catch {
+    if (latestUserIntent) _footerStress = scoreStress(latestUserIntent)
+  }
   let liveBlackboxState = quietIntent ? null : getLatestBlackboxState()
   const diskBlackboxState = quietIntent ? null : loadBlackboxState()
   // The root of blackbox-state.json (sub_regime, cv, cascade_depth, etc.) is a
@@ -1105,9 +1129,15 @@ async function resolveFooterDisplayState(
   })
   const claimTag = claimStatus.claimTag || ""
   const ltTotal = ltTasks + ltCache
-  const sessionCacheSavings = getSessionCacheSavings(readFullState()?.sessions?.[sid] || {})
+  const sessionState = readFullState()?.sessions?.[sid] || {}
+  const sessionCacheSavings = getSessionCacheSavings(sessionState)
   const sessionTotal = Number(sesTasks || 0) + Number(sessionCacheSavings || 0)
-  const footerSavingsTotal = sessionTotal > 0 ? sessionTotal : ltTotal
+  // vibeOS v2 honest savings: verified (real completed delegations) first; if
+  // none, fall back to the estimate and label it as such. Never show an
+  // unverified number as fact.
+  const sessionVerified = getSessionVerifiedSavings(sessionState)
+  const footerSavingsTotal = sessionVerified > 0 ? sessionVerified : (sessionTotal > 0 ? sessionTotal : ltTotal)
+  const savingsEstimated = sessionVerified <= 0 && footerSavingsTotal > 0
   const activeSlot = turnTruthSlot || ultraResolvedTier
   const flashIcon = isApiConnected() ? " \u26A1" : ""
   const rawMode = displayMode
@@ -1213,6 +1243,7 @@ async function resolveFooterDisplayState(
     providerLabel: execution.provider_label,
     modelName: modelDisplayName(execution.model),
     savingsTotal: footerSavingsTotal,
+    savingsEstimated,
     ltTrend: sesTrend,
     vibeBrand,
     optMode: isSuppressedMode ? "" : displayMode,
@@ -1456,6 +1487,27 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
       } catch (turnLedgerErr) {
         console.error("[vibeOS] footer turn ledger error:", turnLedgerErr?.message || turnLedgerErr)
       }
+      // Real routing-decision telemetry (vibeOS v2): post actual values only.
+      // Unknown cost/latency are null, never fabricated zeros. Offline = no-op.
+      try {
+        if (typeof isApiConnected === "function" && isApiConnected()) {
+          const gateVerdict = readLatestGateVerdict(getVibeOSHome(), state.sid)
+          const gateOutcome = gateVerdict ? (gateVerdict.passed ? "positive" : "negative") : null
+          const outcome = gateOutcome || state._rewardOutcome || null
+          getApiClient().recordRoutingDecision({
+            session_id: state.sid,
+            mode: state.displayMode || null,
+            tier: state.activeSlot || null,
+            model: state.execution?.model || null,
+            outcome,
+            cost: null,
+            latency: null,
+            stress: Number.isFinite(Number(state._footerStress)) ? Number(state._footerStress) : null,
+            sub_regime: state.currentSubRegime || null,
+            gate_passed: gateVerdict ? Boolean(gateVerdict.passed) : null,
+          }).catch(() => {})
+        }
+      } catch {}
     })
     const footerText = stripped + `\n\n${vibeLine}`
     _footerCacheText = `\n\n${vibeLine}`

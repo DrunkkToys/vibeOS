@@ -1415,6 +1415,30 @@ export const onToolExecuteAfter = async (input, output) => {
     })
   }
 
+  // Verified savings (vibeOS v2): only completed task delegations count as real
+  // savings — the delta between the active strong model and the task subagent's
+  // actual model. Estimates (est_savings_usd) are never displayed as real.
+  if (t === "task") {
+    try {
+      const taskModel = String(input?.args?.model || "").trim() || TRINITY_CHEAP || ""
+      const strongCost = Number(modelCostPerTurn(currentModel) || 0)
+      const taskCost = taskModel ? Number(modelCostPerTurn(taskModel) || 0) : 0
+      const delta = Math.max(0, strongCost - taskCost)
+      if (delta > 0) {
+        const sid = getCurrentSessionId() || _OC_SID
+        updateState((s) => {
+          s.sessions ??= {}
+          s.sessions[sid] ??= {}
+          s.sessions[sid].verified_savings_usd = (Number(s.sessions[sid].verified_savings_usd) || 0) + delta
+          s.lifetime ??= { warn_count: 0, total_savings_usd: 0, last_updated: "" }
+          s.lifetime.verified_savings_usd = (Number(s.lifetime.verified_savings_usd) || 0) + delta
+          s.lifetime.last_updated = new Date().toISOString()
+          return s
+        })
+      }
+    } catch {}
+  }
+
   function _payload(obj) {
     if (obj?.message && typeof obj.message === "object") return obj.message
     return obj

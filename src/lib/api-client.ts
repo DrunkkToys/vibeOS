@@ -396,6 +396,10 @@ export class VibeOSApiClient {
     return this.request("/api/v1/blackbox/outcome", { session_id: sessionId, outcome })
   }
 
+  async recordRoutingDecision(payload: Record<string, unknown>): Promise<unknown> {
+    return this.request("/api/v1/telemetry/record", payload)
+  }
+
   async blackboxControlVector(state: unknown, action: unknown, optimizationMode: string | Record<string, unknown>): Promise<unknown> {
     const decision = typeof optimizationMode === "string"
       ? { optimization_mode: optimizationMode }
