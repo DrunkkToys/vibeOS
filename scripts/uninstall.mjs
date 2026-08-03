@@ -284,6 +284,42 @@ function removeStrayDeployArtifact() {
   return false
 }
 
+// Legacy installs used VIBEOS_OPENCODE_HOME=~ so the plugin deployed to
+// ~/opencode.json + ~/plugins/vibeOS.js instead of ~/.opencode. Clean that too.
+function removeHomeRootDeployment() {
+  let did = false
+  if (stripVibeFromConfig(join(HOME, "opencode.json"))) did = true
+  const pluginDir = join(HOME, "plugins")
+  for (const rel of ["vibeOS.js", "vibeOS.js.deploying", "vibeOS.js.tmp", "assets", ".env.production", "tests"]) {
+    const t = join(pluginDir, rel)
+    if (existsSync(t)) {
+      try { rmSync(t, { recursive: true, force: true }) } catch {}
+      did = true
+    }
+  }
+  try {
+    if (existsSync(pluginDir) && readdirSync(pluginDir).length === 0) rmSync(pluginDir, { recursive: true, force: true })
+  } catch {}
+  for (const name of readdirSync(HOME)) {
+    if (name.startsWith("config.json.vibeos-bak-")) {
+      try { rmSync(join(HOME, name), { force: true }) } catch {}
+      did = true
+    }
+  }
+  for (const p of [join(HOME, "data", "vibemax-model.json"), join(HOME, ".config", "data", "vibemax-model.json")]) {
+    if (existsSync(p)) {
+      try { rmSync(p, { force: true }) } catch {}
+      did = true
+    }
+  }
+  const dbBackup = join(HOME, ".local", "share", "opencode", "opencode.db.vibeos-backup")
+  if (existsSync(dbBackup)) {
+    try { rmSync(dbBackup, { force: true }) } catch {}
+    did = true
+  }
+  return did
+}
+
 writeLine()
 writeLine("vibeOS — clean uninstall")
 writeLine()
@@ -346,6 +382,10 @@ if (unlinkGlobalPackage()) {
 }
 if (removeStrayDeployArtifact()) {
   writeLine("✓ removed stray undefined/ deploy artifact")
+  didSomething = true
+}
+if (removeHomeRootDeployment()) {
+  writeLine("✓ removed legacy home-root deployment (~/opencode.json + ~/plugins)")
   didSomething = true
 }
 
