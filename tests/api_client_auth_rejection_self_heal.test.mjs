@@ -51,6 +51,7 @@ const server = http.createServer((req, res) => {
 
 const port = await new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)))
 
+delete process.env.VIBEOS_API_TOKEN
 process.env.VIBEOS_API_URL = `http://127.0.0.1:${port}`
 process.env.VIBEOS_HOME = join(sandbox, ".claude")
 process.env.VIBEOS_BUILD_CHANNEL = "alpha"
