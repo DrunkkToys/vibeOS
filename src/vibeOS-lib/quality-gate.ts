@@ -67,8 +67,17 @@ const GATE_CLAIM_PATTERNS: { kind: GateClaim["kind"]; re: RegExp }[] = [
 const VERIFICATION_FAMILY_RE =
   /test|build|typecheck|lint|check|verify|audit|vitest|jest|mocha|pytest|node --test|npm test|go test|tsc|eslint|compose|compile|validate/i
 
-// File names/extensions that indicate a test artifact.
-const TEST_FILE_RE = /(test|spec|\.test\.|\.spec\.)/i
+// File names/extensions that indicate a test artifact. Strict patterns only:
+// *.<test|spec>.<ext>, test_/spec_-prefixed basenames, or a tests?/ directory.
+// A bare "test"/"spec" substring (contest.ts, no-test-0-add.ts, src/test/) must
+// NOT be treated as a test file or the gate would skip the TDD rule on real code.
+const TEST_FILE_RE = /(^|\/|\\)tests?\//i
+const TEST_RUN_RE = /test|vitest|jest|mocha|pytest|node --test|npm test|go test/i
+function isTestTarget(target: string): boolean {
+  if (TEST_FILE_RE.test(target)) return true
+  const base = String(target || "").split("/").pop() || target
+  return /\.(test|spec)\.[a-z0-9]+$/i.test(base) || /^(test|spec)[_.-]/i.test(base)
+}
 const SOURCE_EXT_RE = /\.(ts|tsx|js|jsx|py|go|rs|rb|kt|java|c|cc|cpp|h|hpp|sh|mjs|cjs)$/i
 const TEST_EXT_RE = /\.(test|spec)\./i
 
@@ -107,10 +116,6 @@ function isSourceTarget(target: string): boolean {
   return SOURCE_EXT_RE.test(target) && !TEST_EXT_RE.test(target)
 }
 
-function isTestTarget(target: string): boolean {
-  return TEST_FILE_RE.test(target)
-}
-
 // ── Pure gate ──
 
 export function runQualityGate(input: {
@@ -138,7 +143,7 @@ export function runQualityGate(input: {
   )
   const lastVerificationAt = Math.max(0, ...verifications.map((v) => v.at || 0))
   const testVerification = verifications.some(
-    (v) => v.exitCode === 0 && TEST_FILE_RE.test(v.family || v.tool || ""),
+    (v) => v.exitCode === 0 && TEST_RUN_RE.test(v.family || v.tool || ""),
   )
   const touchedSource = recentMutations.some((m) => isSourceTarget(String(m.target || "")))
   const touchedTest = recentMutations.some((m) => isTestTarget(String(m.target || "")))
@@ -156,8 +161,10 @@ export function runQualityGate(input: {
     reasons.push("state-claim-without-exit-zero")
   }
 
-  // R2 — code flow: touching source without a test step is a shortcut.
-  if (flow === "code" && touchedSource && hasCompletionClaims(claims) && !touchedTest && !testVerification) {
+  // R2 — code flow: touching source without a test step is a shortcut. Fires on
+  // any completion claim (including a bare "Done."), so a model that writes
+  // code and just concludes can't slip past.
+  if (flow === "code" && touchedSource && claims.length > 0 && !touchedTest && !testVerification) {
     missing.push("code changed without a test step — add/update a test and run it before claiming done")
     reasons.push("code-without-test-step")
   }

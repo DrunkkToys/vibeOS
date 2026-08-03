@@ -133,3 +133,34 @@ test("quality-gate: gate verdict maps to a deterministic outcome signal", () => 
   assert.equal(pass.passed ? "positive" : "negative", "positive")
   assert.equal(fail.passed ? "positive" : "negative", "negative")
 })
+
+test("quality-gate: a bare 'Done.' after editing source triggers the test-step rule", () => {
+  const verdict = gate.runQualityGate({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+  })
+  assert.equal(verdict.passed, false)
+  assert.ok(verdict.missing.some((m) => /test step/.test(m)))
+})
+
+test("quality-gate: filenames containing 'test' as a substring are NOT test files", () => {
+  const contest = gate.runQualityGate({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/contest.ts", at: 1 }],
+  })
+  assert.equal(contest.passed, false, "contest.ts is a source file → test step required")
+  const latest = gate.runQualityGate({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/latest.ts", at: 1 }],
+  })
+  assert.equal(latest.passed, false, "latest.ts is a source file → test step required")
+  const realTest = gate.runQualityGate({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "write", family: "edit", at: 1 })],
+    recentTools: [{ tool: "write", target: "tests/queue.test.ts", at: 1 }],
+  })
+  assert.equal(realTest.passed, true, "queue.test.ts is a real test file → test step satisfied")
+})
