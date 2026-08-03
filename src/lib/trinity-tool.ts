@@ -9,7 +9,7 @@ import { BRANDED_MODES, RUNTIME_MODES, RAW_MODE, MODE_TABLE, normalizeLegacyMode
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getSessionHealthSnapshot, getLiveOpenCodeModel } from "./session-health.js"
-import { getVibeOSHome } from "./state.js"
+import { getVibeOSHome, getCurrentSessionId } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
@@ -367,7 +367,7 @@ export function createTrinityTool(deps) {
       "Use action='uninstall' to run the clean uninstaller, removing the plugin, tier agents, the /vibe skill, runtime state, launch agent, cron, and the global npm link. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock", "uninstall"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock", "uninstall", "gate"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -1919,6 +1919,36 @@ export function createTrinityTool(deps) {
         return `\u274c Use \`vibe blackbox on|off|status|reset\``
       }
 
+      if (action === "gate") {
+        const { existsSync: fsExists, readFileSync: fsRead } = await import("node:fs")
+        const sid = getCurrentSessionId()
+        const path = join(getVibeOSHome(), "quality-gate", `${sid}.jsonl`)
+        if (!fsExists(path)) {
+          return [
+            "[vibeOS-quality-gate]",
+            "No verdicts recorded for this session yet.",
+            "The gate is silent when completion claims are backed by real tool evidence;",
+            "it only records a verdict when evidence is missing.",
+          ].join("\n")
+        }
+        const lines = String(fsRead(path, "utf8") || "").trim().split("\n").filter(Boolean)
+        const verdicts = lines
+          .slice(-12)
+          .map((l) => {
+            try { return JSON.parse(l) } catch { return null }
+          })
+          .filter(Boolean)
+        if (verdicts.length === 0) return "[vibeOS-quality-gate]\nNo verdicts for this session."
+        const out = ["[vibeOS-quality-gate]", `Session ${sid} — last ${verdicts.length} verdicts:`]
+        for (const v of verdicts.reverse()) {
+          const ts = new Date(v.ts || 0).toISOString().replace("T", " ").slice(5, 19)
+          const missing = v.passed ? "" : ` · missing: ${(v.missing || []).join("; ")}`
+          out.push(`  ${ts} ${v.passed ? "PASS" : "FAIL"} flow=${v.flow || "none"}${missing}`)
+        }
+        out.push("The gate never blocks — it verifies, then reports once.")
+        return out.join("\n")
+      }
+
       if (action === "uninstall") {
         const { fileURLToPath } = await import("node:url")
         const { existsSync: fsExists } = await import("node:fs")
@@ -1995,6 +2025,10 @@ export function createTrinityTool(deps) {
           "UNINSTALL:",
           "  vibe uninstall         Remove plugin, tier agents, skill, runtime state,",
           "                         launch agent, cron, and npm link (clean removal)",
+          "",
+          "QUALITY GATE:",
+          "  vibe gate              Show deterministic completion-gate verdicts for this",
+          "                         session (silent when claims are backed by real evidence)",
         ].join("\n")
       }
 

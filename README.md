@@ -277,6 +277,18 @@ It deliberately leaves `~/.claude`, `~/.config/opencode`, and `~/.opencode/bin/o
 
 You can also run it from inside a session with `vibe uninstall` (falls back to printing the `npx` command when the uninstaller script is not locally reachable). Reinstall anytime with `npx vibeostheog setup`.
 
+## Quality Gate
+
+vibeOS v2 is a **deterministic quality gate**, not a blocker. The model may act freely — but a completion is only considered backed by evidence when its claims match what actually happened in the session:
+
+- "tests pass / build green" requires a **real verification run with exit code 0** observed in the session.
+- Code changes require a **test step** (a test file touched or a test run) before claiming done.
+- Non-code changes require an **extra verification iteration** after the last change.
+
+The gate is silent when claims hold up. When evidence is missing it appends **one concise, deduped report** listing the exact missing evidence, and records the verdict to `$VIBEOS_HOME/quality-gate/<session>.jsonl` (inspect with `vibe gate`). It never blocks reads, writes, or edits.
+
+Delegation enforcement is **non-blocking** in v2: direct writes on the strong tier are allowed and only suggested as a cheaper alternative — the gate, not write-blocking, is what enforces flow.
+
 ## Commands
 
 `vibe help` for full reference. Commands register in the TUI sidebar.
@@ -316,6 +328,7 @@ You can also run it from inside a session with `vibe uninstall` (falls back to p
 | `vibe api-bootstrap-token <token>` | Bootstrap token exchange |
 | `vibe report savings` | Deep savings breakdown from the append-only ledger |
 | `vibe uninstall` | Run the clean uninstaller (plugin, agents, skill, state, launch agent, cron, npm link) |
+| `vibe gate` | Show deterministic quality-gate verdicts for this session |
 
 **Report commands**: report-save, report-list, report-read, research-audit
 

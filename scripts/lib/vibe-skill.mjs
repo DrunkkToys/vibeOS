@@ -46,6 +46,7 @@ Use this as the only vibeOS skill. It covers the command surface, runtime contro
 | \`vibe research-audit\` | Run research audit tooling |
 | \`vibe diagnose cascade\` | Deep cascade check: slot config, subagent drift, cheap-first cross-provider degradation |
 | \`vibe uninstall\` | Run the clean uninstaller: removes plugin files, tier agents, the /vibe skill, runtime state, launch agent, cron, npm link, and opencode.json registrations |
+| \`vibe gate\` | Show deterministic quality-gate verdicts for this session (silent when claims are backed by real evidence) |
 
 ## Routing and enforcement
 

@@ -35,12 +35,13 @@ import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent } from "./lib/runtime-config.js"
-import { getOpenCodeHome, getVibeOSHome } from "./lib/state.js"
+import { getOpenCodeHome, getVibeOSHome, recentToolEvents } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 import { getSessionDelegationSavings } from "./lib/session-savings.js"
 import { getLatestTurnTruth } from "./lib/turn-ledger.js"
+import { runQualityGate, formatGateReport, readGateEvents, recordGateVerdict, dedupeGateReportKey, QUALITY_GATE_MARKER } from "./vibeOS-lib/quality-gate.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -195,6 +196,45 @@ function _checkAndRecordUnsubstantiatedClaims() {
         claims: unsubClaimTexts.slice(0, 5),
       }) + "\n")
     }
+  } catch {}
+}
+const _gateNoteBySession = new Map<string, string>()
+function _extractOutputText(output) {
+  try {
+    const payload = typeof output?.message === "object" && output.message ? output.message : output
+    if (typeof payload.text === "string") return payload.text
+    if (typeof payload.result === "string") return payload.result
+    if (typeof payload.content === "string") return payload.content
+    if (Array.isArray(payload.content)) return payload.content.filter((p) => p?.type === "text").map((p) => p.text).filter(Boolean).join("\n")
+    if (Array.isArray(payload.parts)) return payload.parts.filter((p) => p?.type === "text").map((p) => p.text).filter(Boolean).join("\n")
+  } catch {}
+  return ""
+}
+// Deterministic quality gate — vibeOS v2. Runs on every completion. Silent when
+// the model's claims are backed by real tool evidence; on failure appends one
+// concise, deduped report listing the exact missing evidence. Never blocks.
+function _runQualityGate(output) {
+  try {
+    if (process.env.VIBEOS_QUALITY_GATE === "0") return
+    const text = _extractOutputText(output)
+    if (!text) return
+    const sessionId = getCurrentSessionId()
+    const home = getVibeOSHome()
+    const events = readGateEvents(home, sessionId)
+    const recentTools = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-20) : []
+    const verdict = runQualityGate({ text, events, recentTools })
+    recordGateVerdict(home, sessionId, verdict)
+    if (verdict.passed) return
+    if (text.includes(QUALITY_GATE_MARKER)) return
+    const key = dedupeGateReportKey(verdict)
+    if (_gateNoteBySession.get(sessionId) === key) return
+    _gateNoteBySession.set(sessionId, key)
+    const report = formatGateReport(verdict)
+    if (!report) return
+    const payload = typeof output?.message === "object" && output.message ? output.message : output
+    if (typeof payload.text === "string") payload.text += report
+    else if (typeof payload.result === "string") payload.result += report
+    else if (typeof payload.content === "string") payload.content += report
   } catch {}
 }
 function ensureFooterFallback(input, output, directory, hookName = "fallback") {
@@ -1416,6 +1456,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       await _appendFooter(_input, output, directory, undefined, "experimental.text.complete")
       ensureFooterFallback(_input, output, directory, "experimental.text.complete")
       _checkAndRecordUnsubstantiatedClaims()
+      _runQualityGate(output)
 
     },
     "message.updated": async (_input, output) => {
@@ -1435,6 +1476,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       ensureFooterFallback(_input, output, directory, "message.updated")
       // auto-verify: cross-check against cascade-audit
       _checkAndRecordUnsubstantiatedClaims()
+      _runQualityGate(output)
 
     },
     tool: {
