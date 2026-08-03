@@ -12,7 +12,7 @@ import { join, dirname, basename } from "node:path"
 import { getFlowWarns, ensureProjectDocs, syncFlowTodosToNative } from "./vibeOS-lib/flow-enforcer.js"
 import { computeSessionMetrics } from "./vibeOS-lib/session-metrics.js"
 import { createMcpServer, writeDashboardBaseConfig } from "./lib/vibeos-mcp-server.js"
-import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, syncApiTokenFromDisk, VIBEOS_API_URL } from "./lib/api-client.js"
+import { isApiConnected, isApiFallback, getBackendVersion, getApiFallbackSince, setApiToken, setApiBootstrapToken, ensureBootstrapExchange, syncApiTokenFromDisk, VIBEOS_API_URL, getApiClient } from "./lib/api-client.js"
 import { applySlot, reconcileSlotModel, modelCostPerTurn, detectContext7, formatUsd, classify, resolveEffectiveTier, _refreshModel, HIGH_TIER_RE, MID_TIER_RE, PLACEHOLDER_RE, readConfig, readLiveOpenCodeModel, getTrinitySlotOrder, loadTrinitySlotsFromTiersFile, isModelFree, resolveCurrentExecution, modelDisplayName, TRINITY_BRAIN, TRINITY_MEDIUM, TRINITY_CHEAP, getPendingLiveSwitch, resetPendingLiveSwitch } from "./lib/pricing.js"
 import { scoreStress, detectTechStack, loadBlackboxState, saveBlackboxState, getBlackboxTracker, getBlackboxResolution, getLatestBlackboxState, saveOptimizationMode, resetBlackboxTracker, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg } from "./lib/cascade.js"
 import { safeJsonParse, readFullState, loadSelection, writeSelection, readLifetimeSavings, _OC_SID, _modelLocked, _blackboxEnabled, setBlackboxEnabled, _lockedSlot, _lockedModel, setModelLocked, setLockedSlot, setLockedModel, currentTier, currentModel, currentProjectFingerprint, currentProjectName, setCurrentTier, setCurrentModel, setCurrentProjectFingerprint, setCurrentProjectName, setCurrentSessionId, getCurrentSessionId, briefedProjects, getActiveJobForProject, projectFingerprint, loadProjectState, saveProjectState, ensureProjectBucket, mergeProjectBucket, setVibeOSHomeContext, resetSessionId, SAVINGS_LEDGER_FILE, USER_HOME, CREDIT_CACHE_F, pruneScratchpadOnce, registerSessionCleanupHandlers, runStartupMaintenanceOnce, promotedProjectPatterns, projectPatternRows, clearProjectPatterns, loadTodos, loadTodosForCurrentProject, getTodos, upsertTodo, markTodoDone, tool, loadSessionOrchestration, mutateSessionOrchestration, withFileLock } from "./lib/state.js"
@@ -224,6 +224,14 @@ function _runQualityGate(output) {
     const recentTools = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-20) : []
     const verdict = runQualityGate({ text, events, recentTools })
     recordGateVerdict(home, sessionId, verdict)
+    // Real feedback signal: send the deterministic verdict to the backend so
+    // blackbox_sessions.outcome and the prediction ground-truth plumbing are fed
+    // with actual outcomes. Offline/degraded API = no-op, never throws.
+    if (typeof isApiConnected === "function" && isApiConnected()) {
+      try {
+        getApiClient().blackboxOutcome(sessionId, verdict.passed ? "positive" : "negative").catch(() => {})
+      } catch {}
+    }
     if (verdict.passed) return
     if (text.includes(QUALITY_GATE_MARKER)) return
     const key = dedupeGateReportKey(verdict)

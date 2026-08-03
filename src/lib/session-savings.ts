@@ -11,6 +11,11 @@ export function getSessionDelegationSavings(session: unknown): number {
   return roundUsd((session as Record<string, unknown>).total_savings_usd)
 }
 
+export function getSessionVerifiedSavings(session: unknown): number {
+  if (!session || typeof session !== "object") return 0
+  return roundUsd((session as Record<string, unknown>).verified_savings_usd)
+}
+
 export function getSessionCacheSavings(session: unknown): number {
   if (!session || typeof session !== "object") return 0
   return roundUsd((session as Record<string, unknown>).cache_savings_usd)

@@ -115,3 +115,21 @@ test("quality-gate: recordGateVerdict + readGateEvents round-trip under a temp h
   const file = join(home, "quality-gate", "sess-test.jsonl")
   assert.equal(existsSync(file), true)
 })
+
+test("quality-gate: readGateVerdicts + readLatestGateVerdict round-trip", () => {
+  const home = mkdtempSync(join(tmpdir(), "vibeos-gate-"))
+  gate.recordGateVerdict(home, "sess-v", gate.runQualityGate({ text: "All tests pass.", events: [], recentTools: [] }))
+  gate.recordGateVerdict(home, "sess-v", gate.runQualityGate({ text: "I fixed queue.ts, done.", events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })], recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }] }))
+  const all = gate.readGateVerdicts(home, "sess-v", 10)
+  assert.equal(all.length, 2)
+  const last = gate.readLatestGateVerdict(home, "sess-v")
+  assert.equal(last.passed, false)
+  assert.ok(last.missing.some((m) => /test step/.test(m)))
+})
+
+test("quality-gate: gate verdict maps to a deterministic outcome signal", () => {
+  const pass = gate.runQualityGate({ text: "All tests pass.", events: [ev({ role: "verification", family: "npm test", exitCode: 0 })], recentTools: [] })
+  const fail = gate.runQualityGate({ text: "All tests pass.", events: [], recentTools: [] })
+  assert.equal(pass.passed ? "positive" : "negative", "positive")
+  assert.equal(fail.passed ? "positive" : "negative", "negative")
+})

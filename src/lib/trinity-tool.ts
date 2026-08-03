@@ -395,6 +395,19 @@ export function createTrinityTool(deps) {
       else if (["full", "brief", "off"].includes(action)) { level = action; action = "thinking" }
       else if (["on", "off"].includes(action) && !slot) { slot = action }
       if (action === "dashboard") {
+        try {
+          const sel = deps.loadSelection()
+          const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
+          const optedIn = tiers?.selection?.dashboard_mcp_enabled === true || process.env.VIBEOS_MCP_PORT
+          if (!optedIn) {
+            return [
+              "[vibeOS-dashboard]",
+              "Dashboard is disabled in vibeOS v2.",
+              "Opt in explicitly with dashboard_mcp_enabled: true (and a port) in model-tiers.json",
+              "or set VIBEOS_MCP_PORT. It is never auto-started.",
+            ].join("\n")
+          }
+        } catch {}
         const dashboardBase = await resolveDashboardBaseUrl(deps)
         if (!dashboardBase) {
           return [

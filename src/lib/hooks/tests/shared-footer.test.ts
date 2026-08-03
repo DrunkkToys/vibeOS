@@ -44,6 +44,12 @@ test("shared-footer formats a subtle savings pulse with trend cues", () => {
   assert.equal(trendGlyph("flat"), "→")
 })
 
+test("shared-footer labels estimated savings honestly (vibeOS v2)", () => {
+  assert.equal(formatSavingsPulse(12.57, "up", true), "~$12.57 saved est ↗")
+  assert.equal(formatSavingsPulse(4.2, undefined, true), "~$4.20 saved est")
+  assert.equal(formatSavingsPulse(12.57, "up", false), "$12.57 saved ↗")
+})
+
 test("shared-footer formats cascade icon and label together", () => {
   assert.equal(formatCascadePulse("▸▸▸", ""), "▸▸▸")
   assert.equal(formatCascadePulse("▸▸", ""), "▸▸")

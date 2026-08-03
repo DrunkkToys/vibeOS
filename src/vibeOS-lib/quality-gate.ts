@@ -244,3 +244,32 @@ export function recordGateVerdict(home: string, sessionId: string, verdict: Gate
 export function dedupeGateReportKey(verdict: GateVerdict): string {
   return [...new Set(verdict.missing)].sort().join("|")
 }
+
+export function readGateVerdicts(home: string, sessionId: string, n = 20): GateVerdict[] {
+  try {
+    const path = join(home, "quality-gate", `${sessionId}.jsonl`)
+    if (!existsSync(path)) return []
+    const lines = String(readFileSync(path, "utf8") || "").trim().split("\n").filter(Boolean)
+    return lines
+      .slice(-n)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean) as GateVerdict[]
+  } catch {
+    return []
+  }
+}
+
+export function readLatestGateVerdict(home: string, sessionId: string): GateVerdict | null {
+  try {
+    const verdicts = readGateVerdicts(home, sessionId, 1)
+    return verdicts.length > 0 ? verdicts[0] : null
+  } catch {
+    return null
+  }
+}
