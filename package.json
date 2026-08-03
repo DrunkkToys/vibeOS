@@ -18,6 +18,7 @@
     "ts:audit": "node scripts/ts-audit.mjs",
     "test": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json && node scripts/build-bundle.mjs && node scripts/run-test-suite.mjs full",
     "test:ci": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json && node scripts/build-bundle.mjs && node scripts/run-test-suite.mjs ci",
+    "test:e2e": "node scripts/e2e/harness.mjs",
     "guard": "bash plugins/vibetheog-guard/scripts/run-guard.sh",
     "guard:full": "VIBETHEOG_GUARD_FULL=1 bash plugins/vibetheog-guard/scripts/run-guard.sh",
     "hook:precommit": "bash plugins/vibetheog-guard/hooks/pre-commit.sh",

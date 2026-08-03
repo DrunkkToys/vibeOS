@@ -649,6 +649,18 @@ export function materializeScratchpadAlias(
 
 export const setToolDirectory = (dir) => { projectDirectory = dir || "" }
 
+// Test hook: evaluate the self-modification guard against an explicit project
+// directory without mutating the live runtime directory.
+export function _isProtectedToolPathForTest(projectDir, pathValue) {
+  const prev = projectDirectory
+  projectDirectory = String(projectDir || "").trim()
+  try {
+    return _isProtectedToolPath(pathValue)
+  } finally {
+    projectDirectory = prev
+  }
+}
+
 export const onToolExecuteBefore = async (input, output) => {
   if (!loadSelection().enabled) return
   _refreshModel(projectDirectory)

@@ -1,3 +1,19 @@
+## 0.27.2 (unreleased)
+- feat: deterministic quality gate — completion claims must be backed by real tool evidence; non-blocking enforcement (#504)
+- feat: close the ML/telemetry loop — real gate outcomes + telemetry endpoint + honest savings + real-signal stress (#505)
+- fix: scope self-modification protection to the plugin repo only; strict test-file detection (caught by E2E, #506)
+- feat: clean uninstall removes every runtime artifact including legacy home-root installs (#502)
+- fix: drop stale VIBEOS_API_TOKEN env var on rejection (#503)
+- test: headless E2E release harness (`scripts/e2e`, `npm run test:e2e`); protection-scoping unit tests
+
+## 0.27.1
+- fix: self-heal collapsed brain/medium/cheap trinity in vibe rebuild (#501)
+
+## 0.27.0
+- fix: lock state writers, bound logs, cascade depth reset, add uninstall (#500)
+- fix: prevent OpenCode footer update recursion (#495)
+- fix: defer vibeOS sync I/O in footer and chat-params hooks (#497, revert + reapply)
+
 ## 0.26.8
 - fix: require explicit dashboard MCP opt-in (#492)
 - fix: disable idle MCP dashboard autostart (#491)

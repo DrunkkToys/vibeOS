@@ -1,4 +1,4 @@
-# vibeOS for OpenCode -- The Corners of the Mouth v0.27.0
+# vibeOS for OpenCode -- The Corners of the Mouth v0.27.2
 
 > **VIBEOS_HOME** = `/Users/drunkktoys/Library/Application Support/ai.opencode.desktop/vibeOS/`
 > All runtime state files live under `$VIBEOS_HOME` (set via `VIBEOS_HOME` env var on this machine).
@@ -133,17 +133,19 @@ The pivot system integrates with the loop intervention escalation: assertive loo
 
 ## The Numbers
 
-The savings are real and measurable. Every write/edit on the brain tier is intercepted, cost-estimated, and routed to a cheaper tier. A single blocked brain-tier write saves at least $0.026 over Opus-to-Sonnet delegation.
+Savings are shown honestly. The footer displays **verified** savings first (real model-cost deltas from completed task delegations), and labels anything estimated as `~$X saved est` — never a bare, unverifiable figure. When there is nothing verifiable, the segment is omitted.
 
 ### Savings per Delegation
 
-| Move | Per Turn | 10x | 100x | 1,000x |
+| Move | Per Turn (est) | 10x | 100x | 1,000x |
 |------|----------|-----|------|--------|
 | Opus -> Haiku | $0.0308 | $0.31 | $3.08 | $30.80 |
 | Opus -> Sonnet | $0.0264 | $0.26 | $2.64 | $26.40 |
 | Sonnet -> Haiku | $0.0044 | $0.04 | $0.44 | $4.40 |
 
-The running total is persisted in $VIBEOS_HOME/delegation-state.json and displayed in the live footer. Cache savings are tracked separately under cache_savings_usd.
+Delegation is **non-blocking** in v2: direct writes on the strong tier are never prevented — the plugin only suggests a cheaper route. Verified savings are tracked in `$VIBEOS_HOME/delegation-state.json`; cache savings are tracked separately under `cache_savings_usd`.
+
+The stress gauge in the footer is also derived from **real signals** — tool failure rate, loop/guard-breach events, and quality-gate failures this session — not a text heuristic.
 
 ### Model Tiers
 
@@ -282,12 +284,33 @@ You can also run it from inside a session with `vibe uninstall` (falls back to p
 vibeOS v2 is a **deterministic quality gate**, not a blocker. The model may act freely — but a completion is only considered backed by evidence when its claims match what actually happened in the session:
 
 - "tests pass / build green" requires a **real verification run with exit code 0** observed in the session.
-- Code changes require a **test step** (a test file touched or a test run) before claiming done.
+- Code changes require a **test step** (a test file touched or a test run) before claiming done — this fires even for a bare "Done." after editing source.
 - Non-code changes require an **extra verification iteration** after the last change.
 
-The gate is silent when claims hold up. When evidence is missing it appends **one concise, deduped report** listing the exact missing evidence, and records the verdict to `$VIBEOS_HOME/quality-gate/<session>.jsonl` (inspect with `vibe gate`). It never blocks reads, writes, or edits.
+The gate is **deterministic** (pure rules, no ML). It is silent when claims hold up; when evidence is missing it appends **one concise, deduped report** listing the exact missing evidence, and records the verdict to `$VIBEOS_HOME/quality-gate/<session>.jsonl` (inspect with `vibe gate`). It never blocks reads, writes, or edits.
+
+**Correction loop** — if the gate flags a completion, the next turn (after the model adds the missing evidence) flips the verdict to a silent PASS; the note is never duplicated.
+
+**Scoping guarantees** (verified by E2E):
+- Test-file detection is strict (`*.test.*`, `*.spec.*`, `tests/` dirs, `test_*` basenames) — a file like `contest.ts` is a source file, not a test.
+- Self-modification protection fires **only inside the vibeOS plugin repo**. Writing `tests/`, `scripts/`, `src/`, or `package.json` in any other project is allowed.
+
+**Offline/degraded** — if the API is unreachable the gate still records verdicts locally and never crashes; it simply skips posting outcomes/telemetry.
 
 Delegation enforcement is **non-blocking** in v2: direct writes on the strong tier are allowed and only suggested as a cheaper alternative — the gate, not write-blocking, is what enforces flow.
+
+## E2E Release Test
+
+Headless, user-perspective release testing is built in: `scripts/e2e/` drives **real** `opencode run` sessions against the built bundle with a real model + a local mock backend, then prints a pass/fail table and a `RELEASE: GO|NO` verdict. See `scripts/e2e/README.md` for the scenario list, options, and artifacts.
+
+```bash
+npm run build:bundle
+npm run test:e2e -- --seed round2 --k 2 --model deepseek/deepseek-chat   # full suite
+npm run test:e2e -- --list                                              # list scenarios
+npm run test:e2e -- --only correction-loop --model deepseek/deepseek-chat
+```
+
+Coverage: the correction loop (FAIL → fix → PASS, ≤1 note, real-signal stress gauge), the `vibe gate` surface, protected-path behavior in both external projects and the plugin repo, offline degradation, wired `blackbox/outcome` + telemetry, TDD skeleton auto-creation, strict test-file detection, and gate silence across cheap/medium/brain tiers. Without `--model` the harness skips cleanly (exit 0) so CI can include it without API keys.
 
 ## Commands
 

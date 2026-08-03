@@ -11,6 +11,7 @@ src/vibeOS-lib/tests/experiment-token-latency.md
 dist/
 dist-ts/
 dist-ts-tests/
+.e2e-tmp/
 src/dashboard/dist/
 src/dashboard/node_modules/
 src/index.js
