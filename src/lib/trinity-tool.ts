@@ -364,9 +364,10 @@ export function createTrinityTool(deps) {
       "Use action='reality-check' to read verified live state and report only evidence-backed facts. " +
       "Use action='api-token' with token='<new_token>' to update the API token or token='invalidate' to disable the embedded alpha token. " +
       "Use action='api-bootstrap-token' with token='<new_token>' to store an alpha bootstrap token and exchange it for a normal API token on alpha builds. " +
+      "Use action='uninstall' to run the clean uninstaller, removing the plugin, tier agents, the /vibe skill, runtime state, launch agent, cron, and the global npm link. " +
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
-      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock"]).optional(),
+      action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock", "uninstall"]).optional(),
       slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
@@ -1918,6 +1919,35 @@ export function createTrinityTool(deps) {
         return `\u274c Use \`vibe blackbox on|off|status|reset\``
       }
 
+      if (action === "uninstall") {
+        const { fileURLToPath } = await import("node:url")
+        const { existsSync: fsExists } = await import("node:fs")
+        const { execFileSync: execNode } = await import("node:child_process")
+        const here = dirname(fileURLToPath(import.meta.url))
+        const candidates = [
+          join(here, "..", "scripts", "uninstall.mjs"),
+          join(here, "scripts", "uninstall.mjs"),
+        ]
+        const script = candidates.find((p) => fsExists(p))
+        if (script) {
+          try {
+            const output = execNode(process.execPath, [script], { encoding: "utf8", cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] })
+            return "[vibeOS] Clean uninstall complete. Restart OpenCode to finish applying.\n\n" + String(output || "")
+          } catch (e) {
+            return "[vibeOS-uninstall] Uninstaller failed: " + (e?.message || e)
+          }
+        }
+        return [
+          "[vibeOS-uninstall]",
+          "Run the complete clean uninstaller from a terminal:",
+          "  npx vibeostheog uninstall",
+          "It removes plugin files, tier agents, the /vibe skill, all runtime state",
+          "(memory/training/telemetry), project opencode.json registrations, the",
+          "launch agent, the nightly cron, and the global npm link.",
+          "Reinstall anytime with: npx vibeostheog setup",
+        ].join("\n")
+      }
+
       if (action === "help") {
         return [
           "vibeOS commands",
@@ -1961,6 +1991,10 @@ export function createTrinityTool(deps) {
           "  vibe blackbox on/off   Toggle theWay blackbox decision engine",
           "  vibe blackbox status   View resolution state, momentum, project history",
           "  vibe blackbox reset    Clear resolution tracker for current session",
+          "",
+          "UNINSTALL:",
+          "  vibe uninstall         Remove plugin, tier agents, skill, runtime state,",
+          "                         launch agent, cron, and npm link (clean removal)",
         ].join("\n")
       }
 

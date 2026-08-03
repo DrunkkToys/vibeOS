@@ -256,6 +256,27 @@ Local dev checkout:
 }
 ```
 
+## Uninstall
+
+vibeOS ships a clean, complete uninstaller — no leftovers, ready to reinstall:
+
+```bash
+npx vibeostheog uninstall        # or: node bin/setup.js uninstall
+```
+
+It removes everything vibeOS created:
+
+- Plugin files (`plugins/vibeOS.js`, assets, `.env.production`, retention job) and the `/vibe` skill
+- The `vibe` / `vibe-cheap` / `vibe-medium` / `vibe-brain` agents and `default_agent` from every `opencode.json` (global, desktop app, and current project)
+- All runtime state dirs: `$VIBEOS_HOME`, `~/.vibetheog`, `~/.vibeos`, `~/Library/Application Support/ai.opencode.desktop/vibeOS`, and `~/.vibelm-debug-*` artifacts
+- vibe-named files inside `~/.claude` (state, locks, model-tiers) — never your Claude data
+- The `com.vibeos.opencode-event-retention` launch agent and the nightly pricing cron
+- The global `vibeostheog` npm link
+
+It deliberately leaves `~/.claude`, `~/.config/opencode`, and `~/.opencode/bin/opencode` (the OpenCode binary itself) untouched so OpenCode keeps working.
+
+You can also run it from inside a session with `vibe uninstall` (falls back to printing the `npx` command when the uninstaller script is not locally reachable). Reinstall anytime with `npx vibeostheog setup`.
+
 ## Commands
 
 `vibe help` for full reference. Commands register in the TUI sidebar.
@@ -294,6 +315,7 @@ Local dev checkout:
 | `vibe api-token <token|invalidate>` | Manage remote API token |
 | `vibe api-bootstrap-token <token>` | Bootstrap token exchange |
 | `vibe report savings` | Deep savings breakdown from the append-only ledger |
+| `vibe uninstall` | Run the clean uninstaller (plugin, agents, skill, state, launch agent, cron, npm link) |
 
 **Report commands**: report-save, report-list, report-read, research-audit
 
