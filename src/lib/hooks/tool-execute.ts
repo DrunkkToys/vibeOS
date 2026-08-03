@@ -189,7 +189,26 @@ function _resolveToolPath(pathValue) {
   return projectDirectory ? join(projectDirectory, raw).replace(/\\/g, "/") : raw
 }
 
+// Self-modification protection must apply ONLY to the vibeOS plugin's own
+// repo. The old pattern-matched any project path under src/, tests?/, scripts/,
+// package.json, README.md, etc. — which blocked normal dev writes (creating
+// test files, editing scripts) in every unrelated project. That was the
+// "can not read/write" pain reported by users. Scope it to the plugin repo.
+function _isVibeOSRepoProject() {
+  try {
+    const dir = String(projectDirectory || "").trim()
+    if (!dir) return false
+    if (existsSync(join(dir, "dist", "vibeOS.js"))) return true
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))
+      if (pkg && pkg.name === "vibeostheog") return true
+    } catch {}
+  } catch {}
+  return false
+}
+
 function _isProtectedToolPath(pathValue) {
+  if (!_isVibeOSRepoProject()) return false
   const raw = _normalizeToolPath(pathValue)
   if (!raw) return false
   const resolved = _resolveToolPath(pathValue)
