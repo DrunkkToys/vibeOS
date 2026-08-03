@@ -671,6 +671,7 @@ export function invalidateApiToken() {
 // disable and does not set _tokenInvalidated.
 export function clearRejectedToken(): void {
   VIBEOS_API_TOKEN = ""
+  delete process.env.VIBEOS_API_TOKEN
   _apiClientGen++
   _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
   _apiFallbackMode = false
