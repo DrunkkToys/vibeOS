@@ -9,7 +9,7 @@ import { BRANDED_MODES, RUNTIME_MODES, RAW_MODE, MODE_TABLE, normalizeLegacyMode
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getSessionHealthSnapshot, getLiveOpenCodeModel } from "./session-health.js"
-import { getVibeOSHome, getCurrentSessionId } from "./state.js"
+import { getVibeOSHome, getCurrentSessionId, withFileLock } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
@@ -26,6 +26,24 @@ const MOMENTUM_SIGNIFICANT_THRESHOLD = 0.3
 const DIAGNOSE_BUDGET_LINES = 50
 const CREDIT_MIN_OK = 40
 const VIBEULTRAX_ROOT = ["cheap", "medium", "brain"]
+
+// Locked, atomic whole-file write of model-tiers.json. Other subsystems
+// (writeSelection, applySlot, chat-params per-turn) write the same file under
+// withFileLock; bare writeFileSync here could lose their concurrent updates or
+// tear reads from the footer/shell-env hot path.
+function writeTiersLocked(deps, tiers): boolean {
+  try {
+    withFileLock(deps.TIERS_FILE, () => {
+      const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
+      deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
+      deps.renameSync(_tmp, deps.TIERS_FILE)
+    })
+    return true
+  } catch (e) {
+    console.error("[vibeOS] writeTiersLocked failed:", e.message)
+    return false
+  }
+}
 
 function isByteStringSafeModelId(modelId): boolean {
   const raw = String(modelId || "")
@@ -133,13 +151,14 @@ function applyVibeUltraXRepair(deps) {
     tiers.selection.active_pipeline = VIBEULTRAX_ROOT
     tiers.selection.vector_changed_pipeline = VIBEULTRAX_ROOT
     tiers.selection.active_slot = "cheap"
-    deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+    writeTiersLocked(deps, tiers)
   }
   const blackboxPath = join(deps.VIBEOS_HOME || getVibeOSHome(), "blackbox-state.json")
   if (changes.some((c) => c.file === blackboxPath)) {
     const blackbox = deps.safeJsonParse(deps.readFileSync(blackboxPath, "utf-8")) || {}
     normalizeVibeUltraXBlackboxState(blackbox)
-    deps.writeFileSync(blackboxPath, JSON.stringify(blackbox, null, 2) + "\n")
+    // Locked, atomic-rename writer — matches every other blackbox-state writer.
+    deps.saveBlackboxState(blackbox)
   }
   return { changes, backups }
 }
@@ -461,11 +480,8 @@ export function createTrinityTool(deps) {
                 const autoModel = probed[s].id
                 tiersData.trinity[s] = keepExistingTrinitySlot(oldTiers[s], autoModel)
               }
-              const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
-              deps.writeFileSync(_tmp, JSON.stringify(tiersData, null, 2) + "\n", "utf-8")
-              deps.renameSync(_tmp, deps.TIERS_FILE)
-              tiers = tiersData.trinity
-            }
+              writeTiersLocked(deps, tiersData)
+              tiers = tiersData.trinity            }
           } catch (e) { console.error("[vibeOS] auto-rebuild on model change failed:", e.message) }
         }
 
@@ -653,9 +669,7 @@ export function createTrinityTool(deps) {
             tiers.trinity[slot].oc = model
             tiers.trinity[slot].cc = model
             tiers.trinity[slot].manual = true
-            const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-            deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n")
-            deps.renameSync(_tmp, deps.TIERS_FILE)
+            writeTiersLocked(deps, tiers)
           } catch (e) {
             return `\u274c Failed to write model to tiers: ${e.message}`
           }
@@ -665,9 +679,7 @@ export function createTrinityTool(deps) {
             const tiers = deps.safeJsonParse(deps.readFileSync(deps.TIERS_FILE, "utf-8"))
             if (tiers?.trinity?.[slot]?.manual) {
               delete tiers.trinity[slot].manual
-              const _tmp = deps.TIERS_FILE + ".tmp." + Date.now() + "." + Math.random().toString(36).slice(2, 8)
-              deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n")
-              deps.renameSync(_tmp, deps.TIERS_FILE)
+              writeTiersLocked(deps, tiers)
             }
           } catch {}
         }
@@ -988,7 +1000,7 @@ export function createTrinityTool(deps) {
         if (medium) tiers.trinity.medium = keepExistingTrinitySlot(existing?.trinity?.medium, medium)
         if (cheap) tiers.trinity.cheap = keepExistingTrinitySlot(existing?.trinity?.cheap, cheap)
         deps.mkdirSync(dirname(deps.TIERS_FILE), { recursive: true })
-        deps.writeFileSync(deps.TIERS_FILE, JSON.stringify(tiers, null, 2) + "\n")
+        writeTiersLocked(deps, tiers)
         const bootstrapSlot = tiers.selection.active_slot || (brain ? "brain" : "medium")
         const booted = typeof deps.applySlot === "function" ? deps.applySlot(bootstrapSlot, deps.directory) : { ok: false, reason: "applySlot unavailable" }
         if (!booted?.ok) return `\u274c Failed to activate native OpenCode model: ${booted?.reason || "unknown error"}`
@@ -1534,9 +1546,7 @@ export function createTrinityTool(deps) {
             medium: keepExistingTrinitySlot(effectiveExisting.medium, probed.medium.id),
             cheap: keepExistingTrinitySlot(effectiveExisting.cheap, probed.cheap.id),
           }
-          const _tmp = deps.TIERS_FILE + ".tmp." + Date.now()
-          deps.writeFileSync(_tmp, JSON.stringify(tiers, null, 2) + "\n", "utf-8")
-          deps.renameSync(_tmp, deps.TIERS_FILE)
+          writeTiersLocked(deps, tiers)
         } catch (err) {
           return "\u274c Failed to write model-tiers.json: " + err.message
         }

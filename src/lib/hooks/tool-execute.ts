@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
 import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
 import { join, dirname, basename } from "node:path"
 import { createHash } from "node:crypto"
@@ -17,7 +17,7 @@ import {
   _indexAppend,
   _loadActiveJobs,
   _detectTechStack, _projectFingerprint, _loadProjectState, _saveProjectState,
-  _ensureProjectBucket, _mergeProjectBucket, SAVINGS_LEDGER_FILE,
+  _ensureProjectBucket, _mergeProjectBucket, recordSavingsLedgerEntry,
   CONTEXT7_INSTALL_FLAG, SOFT_QUOTA_LIMIT, _loadTodos, upsertTodo,
   ML_ENABLED, _cacheDb, _mlSavePending, ML_CONFIDENCE_THRESHOLD, setMlSavePending,
   _loadMLState, saveMLState,
@@ -1426,14 +1426,17 @@ export const onToolExecuteAfter = async (input, output) => {
     const taskPrompt = input?.args?.prompt || input?.args?.description || ""
     const quality = scoreTaskQuality(taskOutput, taskPrompt)
     try {
-      appendFileSync(SAVINGS_LEDGER_FILE, JSON.stringify({
+      // Buffered ledger writer: a direct appendFileSync here races the buffered
+      // flush + compaction rename in state.ts and can silently lose a line
+      // (the rename swaps the inode out from under the open fd).
+      recordSavingsLedgerEntry({
         at: new Date().toISOString(),
         kind: "quality",
         score: quality,
         tool: t,
         sid: _OC_SID,
         v: 2,
-      }) + "\n")
+      })
     } catch (ledgerErr) {
       if (DEBUG_INTERNALS) console.error(`[vibeOS] ledger append error: ${ledgerErr.message}`)
     }

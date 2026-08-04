@@ -1,4 +1,11 @@
 ## Unreleased
+- audit: docs/INTEGRATION_AUDIT.md — subsystem/mutation matrix, verified interference findings, minimal-composition spec
+- fix: concurrent state writers — blackbox-state.json, model-tiers.json, delegation-state.json (flow warns), savings-ledger.jsonl, session-events/<sid>.jsonl, orch-*.json all now write via the shared lock/atomic paths (no more unlocked whole-file or non-atomic writes)
+- fix: gate note no longer lands after the footer (would break the footer strip → footer+gate+footer); gate runs before the footer
+- fix: exactly one thinking directive per prompt (manual pin wins) and one loop-prevention directive (severity-tagged wins) instead of contradictory/redundant stacks
+- fix: control vector computed once per turn (turn-scoped CV cache) instead of twice with divergent results
+- fix: API-fallback vibelitex pin is authoritative while in fallback; backend resolved_tier governs otherwise (no same-turn slot yank)
+- test: E2E round 7 — all-systems-on integration scenarios (no state corruption, no footer/gate breakage, parseable JSON, no tmp litter)
 - feat: TDD gate is OFF by default and auto-ONs the moment a session switches to coding; `vibe gate tdd on|off|auto` persists the choice, `VIBEOS_GATE_TDD=on|off` overrides it, and the always-on rules (fake "tests pass", unverified non-code claims) still catch cheating
 - test: E2E round 6 — TDD gate toggle scenarios (research turn silent, coding turn auto-ON, explicit off/on, `vibe gate tdd` command surface)
 

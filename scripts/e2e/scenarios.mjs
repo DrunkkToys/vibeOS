@@ -736,4 +736,55 @@ export const round6Scenarios = [
   },
 ]
 
-export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios, ...round5Scenarios, ...round6Scenarios]
+// Round 7 — integration audit: one full-session run with cascade + blackbox +
+// footer + quality gate + TDD + flow + thinking all engaged. Asserts the
+// interference fixes held: no corrupted state files, no footer corruption,
+// no duplicated gate notes, verdicts recorded.
+export const round7Scenarios = [
+  {
+    name: "integration-all-systems",
+    label: "all systems on in one session stay coherent (no corruption, no footer/gate breakage)",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const f = ctx.fileName(0)
+      const r = await ctx.step(`Work end-to-end in ONE session:\n1. Read src/${f}.mjs\n2. Edit src/${f}.mjs to add a multiply function\n3. Run the test suite with node --test tests/ (add a test for multiply first if needed, then run it)\n4. Call the "vibe" tool with action "gate" and note its output\n5. Then say exactly: Done.`)
+      ctx.assert("gate recorded at least one verdict", r.verdicts.length >= 1, `verdicts=${r.verdicts.length}`)
+      ctx.assert("all verdicts parse as gate objects", r.verdicts.every((v) => v && typeof v === "object" && Array.isArray(v.reasons)), `sample=${JSON.stringify((r.verdicts[0] || null)?.slice ? null : r.verdicts[0])}`)
+      ctx.assert("no corrupted-state backups created", !ctx.hasCorruptionBackups(), "corruption backup dir present")
+      ctx.assert("no state-corruption log entries", ctx.readCorruptionLog() === 0, `corruptionLog=${ctx.readCorruptionLog()}`)
+      ctx.assert("footer line is well-formed (no embedded gate note)", /^— .* —$/.test(String(r.footerText || "").trim()) && !String(r.footerText || "").includes("[quality-gate]"), JSON.stringify(String(r.footerText || "").slice(0, 160)))
+      const gateNotes = (r.out.match(/\[quality-gate\]/g) || []).length
+      ctx.assert("no duplicated gate note for one failure", gateNotes <= 2, `notes=${gateNotes}`)
+      const events = ctx.readSessionEvents()
+      ctx.assert("session events captured", events.length > 0, `events=${events.length}`)
+    },
+  },
+  {
+    name: "integration-no-torn-json",
+    label: "concurrent state writers leave parseable JSON (no tmp leftovers)",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const f = ctx.fileName(1)
+      const r = await ctx.step(`Work end-to-end in ONE session:\n1. Edit src/${f}.mjs to add a double function\n2. Add a test for double to tests/${f}.test.mjs\n3. Run node --test tests/ until it passes\n4. Call the "vibe" tool with action "status" and note the output\n5. Say exactly: Done.`)
+      ctx.assert("gate ran", r.verdicts.length >= 1, `verdicts=${r.verdicts.length}`)
+      const { readdirSync } = await import("node:fs")
+      const tmpFiles = []
+      for (const dir of [ctx.vibeHome(), ctx.projDir()]) {
+        try {
+          for (const file of readdirSync(dir)) {
+            if (String(file).includes(".tmp")) tmpFiles.push(file)
+          }
+        } catch {}
+      }
+      ctx.assert("no .tmp litter in state or project dirs", tmpFiles.length === 0, `tmp=${tmpFiles.join(",")}`)
+      const bb = (() => {
+        try { return JSON.parse(ctx.readFile2("blackbox-state.json")) } catch { return null }
+      })()
+      ctx.assert("blackbox-state.json parses", bb !== null, "blackbox-state.json unparseable")
+    },
+  },
+]
+
+export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios, ...round5Scenarios, ...round6Scenarios, ...round7Scenarios]

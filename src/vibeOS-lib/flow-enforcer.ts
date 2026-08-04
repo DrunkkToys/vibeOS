@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync, renameSync } from "node:fs"
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { currentProjectFingerprint, getVibeOSHome } from "../lib/state.js"
+import { currentProjectFingerprint, getVibeOSHome, updateState } from "../lib/state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
 
 const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1"
@@ -420,42 +420,29 @@ function loadRules(): FlowRule[] {
 
 function recordFlowWarn(hit: RecordFlowWarnInput): void {
   try {
-    let state: any = {}
-    const stateFile = getStateFile()
-    if (existsSync(stateFile)) {
-      try { state = safeJsonParse<any>(readFileSync(stateFile, "utf-8")) } catch {}
-    } else {
-      mkdirSync(dirname(stateFile), { recursive: true })
-    }
-    state.flow_warns ??= []
     const dedupKey = `${hit.id}|${hit.filePath}`
-    const anyExisting = state.flow_warns.some((w: any) => {
-      const wKey = `${w.rule_id}|${w.filePath}`
-      return wKey === dedupKey
+    const record = {
+      at: new Date().toISOString(),
+      sid: process.pid || "?",
+      rule_id: hit.id,
+      severity: hit.severity,
+      filePath: hit.filePath,
+      description: hit.description,
+    }
+    if (_stateWriter) {
+      _stateWriter({ flow_warns: [record] })
+      return
+    }
+    // updateState is the canonical locked, atomic-rename writer for
+    // delegation-state.json. The old fallback here did an unlocked
+    // read-merge-write that raced updateState and could drop concurrent
+    // lifetime/session changes; it also bypassed the savings cache.
+    updateState((s) => {
+      const warns: any[] = (Array.isArray(s.flow_warns) ? s.flow_warns : (s.flow_warns = [])) as any[]
+      const anyExisting = warns.some((w: any) => `${w.rule_id}|${w.filePath}` === dedupKey)
+      if (!anyExisting) warns.push(record)
+      if (warns.length > 200) s.flow_warns = warns.slice(-200)
     })
-    if (!anyExisting) {
-      state.flow_warns.push({
-        at: new Date().toISOString(),
-        sid: process.pid || "?",
-        rule_id: hit.id,
-        severity: hit.severity,
-        filePath: hit.filePath,
-        description: hit.description,
-      })
-    }
-    if (state.flow_warns.length > 200) {
-      state.flow_warns = state.flow_warns.slice(-200)
-    }
-    const fp = { flow_warns: state.flow_warns }
-    if (_stateWriter) _stateWriter(fp)
-    else {
-      const stateFile = getStateFile()
-      const existing = safeJsonParse<any>(existsSync(stateFile) ? readFileSync(stateFile, "utf-8") : "{}")
-      const merged = Object.assign({}, existing, fp)
-      const tmpFile = stateFile + ".tmp." + Date.now()
-      writeFileSync(tmpFile, JSON.stringify(merged, null, 2))
-      renameSync(tmpFile, stateFile)
-    }
   } catch {}
 }
 

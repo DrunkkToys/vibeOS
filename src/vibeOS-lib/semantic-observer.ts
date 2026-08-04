@@ -1,7 +1,7 @@
 // @ts-nocheck
 // SPDX-License-Identifier: MIT
 import { join } from "node:path"
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs"
+import { mkdirSync, readFileSync, existsSync } from "node:fs"
 import {
   VIBEOS_HOME,
   _OC_SID,
@@ -9,10 +9,12 @@ import {
   loadProjectState,
   currentProjectFingerprint,
   safeJsonParse,
+  saveBlackboxState,
 } from "../lib/state.js"
 import { commandFamily, commandFailed } from "../lib/pattern-helpers.js"
 import { hasBypassFlag, targetsProtectedBranch, isDeployCommand } from "../lib/pattern-helpers.js"
 import { upsertProjectPattern } from "../lib/pattern-store.js"
+import { appendJsonlWithRotation } from "../utils/fs-helpers.js"
 
 function deriveRole(toolName, input, _output) {
   if (["write","edit","notebookedit","multiedit"].includes(toolName)) return "mutation"
@@ -55,14 +57,9 @@ function getSessionEventLogPath(sid) {
 
 function writeEvent(sid, event) {
   const path = getSessionEventLogPath(sid)
-  let lines = []
-  if (existsSync(path)) {
-    const raw = readFileSync(path, "utf-8").trim()
-    if (raw) lines = raw.split("\n")
-  }
-  lines.push(JSON.stringify(event))
-  if (lines.length > 200) lines = lines.slice(-200)
-  writeFileSync(path, lines.join("\n") + "\n")
+  // Append-with-rotation, matching footer.ts/index.ts. The old read-whole-file
+  // + rewrite clobbered footer/gate lines appended concurrently in the same turn.
+  appendJsonlWithRotation(path, JSON.stringify(event) + "\n", 200, 50)
 }
 
 function readRecentEvents(sid, n) {
@@ -251,7 +248,10 @@ function sessionCompact(sid, fingerprint) {
             ? `Address friction: ${topPattern?.summary || "review the repeated loop"}`
             : "Review the repeated loop and reduce friction"
           ses.live_updated_at = new Date().toISOString()
-          writeFileSync(bbPath, JSON.stringify(bb, null, 2))
+          // Route through the locked, atomic-rename writer so this update cannot
+          // race saveBlackboxState() from cascade/chat-transform/footer and lose
+          // concurrent control-vector or turn-counter changes.
+          saveBlackboxState(bb)
         }
       }
     }
