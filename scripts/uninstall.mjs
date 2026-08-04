@@ -424,14 +424,34 @@ didSomething = true
 
 const running = detectRunningOpenCode()
 if (running.length > 0) {
-  writeLine()
-  writeLine("⚠ OpenCode is still running with vibeOS loaded in memory:")
-  for (const line of running) writeLine("    " + line.trim().slice(0, 100))
-  writeLine()
-  writeLine("  Fully quit OpenCode (macOS: Cmd+Q, or from the app menu) to unload the plugin.")
-  writeLine("  The uninstall marker takes effect the moment the app is restarted;")
-  writeLine("  it is not required to remove anything else, but the running app can")
-  writeLine("  otherwise keep re-writing configs until you quit it.")
+  const appPids = running
+    .map((l) => {
+      const pid = l.trim().split(/\s+/)[0]
+      return /OpenCode\.app\/Contents\/MacOS\/OpenCode$/.test(l.trim().split(/\s+/).slice(1).join(" ")) ? pid : null
+    })
+    .filter((pid) => /^\d+$/.test(pid))
+  const quitFlag = process.argv.includes("--quit-app") || process.env.VIBEOS_UNINSTALL_QUIT === "1"
+  if (quitFlag) {
+    writeLine()
+    writeLine("⚠ terminating running OpenCode to unload the in-memory plugin…")
+    for (const pid of appPids) {
+      try {
+        execSync(`kill ${pid} 2>/dev/null || true`)
+        writeLine(`    killed pid ${pid}`)
+      } catch {}
+    }
+    try {
+      execSync("osascript -e 'quit app \"OpenCode\"' 2>/dev/null || true")
+    } catch {}
+    writeLine("  OpenCode terminated. Relaunch it — vibeOS will not load (plugin removed + marker set).")
+  } else {
+    writeLine()
+    writeLine("⚠ OpenCode is still running with vibeOS loaded in memory:")
+    for (const line of running) writeLine("    " + line.trim().slice(0, 100))
+    writeLine()
+    writeLine("  Re-run with --quit-app to terminate it now, or fully quit OpenCode yourself")
+    writeLine("  (macOS: Cmd+Q / app menu). The marker takes effect the moment it restarts.")
+  }
 }
 
 writeLine()
