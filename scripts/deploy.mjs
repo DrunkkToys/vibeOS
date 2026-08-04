@@ -12,6 +12,15 @@ import { normalizeVibeOSPluginRefs, resolveVibeOSPluginRef } from "./lib/plugin-
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
 
+// Reinstall clears the uninstall marker so a running/restarted instance resumes
+// registering tier agents.
+for (const p of [
+  join(homedir(), ".opencode", "vibeOS-uninstalled"),
+  join(homedir(), ".config", "opencode", "vibeOS-uninstalled"),
+]) {
+  try { if (existsSync(p)) rmSync(p, { force: true }) } catch {}
+}
+
 const bundlePath = join(ROOT, "dist", "vibeOS.js")
 const assetsPath = join(ROOT, "dist", "assets")
 const retentionScriptPath = join(ROOT, "scripts", "opencode-event-retention.mjs")

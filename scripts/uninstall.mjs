@@ -9,7 +9,7 @@
 // OpenCode itself keeps working and a reinstall starts from a blank slate.
 
 import { execFileSync, execSync } from "node:child_process"
-import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync, mkdirSync } from "node:fs"
 import { join, dirname, basename, resolve } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -286,8 +286,37 @@ function removeStrayDeployArtifact() {
 
 // Legacy installs used VIBEOS_OPENCODE_HOME=~ so the plugin deployed to
 // ~/opencode.json + ~/plugins/vibeOS.js instead of ~/.opencode. Clean that too.
-function removeHomeRootDeployment() {
-  let did = false
+// ── Uninstall marker ──────────────────────────────────────────────
+// A running OpenCode instance that loaded vibeOS before removal keeps the plugin
+// in memory and re-registers tier agents into opencode.json on later turns. The
+// marker (outside VIBEOS_HOME, which this script deletes) tells any loaded
+// instance to stop. Reinstall (setup) removes the marker.
+const UNINSTALL_MARKER = "vibeOS-uninstalled"
+
+function writeUninstallMarker() {
+  const targets = [
+    join(HOME, ".opencode", UNINSTALL_MARKER),
+    join(HOME, ".config", "opencode", UNINSTALL_MARKER),
+  ]
+  for (const t of targets) {
+    try {
+      mkdirSync(dirname(t), { recursive: true })
+      writeFileSync(t, "vibeOS uninstalled — do not register tier agents or write configs.\n")
+    } catch {}
+  }
+  return targets
+}
+
+function detectRunningOpenCode() {
+  try {
+    const out = execSync("ps ax -o pid=,command= 2>/dev/null | grep -i opencode | grep -v grep || true", { encoding: "utf8" })
+    return out.split("\n").filter((l) => l.trim()).slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
+function removeHomeRootDeployment() {  let did = false
   if (stripVibeFromConfig(join(HOME, "opencode.json"))) did = true
   const pluginDir = join(HOME, "plugins")
   for (const rel of ["vibeOS.js", "vibeOS.js.deploying", "vibeOS.js.tmp", "assets", ".env.production", "tests"]) {
@@ -387,6 +416,22 @@ if (removeStrayDeployArtifact()) {
 if (removeHomeRootDeployment()) {
   writeLine("✓ removed legacy home-root deployment (~/opencode.json + ~/plugins)")
   didSomething = true
+}
+
+writeUninstallMarker()
+writeLine("✓ wrote uninstall marker — loaded vibeOS instances will stop re-registering configs")
+didSomething = true
+
+const running = detectRunningOpenCode()
+if (running.length > 0) {
+  writeLine()
+  writeLine("⚠ OpenCode is still running with vibeOS loaded in memory:")
+  for (const line of running) writeLine("    " + line.trim().slice(0, 100))
+  writeLine()
+  writeLine("  Fully quit OpenCode (macOS: Cmd+Q, or from the app menu) to unload the plugin.")
+  writeLine("  The uninstall marker takes effect the moment the app is restarted;")
+  writeLine("  it is not required to remove anything else, but the running app can")
+  writeLine("  otherwise keep re-writing configs until you quit it.")
 }
 
 writeLine()
