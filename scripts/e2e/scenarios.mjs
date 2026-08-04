@@ -665,4 +665,75 @@ export const round5Scenarios = [
   },
 ]
 
-export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios, ...round5Scenarios]
+// Round 6 — TDD gate toggle: OFF by default, AUTO-ON when the session switches
+// to coding, explicit vibe gate tdd on|off|auto persists via selection.
+export const round6Scenarios = [
+  {
+    name: "tdd-auto-on-coding",
+    label: "research turn stays silent, then a coding turn auto-ONs the TDD rule",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r1 = await ctx.step(`Answer this question WITHOUT touching any files and WITHOUT claiming anything is done: what is the sum of 2 and 3? Reply in one line.`)
+      ctx.assert("research turn gets no gate note (TDD off)", r1.notes === 0, `notes=${r1.notes}`)
+      const f = ctx.fileName(0)
+      const r2 = await ctx.step(`Use the edit tool to change src/${f}.mjs (e.g. add a multiply function). Do NOT touch or run tests, do NOT claim tests pass. Then say exactly: Done.`)
+      const last = ctx.readGateVerdictsAll()[ctx.readGateVerdictsAll().length - 1]
+      ctx.assert("coding turn gets a gate note (TDD auto-ON)", r2.notes >= 1, `notes=${r2.notes}`)
+      ctx.assert("coding turn verdict is the code-without-test-step failure", last && !last.passed && last.missing.some((m) => /test step/.test(m)), JSON.stringify(last || null))
+    },
+  },
+  {
+    name: "tdd-explicit-off",
+    label: "persisted vibe gate tdd off silences the TDD rule on a coding turn",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      ctx.seedSelection({ quality_gate_tdd: false })
+      const f = ctx.fileName(0)
+      const r = await ctx.step(`Use the edit tool to change src/${f}.mjs (e.g. add a double function). Do NOT touch or run tests, do NOT claim tests pass. Then say exactly: Done.`)
+      const last = ctx.readGateVerdictsAll()[ctx.readGateVerdictsAll().length - 1]
+      ctx.assert("explicit off → no gate note on a coding turn", r.notes === 0, `notes=${r.notes}`)
+      ctx.assert("explicit off → verdict does not flag code-without-test-step", !last || last.passed || !last.missing.some((m) => /test step/.test(m)), JSON.stringify(last || null))
+    },
+  },
+  {
+    name: "tdd-explicit-on",
+    label: "persisted vibe gate tdd on enforces the TDD rule on a coding turn",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      ctx.seedSelection({ quality_gate_tdd: true })
+      const f = ctx.fileName(0)
+      const r = await ctx.step(`Use the edit tool to change src/${f}.mjs (e.g. add a negate function). Do NOT touch or run tests. Then say exactly: Done.`)
+      const last = ctx.readGateVerdictsAll()[ctx.readGateVerdictsAll().length - 1]
+      ctx.assert("explicit on → gate note fires on a coding turn", r.notes >= 1, `notes=${r.notes}`)
+      ctx.assert("explicit on → verdict is the code-without-test-step failure", last && !last.passed && last.missing.some((m) => /test step/.test(m)), JSON.stringify(last || null))
+    },
+  },
+  {
+    name: "vibe-gate-tdd-toggle",
+    label: "vibe gate tdd on/status/off surfaces the persisted TDD mode",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the "vibe" tool with action "gate" and slot "tdd" level "on" and note the response. Then call action "gate" (no slot) and note the response. Then call action "gate" slot "tdd" level "off" and note the response.`)
+      const calls = parseVibeCalls(r.out).filter((c) => c.action === "gate")
+      ctx.assert("gate controls exercised", calls.length >= 2, `calls=${calls.length}`)
+      const statusCall = calls.find((c) => !c.slot || c.slot === "" || c.slot === undefined)
+      if (statusCall) {
+        ctx.assert("gate status shows the TDD mode", /TDD gate:\s*\S+/.test(statusCall.output), statusCall.output.slice(0, 120))
+      }
+      const tddCalls = calls.filter((c) => c.slot === "tdd")
+      for (const c of tddCalls) {
+        ctx.assert(`vibe gate tdd ${c.level || ""} returned a confirmation`, c.ok && c.output.trim().length > 0, `ok=${c.ok}`)
+      }
+      const offCall = tddCalls.find((c) => (c.level || "").toLowerCase() === "off")
+      if (offCall) {
+        ctx.assert("tdd off acknowledges persistence", /off/i.test(offCall.output), offCall.output.slice(0, 120))
+      }
+    },
+  },
+]
+
+export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios, ...round5Scenarios, ...round6Scenarios]

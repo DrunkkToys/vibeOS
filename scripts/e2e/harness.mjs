@@ -206,6 +206,19 @@ const ctx = {
   readFile: (rel) => existsSync(join(trial.proj, rel)) ? readFileSync(join(trial.proj, rel), "utf8") : "",
   listTestFiles: () => readdirSync(join(trial.proj, "tests")).filter((x) => /test|spec/i.test(x)).join(","),
   readOutcomes: () => { const p = join(OUT, "mockdata", "outcomes.jsonl"); return existsSync(p) ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : [] },
+  readGateVerdictsAll: () => {
+    const verdicts = []
+    const gd = join(trial.home, "quality-gate")
+    if (existsSync(gd)) {
+      for (const file of readdirSync(gd)) {
+        for (const l of readFileSync(join(gd, file), "utf8").trim().split("\n").filter(Boolean)) {
+          try { const v = JSON.parse(l); if (v && typeof v === "object" && Array.isArray(v.reasons)) verdicts.push(v) } catch {}
+        }
+      }
+    }
+    verdicts.sort((a, b) => (a.ts || 0) - (b.ts || 0))
+    return verdicts
+  },
   writePluginRepo: () => writePluginRepo(),
   seedSelection: (overrides) => seedSelection(overrides),
   readVerifiedSavings: () => {

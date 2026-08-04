@@ -185,3 +185,127 @@ test("quality-gate: bash-based source mutation still requires a test step", () =
   })
   assert.equal(readOnly.passed, true, "read-only bash must not trigger the TDD rule")
 })
+
+test("quality-gate: TDD OFF skips the code-without-test-step rule", () => {
+  const verdict = gate.runQualityGate({
+    text: "Done.",
+    tdd: false,
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+  })
+  assert.equal(verdict.passed, true, "tdd=false must silence the test-step rule")
+})
+
+test("quality-gate: backwards compatible — tdd undefined keeps the rule active", () => {
+  const verdict = gate.runQualityGate({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+  })
+  assert.equal(verdict.passed, false, "tdd omitted must keep the test-step rule active")
+  assert.ok(verdict.missing.some((m) => /test step/.test(m)))
+})
+
+test("quality-gate: TDD OFF still catches state claims without exit-0 (R1 always-on)", () => {
+  const verdict = gate.runQualityGate({
+    text: "All tests pass.",
+    tdd: false,
+    events: [],
+    recentTools: [],
+  })
+  assert.equal(verdict.passed, false, "R1 state-claim rule must run regardless of TDD toggle")
+  assert.ok(verdict.missing.some((m) => /tests\/build claimed/.test(m)))
+})
+
+test("quality-gate: resolveTddGate defaults to auto-off on a research turn", () => {
+  const r = gate.resolveTddGate({ signals: gate.analyzeGateSignals({ text: "The answer is 42.", events: [], recentTools: [] }), priorVerdicts: [] })
+  assert.equal(r.tdd, false)
+  assert.equal(r.mode, "auto")
+})
+
+test("quality-gate: resolveTddGate auto-ONs when source was mutated this turn", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({
+      text: "Done.",
+      events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+      recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+    }),
+    priorVerdicts: [],
+  })
+  assert.equal(r.tdd, true)
+  assert.equal(r.mode, "auto")
+})
+
+test("quality-gate: resolveTddGate auto-ONs when any prior verdict was code flow", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({ text: "The answer is 42.", events: [], recentTools: [] }),
+    priorVerdicts: [{ passed: true, flow: "code", claims: [], missing: [], reasons: [] }],
+  })
+  assert.equal(r.tdd, true, "a prior code verdict in the session must persist auto-ON")
+})
+
+test("quality-gate: explicit persisted selection beats auto (on)", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({ text: "The answer is 42.", events: [], recentTools: [] }),
+    priorVerdicts: [],
+    selection: { quality_gate_tdd: true },
+  })
+  assert.equal(r.tdd, true)
+  assert.equal(r.mode, "on")
+})
+
+test("quality-gate: explicit persisted selection beats auto (off)", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({
+      text: "Done.",
+      events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+      recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+    }),
+    priorVerdicts: [],
+    selection: { quality_gate_tdd: false },
+  })
+  assert.equal(r.tdd, false)
+  assert.equal(r.mode, "off")
+})
+
+test("quality-gate: env override beats persisted selection (VIBEOS_GATE_TDD=on)", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({ text: "The answer is 42.", events: [], recentTools: [] }),
+    priorVerdicts: [],
+    selection: { quality_gate_tdd: false },
+    env: { VIBEOS_GATE_TDD: "on" },
+  })
+  assert.equal(r.tdd, true)
+  assert.equal(r.mode, "on")
+})
+
+test("quality-gate: env override beats persisted selection (VIBEOS_GATE_TDD=off)", () => {
+  const r = gate.resolveTddGate({
+    signals: gate.analyzeGateSignals({
+      text: "Done.",
+      events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+      recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+    }),
+    priorVerdicts: [],
+    selection: { quality_gate_tdd: true },
+    env: { VIBEOS_GATE_TDD: "off" },
+  })
+  assert.equal(r.tdd, false)
+  assert.equal(r.mode, "off")
+})
+
+test("quality-gate: computeTddEnabled auto-ONs on coding and stays off on research", () => {
+  const code = gate.computeTddEnabled({
+    text: "Done.",
+    events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
+    recentTools: [{ tool: "edit", target: "src/queue.ts", at: 1 }],
+  })
+  assert.equal(code, true, "coding turn → auto-ON")
+  const research = gate.computeTddEnabled({
+    text: "The answer is 42.",
+    events: [],
+    recentTools: [],
+    priorVerdicts: [],
+  })
+  assert.equal(research, false, "research turn with no code history → TDD off")
+})

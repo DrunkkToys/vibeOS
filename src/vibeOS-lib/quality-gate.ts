@@ -142,42 +142,92 @@ function isSourceTarget(target: string): boolean {
 
 // ── Pure gate ──
 
-export function runQualityGate(input: {
-  text?: string | null
-  events?: GateEvent[] | null
-  recentTools?: RecentTool[] | null
-}): GateVerdict {
+export interface GateSignals {
+  claims: GateClaim[]
+  recentMutations: RecentTool[]
+  exitZero: boolean
+  lastMutationAt: number
+  lastVerificationAt: number
+  testVerification: boolean
+  touchedSource: boolean
+  touchedTest: boolean
+  stateClaims: GateClaim[]
+  actionClaims: GateClaim[]
+  flow: GateVerdict["flow"]
+}
+
+export function analyzeGateSignals(input: { text?: string | null; events?: GateEvent[] | null; recentTools?: RecentTool[] | null }): GateSignals {
   const text = String(input?.text || "")
   const events: GateEvent[] = Array.isArray(input?.events) ? input.events : []
   const recentTools: RecentTool[] = Array.isArray(input?.recentTools) ? input.recentTools : []
 
   const claims = extractClaims(text)
-  const missing: string[] = []
-  const reasons: string[] = []
-
   const verifications = events.filter(isVerificationEvent)
-  const mutations = events.filter(isMutationTool)
   const recentMutations = recentTools.filter(isMutationTool)
 
   const exitZero = verifications.some((v) => v.exitCode === 0)
-  const lastMutationAt = Math.max(
-    0,
-    ...mutations.map((m) => m.at || 0),
-    ...recentMutations.map((m) => m.at || 0),
-  )
+  const lastMutationAt = Math.max(0, ...recentMutations.map((m) => m.at || 0))
   const lastVerificationAt = Math.max(0, ...verifications.map((v) => v.at || 0))
-  const testVerification = verifications.some(
-    (v) => v.exitCode === 0 && TEST_RUN_RE.test(v.family || v.tool || ""),
-  )
+  const testVerification = verifications.some((v) => v.exitCode === 0 && TEST_RUN_RE.test(v.family || v.tool || ""))
   const touchedSource = recentMutations.some((m) => isSourceTarget(mutationTarget(m)))
   const touchedTest = recentMutations.some((m) => isTestTarget(mutationTarget(m)))
 
-  // flow classification
   const stateClaims = claims.filter((c) => c.kind === "state" || c.kind === "numeric" || c.kind === "exit")
   const actionClaims = claims.filter((c) => c.kind === "action")
   let flow: GateVerdict["flow"] = "none"
   if (touchedSource || stateClaims.length > 0 || /test|build|code|implement|fix/i.test(text)) flow = "code"
   else if (recentMutations.length > 0 || actionClaims.length > 0) flow = "non-code"
+
+  return { claims, recentMutations, exitZero, lastMutationAt, lastVerificationAt, testVerification, touchedSource, touchedTest, stateClaims, actionClaims, flow }
+}
+
+// TDD gate mode. Default OFF, but it AUTO-ONs the moment the session switches to
+// coding (a source/test mutation or a tests/build claim this turn, or any prior
+// verdict in this session classified as code). Explicit user choice (env or the
+// persisted `selection.quality_gate_tdd`) always beats auto.
+export function resolveTddGate(input: {
+  env?: Record<string, string | undefined>
+  selection?: { quality_gate_tdd?: unknown } | null
+  priorVerdicts?: GateVerdict[] | null
+  signals: GateSignals
+}): { tdd: boolean; mode: "on" | "off" | "auto" } {
+  const envVal = String(input?.env?.VIBEOS_GATE_TDD || "").trim().toLowerCase()
+  if (envVal === "on") return { tdd: true, mode: "on" }
+  if (envVal === "off") return { tdd: false, mode: "off" }
+  const selVal = input?.selection?.quality_gate_tdd
+  if (selVal === true) return { tdd: true, mode: "on" }
+  if (selVal === false) return { tdd: false, mode: "off" }
+  const s = input.signals
+  const codingNow = s.touchedSource || s.touchedTest || s.stateClaims.length > 0
+  const priorCoding = Array.isArray(input.priorVerdicts) && input.priorVerdicts.some((v) => v && v.flow === "code")
+  if (codingNow || priorCoding) return { tdd: true, mode: "auto" }
+  return { tdd: false, mode: "auto" }
+}
+
+export function computeTddEnabled(input: {
+  text?: string | null
+  events?: GateEvent[] | null
+  recentTools?: RecentTool[] | null
+  env?: Record<string, string | undefined>
+  selection?: { quality_gate_tdd?: unknown } | null
+  priorVerdicts?: GateVerdict[] | null
+}): boolean {
+  const signals = analyzeGateSignals(input)
+  return resolveTddGate({ env: input.env, selection: input.selection, priorVerdicts: input.priorVerdicts, signals }).tdd
+}
+
+export function runQualityGate(input: {
+  text?: string | null
+  events?: GateEvent[] | null
+  recentTools?: RecentTool[] | null
+  tdd?: boolean
+}): GateVerdict {
+  const s = analyzeGateSignals({ text: input?.text, events: input?.events, recentTools: input?.recentTools })
+  // Backwards compatible: when tdd is not provided the TDD rule stays active.
+  const tddEnabled = input.tdd === undefined ? true : input.tdd
+  const { claims, touchedSource, touchedTest, testVerification, stateClaims, actionClaims, recentMutations, exitZero, lastMutationAt, lastVerificationAt, flow } = s
+  const missing: string[] = []
+  const reasons: string[] = []
 
   // R1 — pass/build claims require an observed exit-0 verification.
   if (stateClaims.length > 0 && !exitZero) {
@@ -187,8 +237,8 @@ export function runQualityGate(input: {
 
   // R2 — code flow: touching source without a test step is a shortcut. Fires on
   // any completion claim (including a bare "Done."), so a model that writes
-  // code and just concludes can't slip past.
-  if (flow === "code" && touchedSource && claims.length > 0 && !touchedTest && !testVerification) {
+  // code and just concludes can't slip past. Gated by the TDD toggle.
+  if (tddEnabled && flow === "code" && touchedSource && claims.length > 0 && !touchedTest && !testVerification) {
     missing.push("code changed without a test step — add/update a test and run it before claiming done")
     reasons.push("code-without-test-step")
   }
