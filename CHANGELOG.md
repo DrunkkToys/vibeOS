@@ -1,37 +1,13 @@
 ## 0.27.3
-- feat: close the ML/telemetry loop, honest savings, real stress (v0.27.2)
-- feat: deterministic quality gate; non-blocking enforcement (v0.27.1)
-- feat: clean uninstall command with full state cleanup (#502)
-- fix: uninstaller can terminate the running OpenCode app (--quit-app)
-- fix: make uninstall durable against a still-running OpenCode instance
-- fix: scope self-modification protection + strict test-file detection
-- fix: drop stale VIBEOS_API_TOKEN env var on rejection
-- fix: self-heal collapsed brain/medium/cheap trinity in vibe rebuild (#501)
-- test: round-5 E2E scenarios — frictions/patterns, pivot/blackbox, minor surfaces
-- test: round-4 E2E scenarios — command surface + auxiliary features
-- test: round-3 E2E scenarios + gate fixes (bash mutation + persistent dedup)
-- test: headless E2E release harness + docs (round 2)
-- chore: relabel unreleased changelog to 0.27.3 (release script bumps 0.27.2 -> 0.27.3)
-Merge pull request #512 from DrunkkToys/feat/e2e-round5
-Merge pull request #511 from DrunkkToys/fix/quit-app
-Merge pull request #510 from DrunkkToys/feat/e2e-round4
-Merge pull request #509 from DrunkkToys/feat/e2e-round3
-Merge pull request #508 from DrunkkToys/fix/uninstall-durability
-Merge pull request #507 from DrunkkToys/feat/e2e-round2
-Merge pull request #506 from DrunkkToys/fix/e2e-found
-Merge pull request #505 from DrunkkToys/feat/v2-feedback-loop
-Merge pull request #504 from DrunkkToys/feat/quality-gate
-Merge pull request #503 from DrunkkToys/fix/api-token-env-cleanup
-
-
-## 0.27.3 (unreleased)
 - feat: deterministic quality gate — completion claims must be backed by real tool evidence; non-blocking enforcement (#504)
 - feat: close the ML/telemetry loop — real gate outcomes + telemetry endpoint + honest savings + real-signal stress (#505)
 - fix: scope self-modification protection to the plugin repo only; strict test-file detection (caught by E2E, #506)
 - fix: quality gate detects source/test mutations made via bash (echo/cat/printf/tee/sed -i), so models can't dodge the TDD rule by editing through the shell (caught by E2E)
 - fix: quality-gate notes dedup persistently across turns/processes (not just in-memory) — repeated identical failures produce at most one note
+- fix: uninstaller can terminate the running OpenCode app (--quit-app); uninstall durable against a still-running instance
 - feat: clean uninstall removes every runtime artifact including legacy home-root installs (#502)
 - fix: drop stale VIBEOS_API_TOKEN env var on rejection (#503)
+- fix: self-heal collapsed brain/medium/cheap trinity in vibe rebuild (#501)
 - test: headless E2E release harness (`scripts/e2e`, `npm run test:e2e`) — 32 scenarios across 5 rounds (quality gate, non-blocking enforcement, offline, protected paths, TDD skeleton, command surface, guard/verify-claims/report/rebuild/todo/api-token, friction/pattern observation, pivot/blackbox, axis/reality-check/repair-state/research-audit); protection-scoping + gate unit tests
 
 ## 0.27.1
