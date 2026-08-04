@@ -61,7 +61,7 @@ can include it without API keys.
 - **tiers** — gate silent on verified runs for cheap/medium/brain; routed model
   matches the active slot.
 
-**Round 3 (new):**
+**Round 3 (gate hardening):**
 - **bash-mutation-bypass** — source mutated via bash (`echo >>`, `sed -i`)
   still triggers the TDD rule (models that shortcut through bash can't dodge it).
 - **gate-killswitch** — `VIBEOS_QUALITY_GATE=0` disables the gate (no verdicts,
@@ -75,6 +75,21 @@ can include it without API keys.
   (e.g. `cat`) passes (R3 pass path).
 - **dedup-across-turns** — repeated identical failures produce at most one gate
   note (persistent dedup across turns/processes, not just in-memory).
+
+**Round 4 (command surface + auxiliary features):**
+- **cmd-surface** — a battery of `vibe` commands (`status`, `diagnose`, `set`,
+  `mode`, `thinking`, `flow`, `tdd`, `lock`, `help`) runs without crashing.
+- **vibe-guard** — `vibe guard` creates `AGENTS.md` + `README.md` in the project.
+- **vibe-verify-claims** — after a fabricated "all tests pass" claim,
+  `vibe verify-claims` flags it as unsubstantiated.
+- **vibe-report** — `report-save` → `report-list` round-trip.
+- **vibe-rebuild** — `vibe rebuild` completes and populates `model-tiers.json`
+  trinity slots.
+- **vibe-todo-patterns** — `vibe todo` / `patterns` / `project` / `flow` run
+  without crashing.
+- **vibe-api-token** — `vibe api-token <token>` runs without error.
+- **vibe-enforce-flow-audit** — `enforce off` / `flow` / `diagnose cascade` run
+  without crashing and writes stay non-blocked.
 
 ## Artifacts (in `--out`)
 
