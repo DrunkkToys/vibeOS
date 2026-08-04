@@ -1,4 +1,7 @@
 ## Unreleased
+- test: E2E round 8 — `full-workflow-live` scenario (5 live prompts across fresh sessions: research → code-edit → gate → status → code-fix → diagnose; proves gate/coherence/state-safety/CLI surface in one workflow)
+- chore: `npm run build:dist` script to emit dist-ts for loader-based tests; AGENTS.md workflow rule added
+- docs: docs/ARCHITECTURE_AUDIT_PLAN.md status — Phases B/D/A/C done, E/F remaining
 - perf: footer hot path debounced to ~1/sec per directory (was re-running 18-22 sync fs ops + sqlite evidence per streamed chunk); footer no longer runs evaluateClaimEvidence twice per paint (reuses the session-health snapshot's copy)
 - docs: docs/ARCHITECTURE_AUDIT_PLAN.md status — Phases B/D/A done, C done, E/F remaining
 - security: token/env files written atomically with 0600 perms; world-readable legacy token files tightened to 0600 on read (bootstrap token stays embedded/valid per design)
