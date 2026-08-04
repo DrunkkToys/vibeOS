@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync, renameSync } from "node:fs"
-import { join, dirname, basename } from "node:path"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { join, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
   currentTier, currentModel, currentProjectFingerprint, currentProjectName,
@@ -16,13 +16,13 @@ import {
   detectTechStack, projectFingerprint,
   _loadMLState, _saveMLState,
   SCRATCHPAD_ROOT,
-  TRINITY_OPENCODE_CONFIG, TIERS_FILE,
+  TIERS_FILE,
   loadGlobalLearning,
   _getLearnedExploratoryWords,
   setCurrentProjectFingerprint, setCurrentProjectName,
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
-  _cacheDb, recordCacheSaving, getOpenCodeHome, getVibeOSHome, safeCopyIntoSession,
+  _cacheDb, recordCacheSaving, getVibeOSHome, safeCopyIntoSession,
   _OC_SID,
 } from "../state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../cascade.js"
@@ -62,7 +62,7 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent } from "../runtime-config.js"
+import { installVibeTierAgents } from "../runtime-config.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -95,32 +95,6 @@ export function mergeRemoteControlVector(remoteControlVector: unknown, localCont
   }
 }
 
-function resolveRestorableOpenCodeAgent(currentSel: unknown): string | null {
-  const remembered = typeof currentSel?.previous_default_agent === "string" ? currentSel.previous_default_agent.trim() : ""
-  if (remembered && remembered !== "plan" && isNativeOpenCodeAgent(remembered)) return normalizeNativeOpenCodeAgent(remembered)
-
-  try {
-    const configDir = dirname(TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json"))
-    const candidates = readdirSync(configDir)
-      .filter((name) => /^opencode\.json\.bak/.test(name))
-      .map((name) => {
-        const path = join(configDir, name)
-        return { path, mtime: statSync(path).mtimeMs }
-      })
-      .sort((a, b) => b.mtime - a.mtime)
-
-    for (const candidate of candidates) {
-      try {
-        const snapshot = safeJsonParse(readFileSync(candidate.path, "utf-8"))
-        const agent = typeof snapshot?.default_agent === "string" ? snapshot.default_agent.trim() : ""
-        if (agent && agent !== "plan" && isNativeOpenCodeAgent(agent)) return normalizeNativeOpenCodeAgent(agent)
-      } catch {}
-    }
-  } catch {}
-
-  return "vibe"
-}
-
 function ensureProjectContext(hookDirectory: string): string {
   const resolved = projectFingerprint(hookDirectory || currentProjectFingerprint || process.cwd() || "")
   if (resolved && resolved !== currentProjectFingerprint) setCurrentProjectFingerprint(resolved)
@@ -139,27 +113,6 @@ function ensureProjectContext(hookDirectory: string): string {
     }
   } catch {}
   return resolved
-}
-
-function resolveOpenCodeConfigPath(): string {
-  return TRINITY_OPENCODE_CONFIG || join(getOpenCodeHome(), "opencode.json")
-}
-
-function updateOpenCodeConfig(mutator: (oc: unknown) => boolean | void): boolean {
-  try {
-    const OC_CONFIG = resolveOpenCodeConfigPath()
-    if (!existsSync(OC_CONFIG)) return false
-    const oc = safeJsonParse(readFileSync(OC_CONFIG, "utf-8"))
-    if (!oc) return false
-    const result = mutator(oc)
-    if (result === false) return false
-    const tmp = `${OC_CONFIG}.tmp.${process.pid}.${Date.now()}`
-    writeFileSync(tmp, JSON.stringify(oc, null, 2) + "\n")
-    renameSync(tmp, OC_CONFIG)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function vibeUltraXSubagentForSlot(slot: string | null): string | null {

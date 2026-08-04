@@ -78,7 +78,6 @@ dedup). F7/F9/F10 are the only model-visible changes and are covered by E2E
 (round-6 TDD scenarios re-run green; round-7 integration scenarios added).
 
 ## 4. Flagged for a product decision (not auto-fixed)
-
 - **Delegation posture tension**: `[AI ORCHESTRATOR AGENT]` mandates "hand file writes
   and edits to Task subagents" while a relaxed-regime `[delegation enforcement:
   relaxed]` says "Write/Edit restrictions are temporarily eased. Proceed with

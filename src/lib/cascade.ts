@@ -7,6 +7,7 @@ import { createHash } from "node:crypto"
 import { join, dirname } from "node:path"
 import { memoCompute } from "./turn-memo.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
+import { autoSelectMode as _autoSelectMode } from "../vibeOS-lib/mode-select.js"
 import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
@@ -687,17 +688,6 @@ export async function classifyTurnRemote(text: string): Promise<string> {
 
 type OptimizationMode = "balanced" | "budget" | "quality" | "speed" | "longrun" | "auto" | "forensic" | "audit" | "vibeultrax" | "vibeqmax" | "vibemax" | "vibelitex"
 const QUALITY_STRESS_THRESHOLD = 1.5
-const AUTO_MODE_BY_REGIME: Record<string, OptimizationMode> = {
-  AUDIT: "audit",
-  FORENSIC: "forensic",
-  LOOPING: "quality",
-  CONVERGING: "quality",
-  CLOSED: "quality",
-  IMPLEMENTING: "quality",
-  RESEARCH: "longrun",
-  DESIGNING: "longrun",
-  REVIEWING: "audit",
-}
 
 const SUPPORTED_OPTIMIZATION_MODES = new Set<OptimizationMode>([
   "balanced",
@@ -736,11 +726,7 @@ function isSupportedOptimizationMode(mode: string): mode is OptimizationMode {
 
 
 function autoSelectMode(subRegime: string, stressMultiplier?: number): OptimizationMode {
-  const regime = String(subRegime || "INIT").toUpperCase()
-  const stress = Number(stressMultiplier ?? 0)
-  if (AUTO_MODE_BY_REGIME[regime]) return AUTO_MODE_BY_REGIME[regime]
-  if (stress > QUALITY_STRESS_THRESHOLD) return "quality"
-  return "quality"
+  return _autoSelectMode(subRegime, stressMultiplier) as OptimizationMode
 }
 
 export function resolveOptimizationMode(
@@ -1433,10 +1419,6 @@ export function setProjectFingerprint(fp) {
   setCurrentProjectFingerprint(fp)
 }
 
-export function getBlackboxEnabled() {
-  return _blackboxEnabled
-}
-
 export function setBlackboxEnabled(val) {
   _setGlobalBlackboxEnabled(val)
 }
@@ -1621,7 +1603,4 @@ export function resetTurnClassifyRuntimeState() {
 
 // ── Alias exports for hooks/tool-execute.ts compatibility ──
 export { getBlackboxTracker as _getBlackboxTracker };
-export function _isLikelyOffTopic(text, projectName) { return false; }
-export function _loadGlobalLearning() { return { exploratoryWords: [], noisyWords: [], userTerms: [] }; }
-export function _updateGlobalLearning(word, type, intent) { /* noop */ }
 

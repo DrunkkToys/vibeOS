@@ -42,9 +42,8 @@ function isGreetingLike(text: string): boolean {
 }
 import {
   scoreStress, extractFirstWordFromArgs, shouldLogWarn, classifyTurnSimple, autoSelectMode, resolveOptimizationSlot,
-  isUserAskingForTests, _isLikelyOffTopic, resolveEnforcementMode,
+  isUserAskingForTests, resolveEnforcementMode,
   _getBlackboxTracker, loadBlackboxState, saveBlackboxState as _saveBlackboxState,
-  _loadGlobalLearning, _updateGlobalLearning,
   noteTaskRoutingLearning,
   incrementTurnCounter,
 } from "../cascade.js"

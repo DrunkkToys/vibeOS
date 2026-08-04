@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync, chmodSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -1760,6 +1760,65 @@ export function createTrinityTool(deps) {
           })
         } catch {
           results.push({ ok: true, okLabel: "\u2705", label: "session", detail: "no state file yet" })
+        }
+
+        // ── Security: token-file permissions ──
+        try {
+          const home = deps.VIBEOS_HOME || getVibeOSHome()
+          const tokenFiles = [
+            join(home, ".env.production"),
+            join(home, ".env.alpha"),
+          ]
+          const leaked = []
+          for (const tf of tokenFiles) {
+            if (!existsSync(tf)) continue
+            const mode = statSync(tf).mode
+            if ((mode & 0o077) !== 0) {
+              leaked.push(tf.replace(home, "~"))
+              try { chmodSync(tf, 0o600) } catch {}
+            }
+          }
+          if (leaked.length === 0) {
+            results.push({ ok: true, okLabel: "\u2705", label: "token perms", detail: "credential files 0600" })
+          } else {
+            results.push({ ok: false, okLabel: "\u26A0", label: "token perms", detail: `tightened to 0600: ${leaked.join(", ")}`, fix: "none (auto-fixed)" })
+          }
+        } catch {
+          results.push({ ok: true, okLabel: "\u2705", label: "token perms", detail: "n/a" })
+        }
+
+        // ── Reliability: corruption + drift signals (previously write-only) ──
+        try {
+          const home = deps.VIBEOS_HOME || getVibeOSHome()
+          const corrPath = join(home, ".state-corruption-log.jsonl")
+          const corrCount = existsSync(corrPath)
+            ? String(readFileSync(corrPath, "utf8") || "").trim().split("\n").filter(Boolean).length
+            : 0
+          results.push({
+            ok: corrCount === 0,
+            okLabel: corrCount === 0 ? "\u2705" : "\u26A0",
+            label: "corruption log",
+            detail: corrCount === 0 ? "clean" : `${corrCount} corruption event(s) archived`,
+            fix: corrCount === 0 ? null : "inspect ~/.vibeos/.backups/*.corrupted.* and run \`vibe repair-state apply\`",
+          })
+        } catch {
+          results.push({ ok: true, okLabel: "\u2705", label: "corruption log", detail: "n/a" })
+        }
+        try {
+          const home = deps.VIBEOS_HOME || getVibeOSHome()
+          const driftPath = join(home, "cascade-audit", "drift-alerts.jsonl")
+          const driftCount = existsSync(driftPath)
+            ? String(readFileSync(driftPath, "utf8") || "").trim().split("\n").filter(Boolean).length
+            : 0
+          results.push({
+            ok: driftCount === 0,
+            okLabel: driftCount === 0 ? "\u2705" : "\u26A0",
+            label: "drift alerts",
+            detail: driftCount === 0 ? "none" : `${driftCount} unsubstantiated-claim alert(s)`,
+            fix: driftCount === 0 ? null : "run \`vibe reality-check\` for details",
+          })
+        } catch {
+          results.push({ ok: true, okLabel: "\u2705", label: "drift alerts", detail: "n/a" })
         }
 
         const okCount = results.filter(r => r.ok).length

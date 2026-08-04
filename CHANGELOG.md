@@ -1,4 +1,8 @@
 ## Unreleased
+- security: token/env files written atomically with 0600 perms; world-readable legacy token files tightened to 0600 on read (bootstrap token stays embedded/valid per design)
+- fix: [vibeOS] console errors are no longer silently dropped — they persist to session-events as footer-error events so a swallowed failure is diagnosable; updateState retry-exhaustion always logs; ledger flush re-queues lines on failure instead of dropping them
+- feat: `vibe diagnose` now surfaces token-file perms, the corruption log, and drift alerts (previously write-only)
+- refactor: break the only cross-layer import cycle cascade <-> blackbox/vibemax (autoSelectMode moved to pure vibeOS-lib/mode-select); remove confirmed-dead code (lie-detector module, setFlowStateWriter, trackUserCorrection + learned-rule promotion, resolveRestorableOpenCodeAgent, updateOpenCodeConfig, probeApiHealth, isApiLatencyDegraded, markApiConnected/markApiFallbackState, hasCompletionClaims, detectMetaWorkDrift, runWithGlobalHookLock, getBlackboxEnabled, cascade no-op stubs, _runDeferredStartupBootstrap stub)
 - docs: docs/ARCHITECTURE_AUDIT_PLAN.md — six-phase architectural audit (layering/coupling, reliability, performance, security, data model, decomposition) with preliminary size/cycle/silent-swallow findings
 - audit: docs/INTEGRATION_AUDIT.md — subsystem/mutation matrix, verified interference findings, minimal-composition spec
 - fix: concurrent state writers — blackbox-state.json, model-tiers.json, delegation-state.json (flow warns), savings-ledger.jsonl, session-events/<sid>.jsonl, orch-*.json all now write via the shared lock/atomic paths (no more unlocked whole-file or non-atomic writes)

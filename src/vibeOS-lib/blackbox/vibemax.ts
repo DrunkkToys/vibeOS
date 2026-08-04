@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { autoSelectMode } from "../../lib/cascade.js"
+import { autoSelectMode } from "../mode-select.js"
 import { getCurrentSessionId } from "../../lib/state.js"
 import { PivotCache, pivotCacheDirForSession } from "./pivot-cache.js"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"

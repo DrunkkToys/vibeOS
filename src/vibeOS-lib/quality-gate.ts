@@ -99,10 +99,6 @@ export function extractClaims(text: string | null | undefined): GateClaim[] {
   return claims
 }
 
-export function hasCompletionClaims(claims: GateClaim[]): boolean {
-  return claims.some((c) => c.kind !== "done")
-}
-
 function isVerificationEvent(ev: GateEvent): boolean {
   return ev.role === "verification" || VERIFICATION_FAMILY_RE.test(ev.family || ev.tool || "")
 }

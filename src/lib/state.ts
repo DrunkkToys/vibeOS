@@ -493,21 +493,6 @@ function ensureCascadeAuditFiles(): void {
 
 ensureCascadeAuditFiles()
 
-let _globalHookQueue: Promise<void> = Promise.resolve()
-
-export async function runWithGlobalHookLock<T>(fn: () => Promise<T> | T): Promise<T> {
-  let release!: () => void
-  const next = new Promise<void>((resolve) => { release = resolve })
-  const prev = _globalHookQueue
-  _globalHookQueue = next
-  await prev
-  try {
-    return await fn()
-  } finally {
-    release()
-  }
-}
-
 function syncVibeOSPathBindings(home = resolveVibeOSHome()): void {
   VIBEOS_HOME = home
   OPENCODE_HOME = resolveOpenCodeHome()
@@ -996,9 +981,12 @@ export function updateState(mutator: (state: DelegationState) => DelegationState
       return result
     } catch (err) {
       if (attempt === MAX_RETRIES - 1) {
-        if (process.env.VIBEOS_DEBUG_INTERNALS === "1") {
-          console.error(`[vibeOS] updateState failed after ${MAX_RETRIES} retries: ${err.message}`)
-        }
+        // Always surface this: updateState is the canonical writer for
+        // delegation-state.json (savings, warns, telemetry, orchestration), so
+        // exhausting retries silently loses user-visible data. The console
+        // guard persists it to session-events; keep stderr noisy too.
+        const message = (err as Error)?.message || String(err)
+        console.error(`[vibeOS] updateState failed after ${MAX_RETRIES} retries: ${message}`)
         return null
       }
     }
@@ -1777,7 +1765,16 @@ function _flushLedgerBuffer(): void {
   try {
     appendFileSync(SAVINGS_LEDGER_FILE, joined)
     _compactSavingsLedgerIfNeeded()
-  } catch {}
+  } catch (err) {
+    // Do NOT drop the lines: the ledger is the reconciler source of truth, so a
+    // lost append silently shrinks every savings figure. Re-queue the batch and
+    // retry on the next flush (bounded by LEDGER_BUFFER_MAX via re-splice).
+    const requeued = _ledgerBuffer.concat(lines)
+    _ledgerBuffer.length = 0
+    _ledgerBuffer.push(...requeued.slice(0, LEDGER_BUFFER_MAX * 2))
+    console.error(`[vibeOS] savings ledger flush failed, ${lines.length} line(s) re-queued: ${(err as Error)?.message || err}`)
+    if (!_ledgerBufferTimer) _ledgerBufferTimer = setTimeout(_flushLedgerBuffer, LEDGER_BUFFER_FLUSH_MS)
+  }
 }
 
 function recordSavingsLedgerEntry(entry: unknown): void {

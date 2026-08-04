@@ -7,7 +7,6 @@
 declare module "./vibeOS-lib/flow-enforcer.js" {
   export function resolveRulesPath(): string
   export function ensureProjectDocs(dir: string, techStack?: string): void
-  export function setFlowStateWriter(writer: (state: unknown) => void): void
   export function checkFlowRules(input: { tool: string; filePath?: string; content?: string }): void
   export function getFlowWarns(): Array<{ id: string; severity: string; filePath?: string; description?: string }>
   export function getSessionFlowCounts(): Record<string, number>
