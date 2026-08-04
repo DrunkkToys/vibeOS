@@ -1,4 +1,4 @@
-## 0.27.2 (unreleased)
+## 0.27.3 (unreleased)
 - feat: deterministic quality gate — completion claims must be backed by real tool evidence; non-blocking enforcement (#504)
 - feat: close the ML/telemetry loop — real gate outcomes + telemetry endpoint + honest savings + real-signal stress (#505)
 - fix: scope self-modification protection to the plugin repo only; strict test-file detection (caught by E2E, #506)
