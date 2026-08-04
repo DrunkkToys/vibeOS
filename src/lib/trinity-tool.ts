@@ -559,6 +559,18 @@ export function createTrinityTool(deps) {
           `  medium: ${mediumModel}${activeSlot === "medium" ? "  *" : ""}`,
           `  cheap:  ${cheapModel}${activeSlot === "cheap" ? "  *" : ""}`,
           `  Labels: ${(LABEL_MODES || []).join(", ")}`,
+          `|`,
+          `Quality gate:`,
+          `  TDD: ${(() => {
+            try {
+              const envVal = String(process.env.VIBEOS_GATE_TDD || "").trim().toLowerCase()
+              if (envVal === "on") return "on (env)"
+              if (envVal === "off") return "off (env)"
+              if (sel?.quality_gate_tdd === true) return "on"
+              if (sel?.quality_gate_tdd === false) return "off"
+              return "auto (off until coding)"
+            } catch { return "auto" }
+          })()}  (vibe gate tdd on|off|auto)`,
         ]
         return lines.join("\n")
       }
@@ -1933,12 +1945,41 @@ export function createTrinityTool(deps) {
       }
 
       if (action === "gate") {
+        // vibe gate tdd on|off|auto — persistent TDD gate toggle.
+        if (slot === "tdd") {
+          const mode = String(level || "").toLowerCase()
+          if (mode === "on") {
+            deps.writeSelection("quality_gate_tdd", true)
+            return "[vibeOS-quality-gate] TDD gate ON — code changes require a test step (persisted)."
+          }
+          if (mode === "off") {
+            deps.writeSelection("quality_gate_tdd", false)
+            return "[vibeOS-quality-gate] TDD gate OFF — no test-step nag (persisted). Auto re-enables on coding unless overridden."
+          }
+          if (mode === "auto" || mode === "") {
+            deps.writeSelection("quality_gate_tdd", undefined)
+            return "[vibeOS-quality-gate] TDD gate AUTO — off by default, auto-ON the moment the session switches to coding."
+          }
+          return "[vibeOS-quality-gate] Usage: vibe gate tdd on|off|auto"
+        }
+        const gateTddMode = (() => {
+          try {
+            const sel = deps.loadSelection()
+            const envVal = String(process.env.VIBEOS_GATE_TDD || "").trim().toLowerCase()
+            if (envVal === "on") return "on (env)"
+            if (envVal === "off") return "off (env)"
+            if (sel?.quality_gate_tdd === true) return "on"
+            if (sel?.quality_gate_tdd === false) return "off"
+            return "auto (off until coding)"
+          } catch { return "auto" }
+        })()
         const { existsSync: fsExists, readFileSync: fsRead } = await import("node:fs")
         const sid = getCurrentSessionId()
         const path = join(getVibeOSHome(), "quality-gate", `${sid}.jsonl`)
         if (!fsExists(path)) {
           return [
             "[vibeOS-quality-gate]",
+            `TDD gate: ${gateTddMode}`,
             "No verdicts recorded for this session yet.",
             "The gate is silent when completion claims are backed by real tool evidence;",
             "it only records a verdict when evidence is missing.",
@@ -1951,8 +1992,8 @@ export function createTrinityTool(deps) {
             try { return JSON.parse(l) } catch { return null }
           })
           .filter(Boolean)
-        if (verdicts.length === 0) return "[vibeOS-quality-gate]\nNo verdicts for this session."
-        const out = ["[vibeOS-quality-gate]", `Session ${sid} — last ${verdicts.length} verdicts:`]
+        if (verdicts.length === 0) return `[vibeOS-quality-gate]\nTDD gate: ${gateTddMode}\nNo verdicts for this session.`
+        const out = ["[vibeOS-quality-gate]", `Session ${sid} — last ${verdicts.length} verdicts (TDD gate: ${gateTddMode}):`]
         for (const v of verdicts.reverse()) {
           const ts = new Date(v.ts || 0).toISOString().replace("T", " ").slice(5, 19)
           const missing = v.passed ? "" : ` · missing: ${(v.missing || []).join("; ")}`
@@ -2042,6 +2083,8 @@ export function createTrinityTool(deps) {
           "QUALITY GATE:",
           "  vibe gate              Show deterministic completion-gate verdicts for this",
           "                         session (silent when claims are backed by real evidence)",
+          "  vibe gate tdd on|off|auto  TDD rule: OFF by default, auto-ON on coding;",
+          "                         on=enforce test steps, off=no test nag, auto=default",
         ].join("\n")
       }
 

@@ -1,3 +1,7 @@
+## Unreleased
+- feat: TDD gate is OFF by default and auto-ONs the moment a session switches to coding; `vibe gate tdd on|off|auto` persists the choice, `VIBEOS_GATE_TDD=on|off` overrides it, and the always-on rules (fake "tests pass", unverified non-code claims) still catch cheating
+- test: E2E round 6 — TDD gate toggle scenarios (research turn silent, coding turn auto-ON, explicit off/on, `vibe gate tdd` command surface)
+
 ## 0.27.3
 - feat: deterministic quality gate — completion claims must be backed by real tool evidence; non-blocking enforcement (#504)
 - feat: close the ML/telemetry loop — real gate outcomes + telemetry endpoint + honest savings + real-signal stress (#505)

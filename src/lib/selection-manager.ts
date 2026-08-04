@@ -51,6 +51,7 @@ function loadSelectionImpl(): any {
       tdd_enforce:        j?.selection?.tdd_enforce === true,
       tdd_strict:         j?.selection?.tdd_strict === true,
       tdd_quality:        j?.selection?.tdd_quality !== false,
+      quality_gate_tdd:   j?.selection?.quality_gate_tdd === true ? true : j?.selection?.quality_gate_tdd === false ? false : undefined,
       flow_enforce:       j?.selection?.flow_enforce === true,
       delegation_enforce: j?.selection?.delegation_enforce !== false,
       onboarding_mode:    j?.selection?.onboarding_mode || null,

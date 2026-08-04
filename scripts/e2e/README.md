@@ -13,6 +13,10 @@ non-blocking enforcement, honest footer/savings, real-signal stress, telemetry/
 outcome wiring, offline degradation, protected-path scoping, TDD skeletons, and
 the `vibe gate` command surface.
 
+Round 6 adds TDD-gate toggle coverage: a research turn stays silent (TDD off by
+default), the first coding turn auto-ONs the TDD rule, and persisted
+`vibe gate tdd on|off|auto` choices are enforced end-to-end.
+
 ## Prereqs
 
 - `npm run build:bundle` (the harness loads `dist/vibeOS.js`)
