@@ -9,6 +9,7 @@
     "release:major": "node scripts/release.mjs major --yes",
     "build": "npm run typecheck && npm run build:bundle && node scripts/deploy.mjs",
     "build:bundle": "node scripts/build-bundle.mjs",
+    "build:dist": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
     "build:single": "node scripts/build-bundle.mjs",
     "deploy": "node scripts/deploy.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",

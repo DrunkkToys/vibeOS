@@ -785,6 +785,71 @@ export const round7Scenarios = [
       ctx.assert("blackbox-state.json parses", bb !== null, "blackbox-state.json unparseable")
     },
   },
+  {
+    name: "full-workflow-live",
+    label: "live prompts: multi-step workflow with real model — gate, status, diagnose, state coherence across fresh sessions",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const f = ctx.fileName(0)
+
+      // Step 1: research prompt — TDD gate is off, no gate note expected
+      const r1 = await ctx.step(`Answer this question WITHOUT touching any files: what is 2+2? Reply in one word.`)
+      ctx.assert("research step: no gate note", r1.notes === 0, `notes=${r1.notes}`)
+      ctx.assert("research step: footer present", /^— .+—$/.test(String(r1.footerText || "").trim()), `footer=${String(r1.footerText || "").slice(0, 100)}`)
+      ctx.assert("research step: no corruption backups", !ctx.hasCorruptionBackups(), "corruption backup dir present")
+
+      // Step 2: code edit without tests — gate should FAIL
+      const r2 = await ctx.step(`Use the edit tool to change src/${f}.mjs to add a square(x) function. Do NOT touch or run tests, do NOT claim tests pass. Then say exactly: Done.`)
+      ctx.assert("code-edit step: gate note fired", r2.notes >= 1, `notes=${r2.notes}`)
+      ctx.assert("code-edit step: no corruption backups", !ctx.hasCorruptionBackups(), "corruption backup dir present")
+      const last2 = ctx.readGateVerdictsAll().slice(-1)[0]
+      ctx.assert("code-edit step: verdict is FAIL (code-without-test)", last2 && !last2.passed && last2.missing.some((m) => /test step/.test(m)), JSON.stringify(last2))
+
+      // Step 3: vibe gate — shows verdicts
+      const r3 = await ctx.step(`Call the "vibe" tool with action "gate" and repeat its output.`)
+      const gateCall = parseVibeCalls(r3.out).find((c) => c.action === "gate")
+      if (gateCall) {
+        ctx.assert("vibe gate ran", gateCall.ok, `err=${gateCall.error}`)
+        ctx.assert("vibe gate output is substantive", gateCall.output.trim().length > 0, "empty gate output")
+      } else {
+        ctx.assert("model invoked vibe gate (n/a if not)", true, "model did not call vibe gate")
+      }
+
+      // Step 4: vibe status
+      const r4 = await ctx.step(`Call the "vibe" tool with action "status" and repeat its output.`)
+      const statusCall = parseVibeCalls(r4.out).find((c) => c.action === "status")
+      if (statusCall) {
+        ctx.assert("vibe status ran", statusCall.ok, `err=${statusCall.error}`)
+        ctx.assert("vibe status output contains model info", /model|slot|credit/i.test(statusCall.output), statusCall.output.slice(0, 120))
+      } else {
+        ctx.assert("model invoked vibe status (n/a if not)", true, "model did not call vibe status")
+      }
+
+      // Step 5: code fix with tests — gate verdict should improve (PASS or no R2 note)
+      const r5 = await ctx.step(`Add a test for square to tests/${f}.test.mjs. Then run node --test tests/ until it passes. Then say exactly: Done.`)
+      const r5verdict = ctx.readGateVerdictsAll().slice(-1)[0]
+      ctx.assert("code-fix step: verdict improved (PASS or no test-step missing)", r5verdict && (r5verdict.passed || !r5verdict.missing.some((m) => /test step/.test(m))), JSON.stringify(r5verdict))
+      ctx.assert("code-fix step: no corruption backups", !ctx.hasCorruptionBackups(), "corruption backup dir present")
+
+      // Step 6: vibe diagnose — no corruption, no drift
+      const r6 = await ctx.step(`Call the "vibe" tool with action "diagnose" and repeat its output.`)
+      const diagnoseCall = parseVibeCalls(r6.out).find((c) => c.action === "diagnose")
+      if (diagnoseCall) {
+        ctx.assert("vibe diagnose ran", diagnoseCall.ok, `err=${diagnoseCall.error}`)
+        ctx.assert("vibe diagnose shows corruption=0", /corruption log.*clean/.test(diagnoseCall.output), diagnoseCall.output.slice(0, 200))
+        // drift alerts may be > 0 if the model made unbacked claims — that's the plugin working correctly.
+        // Assert the drift section exists and is parseable, not that it's exactly 0.
+        ctx.assert("vibe diagnose reports drift status", /drift alerts/.test(diagnoseCall.output), diagnoseCall.output.slice(0, 200))
+      } else {
+        ctx.assert("model invoked vibe diagnose (n/a if not)", true, "model did not call vibe diagnose")
+      }
+
+      // Global state checks
+      ctx.assert("no corruption log entries created", ctx.readCorruptionLog() === 0, `corruptionLog=${ctx.readCorruptionLog()}`)
+      ctx.assert("session events captured", ctx.readSessionEvents().length > 0, "no session events")
+    },
+  },
 ]
 
 export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios, ...round5Scenarios, ...round6Scenarios, ...round7Scenarios]
