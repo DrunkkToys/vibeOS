@@ -206,6 +206,20 @@ const ctx = {
   readFile: (rel) => existsSync(join(trial.proj, rel)) ? readFileSync(join(trial.proj, rel), "utf8") : "",
   listTestFiles: () => readdirSync(join(trial.proj, "tests")).filter((x) => /test|spec/i.test(x)).join(","),
   readOutcomes: () => { const p = join(OUT, "mockdata", "outcomes.jsonl"); return existsSync(p) ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : [] },
+  readCorruptionLog: () => {
+    try {
+      const p = join(trial.home, ".state-corruption-log.jsonl")
+      return existsSync(p) ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean).length : 0
+    } catch { return 0 }
+  },
+  hasCorruptionBackups: () => {
+    try { return existsSync(join(trial.home, ".backups")) } catch { return false }
+  },
+  vibeHome: () => trial.home,
+  projDir: () => trial.proj,
+  readFile2: (rel) => {
+    try { return readFileSync(join(trial.home, rel), "utf8") } catch { return "" }
+  },
   readGateVerdictsAll: () => {
     const verdicts = []
     const gd = join(trial.home, "quality-gate")

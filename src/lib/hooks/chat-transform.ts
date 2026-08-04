@@ -227,6 +227,10 @@ let _lastLoopNoticeSignature: string | null = null
 let _lastLoopNoticeAt = 0
 let _calBuffer: string[] = []
 let _pendingOrchestratorDirective = ""
+// CV computed by trackBlackbox for the current turn, keyed by session+intent so
+// onSystemTransform can reuse the exact same control vector (and avoid a second
+// backend round-trip) when messages.transform ran first in the hook cycle.
+let _turnCvCache: { key: string; cv: unknown } | null = null
 let _chatTransformHome = getVibeOSHome()
 const correctionSeenKeys = new Set()
 
@@ -1060,6 +1064,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
     const bbState = enriched || localState
 
     const cv = await apiComputeControlVector(bbState, undefined, loadOptimizationMode())
+    _turnCvCache = { key: `${sid}::${String(latestUserIntent || "")}`, cv }
     const lastEntry = state.sessions[sid].control_history?.[state.sessions[sid].control_history.length - 1]
     const cvFingerprint = JSON.stringify({ regime: bbState.sub_regime, mode: cv?.enforcement_mode })
     const isDuplicate = lastEntry && (
@@ -1382,6 +1387,7 @@ export const onSystemTransform = async (_input, output) => {
         setLatestBlackboxState(bbOnDisk)
       }
     }
+    let cvLoopPreventionPushed = false
     const hookDirectory = String((onSystemTransform as unknown)._directory || "")
     const userText = extractLastUserText(_input) || extractLastUserText(output)
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
@@ -1467,19 +1473,42 @@ export const onSystemTransform = async (_input, output) => {
       source: useBackendDecision ? "backend" : "manual",
     }
     if (useBackendDecision) {
-      const backendResult = await apiComputeControlVector(cvState, undefined, embeddingDecision
-        ? {
-          ...requestedDecision,
-          optimization_mode: embeddingDecision.optimization_mode,
-          requested_mode: requestedOptimizationMode,
-          requested_slot: embeddingDecision.requested_slot || requestedDecision.requested_slot,
-          source: embeddingDecision.source || requestedDecision.source,
-          embedding: embeddingDecision.embedding || null,
-        }
-        : requestedDecision)
-      optimizationDecision = backendResult?.decision || backendResult || null
-      _controlVector = backendResult?.control_vector || backendResult || null
-      optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+      // Reuse the control vector trackBlackbox already computed for THIS turn
+      // (same session + intent) so the directive CV matches the one recorded in
+      // control_history and we avoid a duplicate backend round-trip. Only when
+      // there is no embedding decision, which needs a distinct request shape.
+      const cvKey = `${_OC_SID}::${String(latestUserIntent || "")}`
+      const cvHit = !embeddingDecision && _turnCvCache && _turnCvCache.key === cvKey && _turnCvCache.cv
+      if (cvHit) {
+        const cached = _turnCvCache.cv
+        _controlVector = cached
+        optimizationDecision = normalizeBackendDecision({
+          ...cached,
+          decision: {
+            optimization_mode: cached?.optimization_mode || requestedOptimizationMode,
+            tier_bias: cached?.tier_bias || null,
+            pipeline_root: cached?.pipeline_root || [],
+            source: useBackendDecision ? "backend" : "manual",
+            requested_mode: requestedOptimizationMode,
+            requested_slot: cached?.tier_bias || null,
+          },
+        }, requestedOptimizationMode)
+        optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+      } else {
+        const backendResult = await apiComputeControlVector(cvState, undefined, embeddingDecision
+          ? {
+            ...requestedDecision,
+            optimization_mode: embeddingDecision.optimization_mode,
+            requested_mode: requestedOptimizationMode,
+            requested_slot: embeddingDecision.requested_slot || requestedDecision.requested_slot,
+            source: embeddingDecision.source || requestedDecision.source,
+            embedding: embeddingDecision.embedding || null,
+          }
+          : requestedDecision)
+        optimizationDecision = backendResult?.decision || backendResult || null
+        _controlVector = backendResult?.control_vector || backendResult || null
+        optimizationMode = optimizationDecision?.optimization_mode || optimizationMode
+      }
     } else {
       _controlVector = computeControlVector(cvState, undefined, requestedOptimizationMode)
       optimizationDecision = normalizeBackendDecision({
@@ -1499,8 +1528,12 @@ export const onSystemTransform = async (_input, output) => {
     // ── BE-authoritative tier: resolved_tier from client.classify() is the single
     // source of truth for the applied slot this turn, overriding the separately
     // computed control vector so BE's decision and the applied slot never diverge.
+    // EXCEPT during API fallback: the fallback pin (vibelitex) is the governing
+    // posture — a local/estimate resolved_tier must not yank the session out of
+    // the pinned cheap slot the same turn the pin was applied.
+    const _fallbackPinning = typeof isApiFallback === "function" && isApiFallback()
     const _resolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
-    if (_resolvedTier && _controlVector) {
+    if (_resolvedTier && _controlVector && !(_fallbackPinning && _controlVector.optimization_mode === "vibelitex")) {
       _controlVector = { ..._controlVector, selected_slot: _resolvedTier, tier_bias: _resolvedTier }
     }
     if (_controlVector) {
@@ -1742,14 +1775,27 @@ export const onSystemTransform = async (_input, output) => {
     // ── Cost policy (every turn — lightweight) ──
     pushSystem(output, context7Directive(_controlVector))
 
-    // ── Thinking directive ──
-    if (sel.thinking_level && sel.thinking_level !== "full") {
+    // ── Thinking directive — the local manual pin and the control-vector's
+    // [thinking mode] directive must never both appear in one prompt (they
+    // carried conflicting depths, e.g. OFF vs full). User's manual pin wins.
+    const isThinkingModeDirective = (d: unknown): boolean =>
+      typeof d === "string" && /^\[thinking mode/i.test(String(d).trim())
+    const manualThinking = sel.thinking_level && sel.thinking_level !== "full"
+    if (manualThinking) {
       pushSystem(output, thinkingDirective(sel.thinking_level))
     }
 
     // ── Remote control-vector directives ──
     if (_controlVector?.directives?.length > 0) {
       for (const directive of _controlVector.directives) {
+        if (manualThinking && isThinkingModeDirective(directive)) continue
+        if (typeof directive === "string" && /^\[loop prevention/i.test(directive)) {
+          // The blackbox regime block emits a severity-tagged
+          // [loop prevention] when looping; emitting the generic CV one too
+          // would triple-fire the same guidance. Let the specific one win.
+          if (cvLoopPreventionPushed) continue
+          cvLoopPreventionPushed = true
+        }
         pushSystem(output, directive)
       }
     }
@@ -1783,8 +1829,10 @@ export const onSystemTransform = async (_input, output) => {
           if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
             const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
               : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
-            pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
-              "(level: " + res.loop_intervention_level + ")")
+            if (!cvLoopPreventionPushed) {
+              pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
+                "(level: " + res.loop_intervention_level + ")")
+            }
           }
           if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
             pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())

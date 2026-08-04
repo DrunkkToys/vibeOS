@@ -85,7 +85,13 @@ async function readOrchFile<T>(filename: string, defaultValue: T): Promise<T> {
 async function writeOrchFile(filename: string, data: unknown): Promise<void> {
   const dir = vibeOSHome()
   await fs.mkdir(dir, { recursive: true })
-  await fs.writeFile(orchPath(filename), JSON.stringify(data, null, 2), "utf8")
+  // Atomic tmp+rename: the previous plain fs.writeFile could interleave with a
+  // concurrent writer (MCP server + trinity tool + dashboard) and leave a
+  // corrupted JSON file that readOrchFile then silently treats as [].
+  const target = orchPath(filename)
+  const tmp = `${target}.tmp.${process.pid}.${randomUUID().slice(0, 8)}`
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8")
+  await fs.rename(tmp, target)
 }
 
 export function newId(prefix: string): string {

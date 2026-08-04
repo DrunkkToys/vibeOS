@@ -17,6 +17,10 @@ Round 6 adds TDD-gate toggle coverage: a research turn stays silent (TDD off by
 default), the first coding turn auto-ONs the TDD rule, and persisted
 `vibe gate tdd on|off|auto` choices are enforced end-to-end.
 
+Round 7 adds integration coverage: one full-session run with cascade + blackbox +
+footer + quality gate + TDD + flow + thinking all engaged asserts no corrupted
+state files, no footer/gate-note breakage, parseable JSON, and no `.tmp` litter.
+
 ## Prereqs
 
 - `npm run build:bundle` (the harness loads `dist/vibeOS.js`)

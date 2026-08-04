@@ -1476,10 +1476,14 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
+      // Quality gate BEFORE the footer: the gate appends a [quality-gate] note,
+      // and the footer's strip regex only recognizes a TRAILING footer. If the
+      // note lands after the footer, the next paint can't strip it and renders
+      // footer + gate-note + footer. With the note first, the footer stays last.
+      _runQualityGate(output)
       await _appendFooter(_input, output, directory, undefined, "experimental.text.complete")
       ensureFooterFallback(_input, output, directory, "experimental.text.complete")
       _checkAndRecordUnsubstantiatedClaims()
-      _runQualityGate(output)
 
     },
     "message.updated": async (_input, output) => {
@@ -1495,11 +1499,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       scanClaimsInOutput(output)
+      // See the text.complete ordering note: gate note must land before footer.
+      _runQualityGate(output)
       await _appendFooter(_input, output, directory, undefined, "message.updated")
       ensureFooterFallback(_input, output, directory, "message.updated")
       // auto-verify: cross-check against cascade-audit
       _checkAndRecordUnsubstantiatedClaims()
-      _runQualityGate(output)
 
     },
     tool: {
