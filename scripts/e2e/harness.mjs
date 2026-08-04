@@ -231,6 +231,21 @@ const ctx = {
       return {}
     }
   },
+  readSessionEvents: () => {
+    const events = []
+    const ed = join(trial.home, "session-events")
+    if (existsSync(ed)) {
+      for (const file of readdirSync(ed)) {
+        for (const l of readFileSync(join(ed, file), "utf8").trim().split("\n").filter(Boolean)) {
+          try {
+            const e = JSON.parse(l)
+            if (e && typeof e === "object" && (e.tool || e.kind)) events.push(e)
+          } catch {}
+        }
+      }
+    }
+    return events
+  },
   assert: (label, ok, detail) => asserts.push({ scenario: scenario, label, ok, detail: detail || "" }),
   step: async (prompt, opts = {}) => {
     const offline = opts.offline === true

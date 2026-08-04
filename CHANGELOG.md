@@ -6,7 +6,7 @@
 - fix: quality-gate notes dedup persistently across turns/processes (not just in-memory) — repeated identical failures produce at most one note
 - feat: clean uninstall removes every runtime artifact including legacy home-root installs (#502)
 - fix: drop stale VIBEOS_API_TOKEN env var on rejection (#503)
-- test: headless E2E release harness (`scripts/e2e`, `npm run test:e2e`) — 23 scenarios across 4 rounds (quality gate, non-blocking enforcement, offline, protected paths, TDD skeleton, command surface, guard/verify-claims/report/rebuild/todo/api-token); protection-scoping + gate unit tests
+- test: headless E2E release harness (`scripts/e2e`, `npm run test:e2e`) — 32 scenarios across 5 rounds (quality gate, non-blocking enforcement, offline, protected paths, TDD skeleton, command surface, guard/verify-claims/report/rebuild/todo/api-token, friction/pattern observation, pivot/blackbox, axis/reality-check/repair-state/research-audit); protection-scoping + gate unit tests
 
 ## 0.27.1
 - fix: self-heal collapsed brain/medium/cheap trinity in vibe rebuild (#501)

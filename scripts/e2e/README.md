@@ -91,6 +91,22 @@ can include it without API keys.
 - **vibe-enforce-flow-audit** — `enforce off` / `flow` / `diagnose cascade` run
   without crashing and writes stay non-blocked.
 
+**Round 5 (frictions / patterns / pivot / minor surfaces):**
+- **friction-repeat-fail** — repeated failing commands are captured in the
+  session-event log as a friction signal (the input to the pattern learner),
+  and `vibe patterns` runs.
+- **pivot-counterpivot** — after a failed approach + an explicit pivot, `vibe
+  blackbox status` reflects the session's regime/pivot state.
+- **vibe-blackbox** — `vibe blackbox on` / `status` / `reset` run without
+  crashing.
+- **vibe-axis** — `vibe axis status` + `vibe axis enforcement on` applies and
+  surfaces the override.
+- **vibe-reality-check** — reports evidence-backed state.
+- **vibe-report-savings** — returns a coherent savings breakdown.
+- **vibe-patterns-suggest** — returns coherent output.
+- **vibe-repair-state** — `preview` returns a coherent report.
+- **vibe-research-audit** — returns a coherent report.
+
 ## Artifacts (in `--out`)
 
 - `home/<trial>/quality-gate/*.jsonl` — deterministic gate verdicts
