@@ -1,3 +1,23 @@
+## 0.27.5
+- feat: TDD gate off by default, auto-ON on coding; vibe gate tdd on|off|auto
+- fix: integration audit — lock/atomic all state writers, dedupe prompts, gate-before-footer
+- docs: plan the six-phase architectural audit
+- test: impact harness — measures what the plugin does to output
+- test: full-workflow-live E2E + build:dist script
+- chore: bump v0.27.4 — architectural audit + impact harness
+- chore: reconcile CHANGELOG for released v0.27.3 (single section, drop duplicate)
+Merge pull request #520 from DrunkkToys/release/v0.27.4
+Merge pull request #519 from DrunkkToys/feat/impact-harness
+Merge pull request #518 from DrunkkToys/feat/long-e2e-build-dist
+Merge pull request #517 from DrunkkToys/feat/arch-audit-c
+audit C (perf): debounce footer hot path to ~1/sec, dedup claim evidence
+Merge pull request #516 from DrunkkToys/feat/arch-audit-bda
+audit B+D+A: un-mute vibeOS errors, harden token files, break cascade cycle, drop dead code
+Merge pull request #515 from DrunkkToys/feat/architecture-audit
+Merge pull request #514 from DrunkkToys/fix/integration-audit
+Merge pull request #513 from DrunkkToys/feat/gate-tdd-auto
+
+
 ## 0.27.4
 
 ### Architecture audit (Phases B/D/A/C)
