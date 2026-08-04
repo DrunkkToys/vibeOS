@@ -7,10 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOME = process.env.HOME;
 
 // Load ALL data sources
-const benchLog = readFileSync(join(HOME, ".claude", "experiment-benchmark.jsonl"), "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l));
-const modeCal2022 = JSON.parse(readFileSync(join(HOME, ".claude", "reports", "mode-calibration-20260522-094632.json"), "utf-8"));
-const modeCal2023 = tryRead(join(HOME, ".claude", "reports", "mode-calibration-20260523-083050.json"));
-const tokenReport = JSON.parse(readFileSync(join(HOME, ".claude", "reports", "token-latency-2026-05-23T06-43-59Z.json"), "utf-8"));
+const benchLog = readFileSync(join(HOME, ".vibeos", "experiment-benchmark.jsonl"), "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l));
+const modeCal2022 = JSON.parse(readFileSync(join(HOME, ".vibeos", "reports", "mode-calibration-20260522-094632.json"), "utf-8"));
+const modeCal2023 = tryRead(join(HOME, ".vibeos", "reports", "mode-calibration-20260523-083050.json"));
+const tokenReport = JSON.parse(readFileSync(join(HOME, ".vibeos", "reports", "token-latency-2026-05-23T06-43-59Z.json"), "utf-8"));
 
 function tryRead(p) { try { return JSON.parse(readFileSync(p, "utf-8")); } catch { return null; } }
 
@@ -195,7 +195,7 @@ const report = {
   ]
 };
 
-mkdirSync(join(HOME, ".claude", "reports"), { recursive: true });
-const rf = join(HOME, ".claude", "reports", "mode-signal-analysis-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
+mkdirSync(join(HOME, ".vibeos", "reports"), { recursive: true });
+const rf = join(HOME, ".vibeos", "reports", "mode-signal-analysis-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
 appendFileSync(rf, JSON.stringify(report, null, 2) + "\n");
 console.log("\nAnalysis report: " + rf);

@@ -16,7 +16,7 @@ type RuntimeHomeContext = { home?: string }
 const RUNTIME_HOME_CONTEXT = new AsyncLocalStorage<RuntimeHomeContext>()
 
 export function resolveVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".claude")
+  return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".vibeos")
 }
 
 export function resolveOpenCodeHomes(): string[] {
@@ -46,7 +46,7 @@ export function resolveOpenCodeHome(): string {
 }
 
 export function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join(process.env.HOME || USER_HOME, ".claude")
+  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join(process.env.HOME || USER_HOME, ".vibeos")
 }
 
 export function getOpenCodeHome(): string {

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
-const CLAUDE = join(homedir(), ".claude")
+const VIBEOS_HOME_DIR = process.env.VIBEOS_HOME || join(homedir(), ".vibeos")
 
 const STATE_FILES = [
   "delegation-state.json",
@@ -106,7 +106,7 @@ function runTests() {
 function auditStateFiles() {
   const results = {}
   for (const name of STATE_FILES) {
-    const p = join(CLAUDE, name)
+    const p = join(VIBEOS_HOME_DIR, name)
     const entry = { exists: false, valid_json: false, size_bytes: 0, size_human: "0B" }
     if (existsSync(p)) {
       entry.exists = true
@@ -138,7 +138,7 @@ function auditStateFiles() {
     results[name] = entry
   }
 
-  const reportsDir = join(CLAUDE, "reports")
+  const reportsDir = join(VIBEOS_HOME_DIR, "reports")
   const reportsEntry = { exists: false, valid_json: false, size_bytes: 0, size_human: "0B" }
   if (existsSync(reportsDir)) {
     reportsEntry.exists = true
@@ -159,9 +159,9 @@ function auditStateFiles() {
 // ── KPI Extraction ─────────────────────────────────────────────────
 
 function extractKPIs() {
-  const delegPath = join(CLAUDE, "delegation-state.json")
-  const ledgerPath = join(CLAUDE, "savings-ledger.jsonl")
-  const creditPath = join(CLAUDE, "credit-snapshot.json")
+  const delegPath = join(VIBEOS_HOME_DIR, "delegation-state.json")
+  const ledgerPath = join(VIBEOS_HOME_DIR, "savings-ledger.jsonl")
+  const creditPath = join(VIBEOS_HOME_DIR, "credit-snapshot.json")
 
   let delegationSav = 0, cacheSav = 0, sessionCount = 0
   let lifetimeWarnCount = 0, activeWarns = 0
@@ -192,7 +192,7 @@ function extractKPIs() {
   if (existsSync(creditPath)) {
     try {
       const credit = safeJsonParse(readFileSync(creditPath, "utf-8"), {})
-      const tiersPath = join(CLAUDE, "model-tiers.json")
+      const tiersPath = join(VIBEOS_HOME_DIR, "model-tiers.json")
       let monthlyBudgetUsd = 50
       if (existsSync(tiersPath)) {
         const tiers = safeJsonParse(readFileSync(tiersPath, "utf-8"), {})
@@ -272,7 +272,7 @@ function detectDiscrepancies(kpis) {
 // ── Anomaly Detection ──────────────────────────────────────────────
 
 function detectAnomalies(stateFiles, kpis) {
-  const lockDir = join(CLAUDE, ".vibeOS-locks")
+  const lockDir = join(VIBEOS_HOME_DIR, ".vibeOS-locks")
   const lockFiles = []
   if (existsSync(lockDir)) {
     try {
@@ -282,7 +282,7 @@ function detectAnomalies(stateFiles, kpis) {
   }
 
   const staleJobs = []
-  const activePath = join(CLAUDE, "active-jobs.json")
+  const activePath = join(VIBEOS_HOME_DIR, "active-jobs.json")
   if (existsSync(activePath)) {
     try {
       const jobs = safeJsonParse(readFileSync(activePath, "utf-8"), [])
@@ -373,7 +373,7 @@ function runOnce(opts) {
     status,
     health,
     state_files: Object.fromEntries(
-      Object.entries(stateFiles).map(([name, entry]) => [join(CLAUDE, name), entry])
+      Object.entries(stateFiles).map(([name, entry]) => [join(VIBEOS_HOME_DIR, name), entry])
     ),
     kpis,
     discrepancies,
@@ -415,7 +415,7 @@ function runOnce(opts) {
 
     console.log("State Files:")
     for (const [name, entry] of Object.entries(stateFiles)) {
-      const p = join(CLAUDE, name)
+      const p = join(VIBEOS_HOME_DIR, name)
       console.log(`  ${checkmark(entry.exists)} ${p}`)
       if (entry.exists && name !== "reports/") {
         console.log(`    JSON: ${checkmark(entry.valid_json)} ${entry.valid_json ? "valid" : "invalid"}  Size: ${entry.size_human}`)
@@ -501,7 +501,7 @@ function watchMode(opts) {
   function recordMtimes() {
     const mtimes = {}
     for (const name of STATE_FILES) {
-      const p = join(CLAUDE, name)
+      const p = join(VIBEOS_HOME_DIR, name)
       if (existsSync(p)) {
         try {
           mtimes[p] = statSync(p).mtimeMs
@@ -510,7 +510,7 @@ function watchMode(opts) {
         }
       }
     }
-    const lockDir = join(CLAUDE, ".vibeOS-locks")
+    const lockDir = join(VIBEOS_HOME_DIR, ".vibeOS-locks")
     if (existsSync(lockDir)) {
       try {
         mtimes[lockDir] = statSync(lockDir).mtimeMs

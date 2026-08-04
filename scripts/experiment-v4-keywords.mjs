@@ -11,8 +11,8 @@ import { fileURLToPath } from "node:url"
 const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(__dirname, "..")
-const RESULTS_LOG = join(HOME, ".claude", "experiment-v4-results.jsonl")
-const REPORT_DIR = join(HOME, ".claude", "reports")
+const RESULTS_LOG = join(HOME, ".vibeos", "experiment-v4-results.jsonl")
+const REPORT_DIR = join(HOME, ".vibeos", "reports")
 const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z"
 const REPORT_PATH = join(REPORT_DIR, `experiment-v4-keywords-${ts}.json`)
 
@@ -278,7 +278,7 @@ async function main() {
 
   // Combined with v3 data if available
   try {
-    const v3Lines = readFileSync(join(HOME, ".claude", "experiment-v3-results.jsonl"), "utf-8").trim().split("\n").filter(Boolean)
+    const v3Lines = readFileSync(join(HOME, ".vibeos", "experiment-v3-results.jsonl"), "utf-8").trim().split("\n").filter(Boolean)
     const v3Results = v3Lines.map(l => JSON.parse(l)).filter(r => r.ok !== false)
     console.log(`\n=== Combined v3 + v4 — all modes ranked ===`)
     const v3map = {}

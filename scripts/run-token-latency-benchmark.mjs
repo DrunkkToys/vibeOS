@@ -4,8 +4,8 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCENARIOS_FILE = join(__dirname, "..", "src", "vibeOS-lib", "tests", "experiment-scenarios-token-latency.json");
-const BENCH_LOG = join(process.env.HOME, ".claude", "experiment-benchmark.jsonl");
-const REPORT_DIR = join(process.env.HOME, ".claude", "reports");
+const BENCH_LOG = join(process.env.HOME, ".vibeos", "experiment-benchmark.jsonl");
+const REPORT_DIR = join(process.env.HOME, ".vibeos", "reports");
 const scenarios = JSON.parse(readFileSync(SCENARIOS_FILE, "utf-8"));
 const TIERS = ["brain", "medium", "cheap"];
 const MODEL_IDS = {

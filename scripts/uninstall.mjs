@@ -115,16 +115,14 @@ function stripVibeFromConfig(path) {
   return unregisterFromOpenCodeConfig(dirname(path))
 }
 
-// Known VIBEOS_HOME locations. Never deletes ~/.claude wholesale — only the
-// vibe-named files inside it are removed separately.
+// Known VIBEOS_HOME locations. Never touches ~/.claude (Claude Code's home).
 function collectStateRoots() {
   const roots = new Set()
   const explicit = process.env.VIBEOS_HOME?.trim()
-  const claudeHome = join(HOME, ".claude")
-  if (explicit && explicit !== claudeHome) roots.add(explicit)
+  if (explicit && explicit !== join(HOME, ".vibeos")) roots.add(explicit)
   for (const p of [
-    join(HOME, ".vibetheog"),
     join(HOME, ".vibeos"),
+    join(HOME, ".vibetheog"),
     join(HOME, ".vibeOS"),
     join(HOME, "Library", "Application Support", "ai.opencode.desktop", "vibeOS"),
   ]) {
@@ -156,30 +154,15 @@ function removeDebugArtifacts() {
   return removed
 }
 
-function removeClaudeVibeFiles() {
-  const claudeHome = join(HOME, ".claude")
-  const targets = [
-    ".vibeOS-locks",
-    "model-tiers.json",
-    "savings-ledger.jsonl",
-    "delegation-state.json",
-    "blackbox-state.json",
-    "project-states.json",
-    ".flow-todo-queue.jsonl",
-    ".enforcement-cooldown.jsonl",
-    ".env.production",
-    ".env.alpha",
-    "pricing-sync-cron.log",
-    "reports",
-  ].map((p) => join(claudeHome, p))
-  let removed = 0
-  for (const t of targets) {
-    if (existsSync(t)) {
-      try { rmSync(t, { recursive: true, force: true }) } catch {}
-      removed++
-    }
+// vibeOS owns ~/.vibeos (decoupled from Claude Code). Clean ONLY that
+// directory — never touch ~/.claude, which is Claude Code's home.
+function removeVibeosHomeFiles() {
+  const vibeosHome = join(HOME, ".vibeos")
+  if (existsSync(vibeosHome)) {
+    try { rmSync(vibeosHome, { recursive: true, force: true }) } catch {}
+    return 1
   }
-  return removed
+  return 0
 }
 
 function removePluginFiles(home) {
@@ -386,9 +369,9 @@ if (stateRemoved > 0) {
   writeLine(`✓ removed ${stateRemoved} VIBEOS_HOME runtime state dir(s)`)
   didSomething = true
 }
-const claudeRemoved = removeClaudeVibeFiles()
-if (claudeRemoved > 0) {
-  writeLine(`✓ removed ${claudeRemoved} vibe file(s) from ~/.claude`)
+const vibeosHomeRemoved = removeVibeosHomeFiles()
+if (vibeosHomeRemoved > 0) {
+  writeLine("✓ removed vibeOS home (~/.vibeos)")
   didSomething = true
 }
 const debugRemoved = removeDebugArtifacts()

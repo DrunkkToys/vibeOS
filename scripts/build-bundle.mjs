@@ -134,7 +134,7 @@ function copyDirRecursive(src, dest) {
 }
 
 function resolvePublishedMcpBaseUrl() {
-  const vibeHome = process.env.VIBEOS_HOME || join(homedir(), '.claude');
+  const vibeHome = process.env.VIBEOS_HOME || join(homedir(), '.vibeos');
   const tiersPath = join(vibeHome, 'model-tiers.json');
   try {
     if (existsSync(tiersPath)) {

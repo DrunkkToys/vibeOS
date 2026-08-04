@@ -9,9 +9,9 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 
 const HOME = homedir()
-const CAL_FILE = join(HOME, ".claude", "calibration-data.jsonl")
-const STATE_FILE = join(HOME, ".claude", "delegation-state.json")
-const PROJECT_FILE = join(HOME, ".claude", "project-states.json")
+const CAL_FILE = join(HOME, ".vibeos", "calibration-data.jsonl")
+const STATE_FILE = join(HOME, ".vibeos", "delegation-state.json")
+const PROJECT_FILE = join(HOME, ".vibeos", "project-states.json")
 
 const DRY_RUN = process.env.DRY_RUN === "true"
 
@@ -105,13 +105,13 @@ function generateMapping(byRegime) {
 
 // ── Write updated weights ────────────────────────────────────────────
 function writeCalibration(mapping) {
-  const file = join(HOME, ".claude", "mode-calibration-weights.json")
+  const file = join(HOME, ".vibeos", "mode-calibration-weights.json")
   const data = {
     generated_at: new Date().toISOString(),
     regime_mode_map: mapping,
     version: 1,
   }
-  mkdirSync(join(HOME, ".claude"), { recursive: true })
+  mkdirSync(join(HOME, ".vibeos"), { recursive: true })
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
   return file
 }

@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url"
 const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(__dirname, "..")
-const RESULTS_LOG = join(HOME, ".claude", "experiment-forensic-v2-results.jsonl")
-const REPORT_DIR = join(HOME, ".claude", "reports")
+const RESULTS_LOG = join(HOME, ".vibeos", "experiment-forensic-v2-results.jsonl")
+const REPORT_DIR = join(HOME, ".vibeos", "reports")
 const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z"
 const REPORT_PATH = join(REPORT_DIR, `experiment-forensic-v2-${ts}.json`)
 

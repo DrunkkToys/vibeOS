@@ -26,7 +26,10 @@ if (isUninstallCommand) {
     process.exit(1)
   }
   try {
-    execFileSync(process.execPath, [uninstallScript], { stdio: "inherit", cwd: process.cwd() })
+    // Forward flags (--quit-app, ...) to uninstall.mjs — previously swallowed
+    // here, so `uninstall --quit-app` never terminated the running app.
+    const forwardedFlags = args.filter((a) => a.startsWith("-"))
+    execFileSync(process.execPath, [uninstallScript, ...forwardedFlags], { stdio: "inherit", cwd: process.cwd() })
   } catch (err) {
     console.error("Uninstall failed:", err?.message || err)
     process.exit(1)

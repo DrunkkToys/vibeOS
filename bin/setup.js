@@ -48,7 +48,7 @@ function readJson(path) {
   }
 }
 function readTiers(home = homedir2()) {
-  return readJson(join2(process.env.VIBEOS_HOME || join2(home, ".claude"), "model-tiers.json"));
+  return readJson(join2(process.env.VIBEOS_HOME || join2(home, ".vibeos"), "model-tiers.json"));
 }
 function primaryAgent(existing = {}) {
   const next = {
@@ -262,7 +262,7 @@ var USER_HOME = (() => {
 })();
 var RUNTIME_HOME_CONTEXT = new AsyncLocalStorage();
 function resolveVibeOSHome() {
-  return process.env.VIBEOS_HOME || join4(process.env.HOME || USER_HOME, ".claude");
+  return process.env.VIBEOS_HOME || join4(process.env.HOME || USER_HOME, ".vibeos");
 }
 function resolveOpenCodeHomes2() {
   const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME;
@@ -288,7 +288,7 @@ function resolveOpenCodeHome2() {
   return homes[0] || join4(process.env.HOME || USER_HOME, ".config", "opencode");
 }
 function getVibeOSHome2() {
-  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join4(process.env.HOME || USER_HOME, ".claude");
+  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join4(process.env.HOME || USER_HOME, ".vibeos");
 }
 
 // src/lib/state/scratchpad-cache.ts
@@ -812,7 +812,8 @@ if (isUninstallCommand) {
     process.exit(1);
   }
   try {
-    execFileSync(process.execPath, [uninstallScript], { stdio: "inherit", cwd: process.cwd() });
+    const forwardedFlags = args.filter((a) => a.startsWith("-"));
+    execFileSync(process.execPath, [uninstallScript, ...forwardedFlags], { stdio: "inherit", cwd: process.cwd() });
   } catch (err) {
     console.error("Uninstall failed:", err?.message || err);
     process.exit(1);

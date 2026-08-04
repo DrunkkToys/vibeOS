@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { homedir } from "node:os"
 
-const LEDGER_FILE = join(homedir(), ".claude", "savings-ledger.jsonl")
+const LEDGER_FILE = join(homedir(), ".vibeos", "savings-ledger.jsonl")
 const BACKUP_FILE = LEDGER_FILE + ".bak"
 
 if (!existsSync(LEDGER_FILE)) {

@@ -22,7 +22,7 @@ test('cascade audit path: runtime-paths getVibeOSHome() never returns falsy', as
     assert.ok(home, 'getVibeOSHome() returned a truthy value: "' + home + '"')
     assert.notEqual(home, 'undefined', 'getVibeOSHome() did not return the string "undefined"')
     assert.ok(home.startsWith('/'), 'getVibeOSHome() returns an absolute path')
-    assert.ok(home.includes('.claude') || home.includes('.config'), 'getVibeOSHome() returns a .claude or .config path')
+    assert.ok(home.includes('.vibeos'), 'getVibeOSHome() returns the vibeOS-owned home (never ~/.claude)')
   } finally {
     if (prevVibeHome !== undefined) process.env.VIBEOS_HOME = prevVibeHome
     if (prevHome !== undefined) process.env.HOME = prevHome
@@ -51,9 +51,9 @@ test('cascade audit path: ensureCascadeAuditFiles does not pollute cwd', async (
     } catch {}
     assert.equal(cwdFiles.length, 0, 'No cascade-audit or undefined/ directory in cwd: ' + JSON.stringify(cwdFiles))
 
-    // Check that files were created in the sandbox
-    const auditDir = join(sandbox, '.claude', 'cascade-audit')
-    assert.ok(existsSync(auditDir), 'Audit directory created in sandbox/.claude')
+    // Check that files were created in the sandbox (vibeOS owns ~/.vibeos, not ~/.claude)
+    const auditDir = join(sandbox, '.vibeos', 'cascade-audit')
+    assert.ok(existsSync(auditDir), 'Audit directory created in sandbox/.vibeos')
     assert.ok(existsSync(join(auditDir, 'claim-audit.jsonl')), 'claim-audit.jsonl exists')
     assert.ok(existsSync(join(auditDir, 'cascade-audit.jsonl')), 'cascade-audit.jsonl exists')
   } finally {
