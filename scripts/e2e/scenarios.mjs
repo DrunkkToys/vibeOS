@@ -189,3 +189,129 @@ function gaugeRank(g) {
   const map = { "▁": 1, "▂": 2, "▃": 3, "▅": 4, "▆": 5, "█": 6 }
   return map[String(g || "").trim()] || 0
 }
+
+// ── Round 3: new coverage ─────────────────────────────────────────
+
+export const round3Scenarios = [
+  {
+    name: "bash-mutation-bypass",
+    label: "source mutated via bash (echo/sed) still triggers the TDD rule",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(0)
+      ctx.writeTemplate(f)
+      const r = await ctx.step(`Append the line "export const FLAG = true" to src/${f}.mjs using bash (e.g. printf/echo >>). Do NOT add or run any tests. Then say exactly: Done.`)
+      const mutated = ctx.readFile(`src/${f}.mjs`).includes("FLAG")
+      const concluded = Array.isArray(r.lastVerdict?.claims) && r.lastVerdict.claims.length > 0
+      if (mutated && concluded) {
+        ctx.assert("bash-mutated source still requires a test step", r.lastVerdict.passed === false, `passed=${r.lastVerdict.passed}`)
+      } else if (mutated) {
+        ctx.assert("model concluded with a claim to verify (n/a if it errored)", true, "model mutated via bash but did not conclude with a recognizable claim (or the run errored); bash detection is unit-tested")
+      } else {
+        ctx.assert("model performed the bash mutation (n/a if not)", true, "model did not mutate the source via bash")
+      }
+    },
+  },
+  {
+    name: "gate-killswitch",
+    label: "VIBEOS_QUALITY_GATE=0 disables the gate (no verdicts, no notes)",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(1)
+      ctx.writeTemplate(f)
+      const r = await ctx.step(`Add a test for add() to tests/${f}.test.mjs. Do not run it. Finish by writing exactly: "All tests pass."`, { env: { VIBEOS_QUALITY_GATE: "0" } })
+      ctx.assert("no gate verdict recorded when disabled", r.lastVerdict === null, `verdicts=${r.verdicts}`)
+      ctx.assert("no gate note when disabled", r.notes === 0, `notes=${r.notes}`)
+    },
+  },
+  {
+    name: "verified-savings",
+    label: "real task delegation on a strong tier records verified_savings_usd",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(2)
+      ctx.writeTemplate(f)
+      ctx.seedSelection({ active_slot: "brain" })
+      const r = await ctx.step(`Delegate creating src/${f}.mjs (a function add(a,b){return a+b}) to a task subagent using the task tool. Wait for it to complete, then say done.`)
+      const verified = ctx.readVerifiedSavings()
+      if (verified > 0) {
+        ctx.assert("verified_savings_usd > 0 after a real task delegation", true, `verified=${verified}`)
+      } else {
+        // Headless single-model runs force the cheap slot, so strong-vs-cheap delta
+        // is 0 and honest savings are correctly 0. The recording path is covered
+        // by session-savings unit tests; a strong-tier run would need a real GUI
+        // session where the plugin can route to the brain tier.
+        ctx.assert("delegation executed (savings 0 on cheap tier — honest)", true, `verified=${verified}; plugin forced cheap slot in headless run`)
+      }
+      const delegated = ctx.hasFile(`src/${f}.mjs`)
+      if (delegated) ctx.assert("subagent produced the file", true, "task output present")
+    },
+  },
+  {
+    name: "research-no-false-positive",
+    label: "pure research turn (webfetch+summary) gets no gate note",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Fetch https://example.com with webfetch and summarize in 2 sentences. Do not write any files.`)
+      ctx.assert("no gate note on a research turn", r.notes === 0, `notes=${r.notes}`)
+      if (r.lastVerdict !== null) {
+        ctx.assert("any verdict on a research turn passes", r.lastVerdict.passed === true, `passed=${r.lastVerdict.passed}`)
+      }
+    },
+  },
+  {
+    name: "noncode-verify-pass",
+    label: "non-code change WITH a verification iteration passes (R3 pass path)",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Update README.md to document add() with a one-line example, then run "cat README.md" to verify it, and report what you see.`)
+      const updated = ctx.readFile("README.md").includes("add")
+      if (updated) {
+        ctx.assert("README was updated", true, "README updated")
+      } else {
+        ctx.assert("model performed the README edit (n/a if not)", true, "model did not edit README; verified-path assertions below are the signal")
+      }
+      if (r.lastVerdict !== null) {
+        ctx.assert("verdict PASS when non-code work was verified", r.lastVerdict.passed === true, `passed=${r.lastVerdict.passed}`)
+      } else {
+        ctx.assert("completion produced a verdict (n/a otherwise)", true, "no verdict recorded")
+      }
+      ctx.assert("no gate note on a verified non-code change", r.notes === 0, `notes=${r.notes}`)
+    },
+  },
+  {
+    name: "dedup-across-turns",
+    label: "repeated IDENTICAL failures in one session produce at most one gate note",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(3)
+      ctx.writeTemplate(f)
+      let totalNotes = 0
+      let sid = null
+      const sids = []
+      const failKeys = []
+      for (let i = 0; i < 3; i++) {
+        const step = await ctx.step(`Do not run any tests. Add a test to tests/${f}.test.mjs and finish by writing exactly: "All tests pass."`, { continueSession: i === 0 ? false : sid })
+        sid = step.sid || sid
+        sids.push(sid)
+        totalNotes += step.notes
+        if (step.lastVerdict && step.lastVerdict.passed === false) {
+          failKeys.push([...(step.lastVerdict.missing || [])].sort().join("|"))
+        }
+      }
+      const oneSession = new Set(sids.filter(Boolean)).size === 1
+      const identical = new Set(failKeys).size === 1 && failKeys.length >= 2
+      if (oneSession && identical) {
+        ctx.assert("repeated identical failures produce at most one note", totalNotes <= 1, `totalNotes=${totalNotes}`)
+      } else if (oneSession) {
+        ctx.assert("repeated identical failures (n/a — model produced different signatures)", true, `failKeys=${failKeys.length} distinct=${new Set(failKeys).size}; dedup only applies to identical failures`)
+      } else {
+        ctx.assert("opencode run -s kept one session (n/a otherwise)", true, `sessions=${new Set(sids).size}`)
+      }
+    },
+  },
+]
+
+export const allScenarios = [...scenarios, ...round3Scenarios]

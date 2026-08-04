@@ -41,7 +41,7 @@ import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 import { getSessionDelegationSavings } from "./lib/session-savings.js"
 import { getLatestTurnTruth } from "./lib/turn-ledger.js"
-import { runQualityGate, formatGateReport, readGateEvents, recordGateVerdict, dedupeGateReportKey, QUALITY_GATE_MARKER } from "./vibeOS-lib/quality-gate.js"
+import { runQualityGate, formatGateReport, readGateEvents, readGateVerdicts, recordGateVerdict, dedupeGateReportKey, QUALITY_GATE_MARKER } from "./vibeOS-lib/quality-gate.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -223,6 +223,14 @@ function _runQualityGate(output) {
     const events = readGateEvents(home, sessionId)
     const recentTools = Array.isArray(recentToolEvents) ? recentToolEvents.slice(-20) : []
     const verdict = runQualityGate({ text, events, recentTools })
+    const key = dedupeGateReportKey(verdict)
+    // Persistent dedup: if this exact failure was already reported for this
+    // session (across turns AND processes — each opencode run is a new process,
+    // so the in-memory map below cannot survive turns), do not append the note
+    // again. Checked BEFORE recording so the current verdict is not counted.
+    const priorReported = !verdict.passed && readGateVerdicts(home, sessionId, 100).some(
+      (v) => v && !v.passed && dedupeGateReportKey(v) === key,
+    )
     recordGateVerdict(home, sessionId, verdict)
     // Real feedback signal: send the deterministic verdict to the backend so
     // blackbox_sessions.outcome and the prediction ground-truth plumbing are fed
@@ -233,8 +241,8 @@ function _runQualityGate(output) {
       } catch {}
     }
     if (verdict.passed) return
+    if (priorReported) return
     if (text.includes(QUALITY_GATE_MARKER)) return
-    const key = dedupeGateReportKey(verdict)
     if (_gateNoteBySession.get(sessionId) === key) return
     _gateNoteBySession.set(sessionId, key)
     const report = formatGateReport(verdict)

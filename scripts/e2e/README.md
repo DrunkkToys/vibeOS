@@ -45,6 +45,7 @@ can include it without API keys.
 
 ## Scenarios
 
+**Round 1–2 (core):**
 - **correction-loop** — gate FAIL → follow-up fix → PASS, ≤1 note, stress gauge
   falls after the fix, savings shown as estimate.
 - **vibe-gate-surface** — the `vibe` tool action `gate` returns the verdict log.
@@ -59,6 +60,21 @@ can include it without API keys.
 - **test-file-strictness** — `contest.mjs` is treated as source (TDD applies).
 - **tiers** — gate silent on verified runs for cheap/medium/brain; routed model
   matches the active slot.
+
+**Round 3 (new):**
+- **bash-mutation-bypass** — source mutated via bash (`echo >>`, `sed -i`)
+  still triggers the TDD rule (models that shortcut through bash can't dodge it).
+- **gate-killswitch** — `VIBEOS_QUALITY_GATE=0` disables the gate (no verdicts,
+  no notes).
+- **verified-savings** — a real `task` delegation exercises the honest-savings
+  path (headless single-model runs force the cheap slot, so savings are
+  correctly 0 there — the recording logic is unit-tested).
+- **research-no-false-positive** — a pure research turn (webfetch + summary)
+  gets no gate note.
+- **noncode-verify-pass** — a non-code change WITH a verification iteration
+  (e.g. `cat`) passes (R3 pass path).
+- **dedup-across-turns** — repeated identical failures produce at most one gate
+  note (persistent dedup across turns/processes, not just in-memory).
 
 ## Artifacts (in `--out`)
 

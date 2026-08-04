@@ -144,8 +144,7 @@ test("quality-gate: a bare 'Done.' after editing source triggers the test-step r
   assert.ok(verdict.missing.some((m) => /test step/.test(m)))
 })
 
-test("quality-gate: filenames containing 'test' as a substring are NOT test files", () => {
-  const contest = gate.runQualityGate({
+test("quality-gate: filenames containing 'test' as a substring are NOT test files", () => {  const contest = gate.runQualityGate({
     text: "Done.",
     events: [ev({ role: "mutation", tool: "edit", family: "edit", at: 1 })],
     recentTools: [{ tool: "edit", target: "src/contest.ts", at: 1 }],
@@ -163,4 +162,26 @@ test("quality-gate: filenames containing 'test' as a substring are NOT test file
     recentTools: [{ tool: "write", target: "tests/queue.test.ts", at: 1 }],
   })
   assert.equal(realTest.passed, true, "queue.test.ts is a real test file → test step satisfied")
+})
+
+test("quality-gate: bash-based source mutation still requires a test step", () => {
+  const verdict = gate.runQualityGate({
+    text: "Done.",
+    events: [],
+    recentTools: [{ tool: "bash", target: 'echo "export const FLAG = true" >> src/math.mjs', at: 1 }],
+  })
+  assert.equal(verdict.passed, false, "bash write to a source file must trigger the TDD rule")
+  assert.ok(verdict.missing.some((m) => /test step/.test(m)), JSON.stringify(verdict.missing))
+  const sedVerdict = gate.runQualityGate({
+    text: "Done.",
+    events: [],
+    recentTools: [{ tool: "bash", target: "sed -i 's/42/43/' src/contest.mjs", at: 1 }],
+  })
+  assert.equal(sedVerdict.passed, false, "sed -i on a source file must trigger the TDD rule")
+  const readOnly = gate.runQualityGate({
+    text: "Done.",
+    events: [],
+    recentTools: [{ tool: "bash", target: "cat src/math.mjs", at: 1 }],
+  })
+  assert.equal(readOnly.passed, true, "read-only bash must not trigger the TDD rule")
 })
