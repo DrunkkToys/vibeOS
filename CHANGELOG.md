@@ -1,4 +1,6 @@
 ## Unreleased
+- perf: footer hot path debounced to ~1/sec per directory (was re-running 18-22 sync fs ops + sqlite evidence per streamed chunk); footer no longer runs evaluateClaimEvidence twice per paint (reuses the session-health snapshot's copy)
+- docs: docs/ARCHITECTURE_AUDIT_PLAN.md status — Phases B/D/A done, C done, E/F remaining
 - security: token/env files written atomically with 0600 perms; world-readable legacy token files tightened to 0600 on read (bootstrap token stays embedded/valid per design)
 - fix: [vibeOS] console errors are no longer silently dropped — they persist to session-events as footer-error events so a swallowed failure is diagnosable; updateState retry-exhaustion always logs; ledger flush re-queues lines on failure instead of dropping them
 - feat: `vibe diagnose` now surfaces token-file perms, the corruption log, and drift alerts (previously write-only)

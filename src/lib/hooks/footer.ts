@@ -12,7 +12,7 @@ import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
 import { latestUserIntent } from "./chat-transform.js"
 import { scoreStress, resolveEnforcementMode, detectOutcomeSignal, getBlackboxTracker, syncOutcomeToApi, classifyTurnSimple, autoSelectMode, loadOptimizationMode, computeControlVector, getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode } from "../cascade.js"
 import { saveReport } from "../reporting.js"
-import { currentModel, currentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb } from "../state.js"
+import { currentModel, currentTier, currentProjectFingerprint, currentProjectName, getCurrentSessionId, _modelLocked, _blackboxEnabled, loadBlackboxState, recordLiveSessionSnapshot, getVibeOSHome, readLifetimeSavings, getLatestCacheEvent, readFullState, _OC_SID, removeJobRecord, saveJobRecord, updateSessionOrchestration, getActiveJobForProject, loadSelection, loadSessionOrchestration, _cacheDb, ledgerStatNow } from "../state.js"
 import { loadSessionSlot } from "../selection-manager.js"
 import { isApiConnected, isApiFallback, getApiClient } from "../api-client.js"
 import { getSessionCacheSavings, getSessionVerifiedSavings } from "../session-savings.js"
@@ -731,6 +731,8 @@ export function resetFooterRuntimeState(): void {
   textCompletePainted.clear()
   footerPaintInFlight.clear()
   _lastStrippedText = ""
+  _footerDisplayStateCache.clear()
+  _footerDisplayDebounce.clear()
 }
 
 const DEFAULT_REGIME_MAP = {
@@ -843,6 +845,15 @@ let _footerCacheText = ""
 let _footerCacheTs = 0
 const _footerDisplayStateCache = new Map<string, { result: any; ts: number }>()
 const _FOOTER_DISPLAY_CACHE_TTL_MS = 500
+// Directory-level debounce on the EXPENSIVE state resolution (sync fs reads of
+// delegation-state/turn-ledger/blackbox, cascade-audit + sqlite evidence). The
+// 500ms key cache only helps when the text prefix is unchanged; streaming emits
+// many text.complete calls/sec with different short prefixes, so every chunk
+// used to miss and re-run the whole hot path (18-22 sync ops + 2 sqlite spawns).
+// The underlying state only changes on turn boundaries, so a ~1s floor per
+// directory is indistinguishable to the user and caps the hot path to ~1/sec.
+const _FOOTER_DISPLAY_DEBOUNCE_MS = 1000
+const _footerDisplayDebounce = new Map<string, { result: any; ts: number }>()
 
 function recordFooterProbe(input: {
   hook: string
@@ -945,6 +956,19 @@ async function resolveFooterDisplayState(
   const _cacheKey = `${directory}|${String(text).trim().slice(0, 300)}`
   const _cached = _footerDisplayStateCache.get(_cacheKey)
   if (_cached && Date.now() - _cached.ts < _FOOTER_DISPLAY_CACHE_TTL_MS) return _cached.result
+  // Debounce the expensive resolution to ~1/sec per directory (see the
+  // constant comment above). Runs AFTER the exact-key cache so identical
+  // re-fires still hit the fast path.
+  const _debounced = _footerDisplayDebounce.get(directory)
+  if (_debounced && Date.now() - _debounced.ts < _FOOTER_DISPLAY_DEBOUNCE_MS) {
+    // Do not serve a debounced (stale) footer when the savings ledger changed
+    // since it was computed — a real savings update must surface promptly even
+    // within the debounce window (same mtime+size gate as the ledger reconcile).
+    const now = ledgerStatNow()
+    if (now.mtime === _debounced.ledger.mtime && now.size === _debounced.ledger.size) {
+      return _debounced.result
+    }
+  }
   _refreshModel(directory)
   let _footerStress = 0
   const quietIntent = isGreetingLike(latestUserIntent || "")
@@ -1111,14 +1135,10 @@ async function resolveFooterDisplayState(
     quietIntent: isGreetingLike(latestUserIntent || ""),
   })
   const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
-  const claimStatus = evaluateClaimEvidence({
-    text,
-    vibeHome: getVibeOSHome(),
-    sessionId: sid,
-    turnId: latestTurnTruth?.turnId || "",
-    userText: latestUserIntent || "",
-    prevAssistantTexts,
-  })
+  // getSessionHealthSnapshot internally runs evaluateClaimEvidence and returns
+  // it as snapshot.claimEvidence; calling it separately here would re-read the
+  // cascade-audit, session-events, sqlite facts, and turn-ledger a second time
+  // on every (debounced) paint. Reuse the snapshot's copy instead.
   const sessionHealth = getSessionHealthSnapshot({
     sessionId: sid,
     projectFingerprint: currentProjectFingerprint || "",
@@ -1127,7 +1147,8 @@ async function resolveFooterDisplayState(
     prevAssistantTexts,
     turnId: latestTurnTruth?.turnId || "",
   })
-  const claimTag = claimStatus.claimTag || ""
+  const claimStatus = sessionHealth.claimEvidence
+  const claimTag = claimStatus?.claimTag || ""
   const ltTotal = ltTasks + ltCache
   const sessionState = readFullState()?.sessions?.[sid] || {}
   const sessionCacheSavings = getSessionCacheSavings(sessionState)
@@ -1265,6 +1286,7 @@ async function resolveFooterDisplayState(
     sesTaskDelegations, sesModelTurns, claimStatus, sessionHealth, stripped: "",
   }
   _footerDisplayStateCache.set(_cacheKey, { result: _footerState, ts: Date.now() })
+  _footerDisplayDebounce.set(directory, { result: _footerState, ts: Date.now(), ledger: ledgerStatNow() })
   if (_footerDisplayStateCache.size > 100) {
     const it = _footerDisplayStateCache.keys()
     for (let i = 0; i < 20; i++) {
