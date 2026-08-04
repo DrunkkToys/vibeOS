@@ -3,8 +3,8 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, appendFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { currentProjectFingerprint, getVibeOSHome, updateState } from "../lib/state.js"
-import { safeJsonParse } from "../utils/fs-helpers.js"
+import { currentProjectFingerprint, getVibeOSHome, updateState, getCurrentSessionId } from "../lib/state.js"
+import { safeJsonParse, appendJsonlWithRotation } from "../utils/fs-helpers.js"
 
 const VIBEOS_STDERR_DEBUG = process.env.VIBEOS_DEBUG_STDERR === "1" || process.env.VIBEOS_DEBUG_LOGS === "1"
 const VIBEOS_CONSOLE_ERROR_GUARD = "__vibeOSConsoleErrorGuard"
@@ -30,10 +30,42 @@ if (!VIBEOS_STDERR_DEBUG && !globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD]) {
       }
       text += " "
     }
-    if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]")) return
+    // vibeOS's own diagnostics used to be silently dropped here, so the
+    // codebase's primary error channel was invisible by default. Instead of
+    // dropping them, persist FAILURE-signaling messages to the session-events
+    // log (the same footer-error channel `vibe diagnose`/session-health read)
+    // so a swallowed failure can always be surfaced; routine warnings stay
+    // off stderr unless debugging.
+    if (text.includes("[vibeOS]") || text.includes("[flow-enforcer]") || text.includes("[delegation]")) {
+      if (/fail(ed|ure|s)?\b|error|exception|retries|corrupt|threw|throw/i.test(text)) {
+        persistVibeOSError(text)
+      }
+      if (VIBEOS_STDERR_DEBUG) originalConsoleError(...args)
+      return
+    }
     originalConsoleError(...args)
   }
   globalConsoleState[VIBEOS_CONSOLE_ERROR_GUARD] = true
+}
+
+// Mirror of footer.ts recordFooterError's event shape, written from here so
+// vibeOS-internal failures remain diagnosable without importing footer.ts
+// (which would create a module cycle).
+function persistVibeOSError(text: string): void {
+  try {
+    const sid = getCurrentSessionId()
+    if (!sid) return
+    const dir = join(getVibeOSHome(), "session-events")
+    mkdirSync(dir, { recursive: true })
+    appendJsonlWithRotation(join(dir, `${sid}.jsonl`), JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: "footer-error",
+      hook: "console-error-guard",
+      stage: "vibeos-internal",
+      message: String(text).slice(0, 400),
+      stack: "",
+    }) + "\n", 200, 50)
+  } catch {}
 }
 
 type FlowSeverity = "warn" | "hint" | "flag"
@@ -210,16 +242,11 @@ const FLOW_DEDUP_FILE = join(getVibeOSHome(), ".flow-dedup-keys.json")
 const MAX_FLOW_TODOS = 200
 
 const _flowWarnsSeen = new Set<string>()
-let _stateWriter: ((state: any) => void) | null = null
 let _cachedRules: FlowRule[] | null = null
 let _rulesMtime = 0
 let _cachedRealityCheck: RealityCheckSettings | null = null
 let _realityCheckMtime = 0
 let _realityCheckCacheKey = ""
-
-export function setFlowStateWriter(writer: ((state: any) => void) | null): void {
-  _stateWriter = typeof writer === "function" ? writer : null
-}
 
 // Persist flow dedup keys across restarts to avoid re-warnings
 function loadFlowDedupKeys(): void {
@@ -429,10 +456,6 @@ function recordFlowWarn(hit: RecordFlowWarnInput): void {
       filePath: hit.filePath,
       description: hit.description,
     }
-    if (_stateWriter) {
-      _stateWriter({ flow_warns: [record] })
-      return
-    }
     // updateState is the canonical locked, atomic-rename writer for
     // delegation-state.json. The old fallback here did an unlocked
     // read-merge-write that raced updateState and could drop concurrent
@@ -599,8 +622,6 @@ export function syncFlowTodosToNative(upsertFn?: (entry: { content: string; file
 }
 
 const LEARNED_RULES_PATH = join(getVibeOSHome(), "learned-flow-rules.json")
-const CORRECTIONS_PATH = join(getVibeOSHome(), "user-corrections.jsonl")
-
 function getLearnedRules(): FlowRule[] {
   try {
     if (!existsSync(LEARNED_RULES_PATH)) return []
@@ -609,97 +630,6 @@ function getLearnedRules(): FlowRule[] {
     if (!data?.rules || !Array.isArray(data.rules)) return []
     return data.rules.map(normalizeRule).filter(Boolean) as FlowRule[]
   } catch { return [] }
-}
-
-function persistLearnedRules(rules: FlowRule[]): void {
-  try {
-    mkdirSync(dirname(LEARNED_RULES_PATH), { recursive: true })
-    writeFileSync(LEARNED_RULES_PATH, JSON.stringify({ rules }, null, 2), "utf-8")
-  } catch {}
-}
-
-export function trackUserCorrection(input: {
-  tool: string
-  issueDescription: string
-  suggestedRule?: string
-  filePath?: string
-}): void {
-  try {
-    const file = CORRECTIONS_PATH
-    mkdirSync(dirname(file), { recursive: true })
-    const correction = {
-      ts: new Date().toISOString(),
-      tool: input.tool,
-      issue: input.issueDescription,
-      suggestedRule: input.suggestedRule,
-      filePath: input.filePath,
-    }
-    appendFileSync(file, JSON.stringify(correction) + "\n")
-    tryPromoteCorrectionsToRules()
-  } catch {}
-}
-
-function loadCorrections(): Array<{
-  ts: string; tool: string; issue: string; suggestedRule?: string; filePath?: string
-}> {
-  try {
-    if (!existsSync(CORRECTIONS_PATH)) return []
-    const raw = readFileSync(CORRECTIONS_PATH, "utf-8").trim()
-    if (!raw) return []
-    return raw.split("\n").filter(Boolean).map(l => {
-      try { return JSON.parse(l) } catch { return null }
-    }).filter(Boolean)
-  } catch { return [] }
-}
-
-function tryPromoteCorrectionsToRules(): void {
-  try {
-    const corrections = loadCorrections()
-    if (corrections.length < 2) return
-
-    const groups = new Map<string, { count: number; items: typeof corrections }>()
-    for (const c of corrections) {
-      const key = `${c.tool}::${c.issue.substring(0, 60)}`
-      if (!groups.has(key)) groups.set(key, { count: 0, items: [] })
-      const g = groups.get(key)!
-      g.count++
-      g.items.push(c)
-    }
-
-    const existing = getLearnedRules()
-    const existingIds = new Set(existing.map(r => r.id))
-    let changed = false
-
-    for (const [key, group] of groups) {
-      if (group.count < 2) continue
-      const [tool] = key.split("::")
-      const issue = group.items[0].issue
-      const ruleId = `learned-${tool}-${issue.replace(/[^a-z0-9]/gi, "-").substring(0, 30)}`.toLowerCase()
-      if (existingIds.has(ruleId)) continue
-
-      const keywords = issue
-        .replace(/[.,!?;:]/g, "")
-        .split(/\s+/)
-        .filter(w => w.length > 3)
-        .slice(0, 5)
-        .join("|")
-      if (!keywords) continue
-
-      const rule: FlowRule = {
-        id: ruleId,
-        trigger: tool,
-        pattern: `(?i)\\b(${keywords})\\b`,
-        severity: "hint",
-        description: `Learned from ${group.count} corrections: ${issue.substring(0, 80)}`,
-      }
-
-      existing.push(rule)
-      existingIds.add(ruleId)
-      changed = true
-    }
-
-    if (changed) persistLearnedRules(existing)
-  } catch {}
 }
 
 function mergeLearnedRules(baseRules: FlowRule[]): FlowRule[] {

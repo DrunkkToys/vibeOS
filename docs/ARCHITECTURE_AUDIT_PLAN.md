@@ -1,8 +1,9 @@
 # Architectural Audit — Plan
 
-> Status: plan. This doc defines the follow-up audit's scope, method, and
-> deliverables. Each phase ships as its own PR (CI + E2E green) so findings
-> are reviewable and independently mergeable.
+> Status: **Phases B, D, and A (cycle-break + dead-code) executed** on
+> `feat/arch-audit-bda` (merged). Remaining: C (performance), E (data model),
+> F (decomposition), and the deferred `state.ts` cluster extraction.
+> This doc defines the audit's scope, method, and per-phase deliverables.
 
 ## Goal
 

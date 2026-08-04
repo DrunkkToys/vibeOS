@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, renameSync, chmodSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -18,8 +18,23 @@ const ALPHA_BUILD_CHANNEL = String(process.env.VIBEOS_BUILD_CHANNEL || "alpha").
 const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
 const FALLBACK_COOLDOWN_MS = String(process.env.VIBEOS_FAST_CI || "").trim() === "1" ? 5_000 : 60_000
-const LATENCY_DEGRADE_THRESHOLD_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_MS || 0) || 0)
-const LATENCY_DEGRADE_COOLDOWN_MS = Math.max(0, Number(process.env.VIBEOS_REMOTE_LATENCY_DEGRADE_COOLDOWN_MS || 60_000) || 60_000)
+
+// ── Credential-file safety ───────────────────────────────────────────
+// Token files must be written atomically (tmp+rename) and tightened to 0600 so
+// the bootstrap credential isn't left world-readable or torn by a crash.
+function writeTokenFileAtomic(path: string, content: string): void {
+  const tmp = path + ".tmp." + process.pid + "." + Math.random().toString(36).slice(2, 8)
+  writeFileSync(tmp, content, { encoding: "utf8", mode: 0o600 })
+  renameSync(tmp, path)
+  try { chmodSync(path, 0o600) } catch {}
+}
+
+function secureTokenFileOnRead(path: string): void {
+  try {
+    const st = statSync(path)
+    if ((st.mode & 0o077) !== 0) chmodSync(path, 0o600)
+  } catch {}
+}
 
 type ApiClientOptions = {
   baseUrl?: string
@@ -113,7 +128,7 @@ function persistPrimaryApiEnvState(next: { token?: string | null }): void {
     const parentDir = _primaryApiEnvPath()
     if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true })
     const nextContent = envContent.trim() ? (envContent.endsWith("\n") ? envContent : envContent + "\n") : "\n"
-    writeFileSync(primaryPath, nextContent, "utf8")
+    writeTokenFileAtomic(primaryPath, nextContent)
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist API env state:", (diskErr as Error).message)
   }
@@ -560,6 +575,7 @@ function _bootstrapEnvPath(): string {
 
 function readPrimaryEnvFile(): string | null {
   try {
+    secureTokenFileOnRead(_primaryApiEnvPath() + "/.env.production")
     return readFileSync(_primaryApiEnvPath() + "/.env.production", "utf8")
   } catch {
     return null
@@ -590,10 +606,12 @@ function readBootstrapTokenFromDisk(): string {
     return ""
   }
   try {
-    const env = readFileSync(_bootstrapEnvPath(), "utf8")
+    const bootstrapPath = _bootstrapEnvPath()
+    secureTokenFileOnRead(bootstrapPath)
+    const env = readFileSync(bootstrapPath, "utf8")
     const m = env.match(/^VIBEOS_API_BOOTSTRAP_TOKEN=(.+)$/m)
     if (m && isValidBootstrapToken(m[1].trim())) {
-      _setApiPersistHome(dirname(_bootstrapEnvPath()))
+      _setApiPersistHome(dirname(bootstrapPath))
       return m[1].trim()
     }
   } catch {}
@@ -627,7 +645,7 @@ function persistBootstrapToken(token: string): void {
     const bootstrapPath = _bootstrapEnvPath()
     const parentDir = dirname(bootstrapPath)
     if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true })
-    writeFileSync(bootstrapPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}\n`, "utf8")
+    writeTokenFileAtomic(bootstrapPath, `VIBEOS_API_BOOTSTRAP_TOKEN=${clean}\n`)
   } catch (diskErr) {
     console.error("[vibeOS] Failed to persist alpha bootstrap token:", (diskErr as Error).message)
   }
@@ -711,20 +729,6 @@ function recordBackendVersion(payload: unknown): void {
   if (!payload || typeof payload !== "object") return
   const version = String((payload as { version?: unknown }).version || "").trim()
   if (version) _backendVersion = version
-}
-
-async function probeApiHealth(client: VibeOSApiClient): Promise<boolean> {
-  try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (client.apiToken) headers.Authorization = "Bearer " + client.apiToken
-    const res = await fetchWithTimeout(client.baseUrl + "/health", { method: "GET", headers }, client.timeout)
-    if (res.ok) {
-      return true
-    }
-    return false
-  } catch {
-    return false
-  }
 }
 
 export async function ensureBootstrapExchange(): Promise<boolean> {
@@ -894,10 +898,6 @@ export async function remoteCall(method, args, fallbackFn) {
     }
     return null
   }
-}
-
-export function isApiLatencyDegraded(): boolean {
-  return false
 }
 
 export function markApiFallbackState(): void {

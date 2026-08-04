@@ -466,7 +466,6 @@ function ensureCascadeAuditFiles() {
   }
 }
 ensureCascadeAuditFiles();
-var _globalHookQueue = Promise.resolve();
 function syncVibeOSPathBindings(home = resolveVibeOSHome()) {
   VIBEOS_HOME = home;
   OPENCODE_HOME = resolveOpenCodeHome2();

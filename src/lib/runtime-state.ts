@@ -31,13 +31,6 @@ export function setOcSessionId(sessionId: string): void {
   getRuntimeState().sessionId = String(sessionId || "")
 }
 
-export function markApiConnected(): void {
-  const state = getRuntimeState()
-  state.apiConnected = true
-  state.apiFallbackMode = false
-  state.apiFallbackSince = null
-}
-
 export function markApiDisconnected(): void {
   const state = getRuntimeState()
   state.apiConnected = false

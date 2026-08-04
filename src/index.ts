@@ -47,7 +47,8 @@ function ensureDeferredBootstrap() {
     return
   _deferredBootstrapDone = true
   try {
-    _runDeferredStartupBootstrap?.()
+    // The deferred startup bootstrap is intentionally inert (see below); the
+    // turn-level model switch happens via chat.params + subagent delegation.
   }
   catch { }
 }
@@ -488,7 +489,6 @@ let _context7Seen = new Set()
 let _prevOutputText = ""
 let _deferredBootstrapDone = false
 let _skillsEnsured = new Set()
-let _runDeferredStartupBootstrap = null
 const footerFallbackPainted = new Set()
 const _SAVE_EST = {
   WRITE_EDIT: 0.005,
@@ -1324,7 +1324,6 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return null
     }
   }
-  _runDeferredStartupBootstrap = () => { }
   // ── Plugin hooks ──────────────────────────────────────────────────
   // trinity tool dependency injection
   const _tiersData = (() => {

@@ -519,12 +519,3 @@ export function getLatestSessionHealthSnapshot(sessionId = getCurrentSessionId()
   } catch {}
   return null
 }
-
-export function detectMetaWorkDrift(input: {
-  sessionId?: string
-  projectFingerprint?: string
-  userText?: string
-  assistantText?: string
-} = {}): boolean {
-  return getSessionHealthSnapshot(input).metaWorkDrift
-}
