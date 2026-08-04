@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { resolveOpenCodeHome, resolveOpenCodeHomes } from "../../scripts/lib/opencode-homes.mjs"
 import { installVibeTierAgentsInConfig } from "../../scripts/lib/vibe-tier-agents.mjs"
 import { normalizeVibeOSPluginRefs, resolveVibeOSPluginRef } from "../../scripts/lib/plugin-config.mjs"
+import { clearVibeOSUninstalledMarker } from "../lib/runtime-config.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, "..")
@@ -40,6 +41,9 @@ if (!isInstallCommand || args.includes("--help") || args.includes("-h")) {
   console.error("       npx vibeostheog un                       # alias of uninstall")
   process.exit(1)
 }
+
+// Reinstall clears the uninstall marker so tier agents are registered again.
+clearVibeOSUninstalledMarker()
 
 writeLine()
 writeLine("vibeOS — cost-aware delegation enforcer for OpenCode")

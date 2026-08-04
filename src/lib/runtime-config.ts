@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
+import { homedir } from "node:os"
 import { safeJsonParse } from "./state.js"
 import { getOpenCodeHomes, getOpenCodeHome, getVibeOSHome } from "./runtime-paths.js"
 
@@ -209,9 +210,44 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
   return changed
 }
 
+export const VIBEOS_UNINSTALLED_MARKER = "vibeOS-uninstalled"
+
+// Stable marker locations that SURVIVE uninstall (uninstall deletes VIBEOS_HOME
+// state dirs, so the marker must live outside them). Written by scripts/uninstall.mjs,
+// removed by setup/deploy on reinstall.
+export function vibeOSUninstalledMarkerPaths(): string[] {
+  const override = process.env.VIBEOS_UNINSTALLED_MARKER_DIR?.trim()
+  if (override) return [join(override, VIBEOS_UNINSTALLED_MARKER)]
+  const home = homedir()
+  return [
+    join(home, ".opencode", VIBEOS_UNINSTALLED_MARKER),
+    join(home, ".config", "opencode", VIBEOS_UNINSTALLED_MARKER),
+  ]
+}
+
+export function isVibeOSUninstalled(): boolean {
+  try {
+    return vibeOSUninstalledMarkerPaths().some((p) => existsSync(p))
+  } catch {
+    return false
+  }
+}
+
+export function clearVibeOSUninstalledMarker(): void {
+  for (const p of vibeOSUninstalledMarkerPaths()) {
+    try {
+      if (existsSync(p)) rmSync(p, { force: true })
+    } catch {}
+  }
+}
+
 export function installVibeTierAgents(projectDir = "", trinity: TrinityConfig, activeSlot: string | null = null, options: { includeGlobalHomes?: boolean } = {}): { changed: string[]; checked: string[] } {
   const changed: string[] = []
   const checked: string[] = []
+  // Uninstall marker: once vibeOS is uninstalled, no running instance (including
+  // one that loaded the plugin before removal) may re-register tier agents into
+  // opencode.json. This is what keeps the machine clean after uninstall.
+  if (isVibeOSUninstalled()) return { changed, checked }
   for (const path of collectOpenCodeConfigPaths(projectDir, options)) {
     checked.push(path)
     const config = readOpenCodeConfig(path)
