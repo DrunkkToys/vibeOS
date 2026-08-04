@@ -223,6 +223,14 @@ const ctx = {
       return 0
     }
   },
+  readTiers: () => {
+    try {
+      const p = join(trial.home, "model-tiers.json")
+      return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {}
+    } catch {
+      return {}
+    }
+  },
   assert: (label, ok, detail) => asserts.push({ scenario: scenario, label, ok, detail: detail || "" }),
   step: async (prompt, opts = {}) => {
     const offline = opts.offline === true

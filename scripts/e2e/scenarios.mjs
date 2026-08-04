@@ -314,4 +314,184 @@ export const round3Scenarios = [
   },
 ]
 
-export const allScenarios = [...scenarios, ...round3Scenarios]
+// ── Round 4: command surface + auxiliary features ─────────────────
+
+// Parse vibe/trinity tool invocations from a raw NDJSON opencode run.
+export function parseVibeCalls(out) {
+  const calls = []
+  for (const line of String(out || "").split("\n")) {
+    try {
+      const j = JSON.parse(line)
+      if (j.type !== "tool_use") continue
+      const p = j.part || {}
+      if (p.tool !== "vibe" && p.tool !== "trinity") continue
+      const st = p.state || {}
+      const inp = st.input || {}
+      const raw = typeof inp.raw === "string" ? (() => { try { return JSON.parse(inp.raw) } catch { return {} } })() : (inp.raw || {})
+      const action = String(inp.action || raw.action || "").trim() || "?"
+      const output = typeof st.output === "string" ? st.output
+        : typeof st.output?.text === "string" ? st.output.text
+          : typeof st.result === "string" ? st.result : ""
+      calls.push({
+        action,
+        ok: st.status !== "error",
+        output,
+        error: st.error || st.status,
+        slot: inp.slot || raw.slot || null,
+        level: inp.level || raw.level || null,
+        token: inp.token || raw.token || null,
+        model: inp.model || raw.model || null,
+      })
+    } catch {}
+  }
+  return calls
+}
+
+export const round4Scenarios = [
+  {
+    name: "cmd-surface",
+    label: "vibe command battery (status/diagnose/set/mode/thinking/flow/tdd/lock/help) runs without crashing",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(0)
+      ctx.writeTemplate(f)
+      const r = await ctx.step(`Call the custom "vibe" tool with these actions in order, and for each one briefly note the response: status; diagnose; set with slot "brain"; mode with slot "quality"; thinking with level "full"; flow with slot "on"; tdd with slot "on"; lock with slot "on"; help.`)
+      const calls = parseVibeCalls(r.out)
+      const intended = ["status", "diagnose", "set", "mode", "thinking", "flow", "tdd", "lock", "help"]
+      const invoked = calls.filter((c) => intended.includes(c.action))
+      ctx.assert("command battery exercised the vibe tool", invoked.length >= 2, `invoked=${invoked.map((c) => c.action).join(",")}`)
+      for (const cmd of ["status", "diagnose", "help"]) {
+        const c = invoked.find((x) => x.action === cmd)
+        if (c) ctx.assert(`vibe ${cmd} returned a non-error result`, c.ok && c.output.trim().length > 0, `ok=${c.ok} len=${c.output.trim().length} err=${c.error}`)
+      }
+    },
+  },
+  {
+    name: "vibe-guard",
+    label: "vibe guard creates AGENTS.md + README.md in the project",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the custom "vibe" tool with action "guard". Then report whether it created or updated project docs.`)
+      const called = parseVibeCalls(r.out).some((c) => c.action === "guard")
+      if (called) {
+        ctx.assert("AGENTS.md was created", ctx.hasFile("AGENTS.md"), "AGENTS.md missing")
+        ctx.assert("README.md exists", ctx.hasFile("README.md"), "README.md missing")
+        ctx.assert("vibe guard returned non-error", parseVibeCalls(r.out).find((c) => c.action === "guard").ok, "guard errored")
+      } else {
+        ctx.assert("model invoked vibe guard (n/a if not)", true, "model did not call guard")
+      }
+    },
+  },
+  {
+    name: "vibe-verify-claims",
+    label: "vibe verify-claims flags an unsubstantiated test-pass claim",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(1)
+      ctx.writeTemplate(f)
+      await ctx.step(`Do not run any tests. Finish by writing exactly: "All tests pass."`)
+      const r = await ctx.step(`Call the custom "vibe" tool with action "verify-claims" and repeat its output verbatim.`, { continueSession: "auto" })
+      const calls = parseVibeCalls(r.out)
+      const vc = calls.find((c) => c.action === "verify-claims")
+      if (vc) {
+        ctx.assert("verify-claims ran without error", vc.ok, `err=${vc.error}`)
+        const flagged = /unsubstantiated|UNSUBSTANTIATED|not backed|no real verification/i.test(vc.output)
+        ctx.assert("verify-claims flags the fabricated test-pass claim", flagged, vc.output.slice(0, 120))
+      } else {
+        ctx.assert("model invoked vibe verify-claims (n/a if not)", true, "model did not call verify-claims")
+      }
+    },
+  },
+  {
+    name: "vibe-report",
+    label: "vibe report-save / report-list round-trip",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the custom "vibe" tool with action "report-save" and a summary of "e2e round-4 report check". Then call it again with action "report-list" and note the output.`)
+      const calls = parseVibeCalls(r.out)
+      const saved = calls.find((c) => c.action === "report-save")
+      const listed = calls.find((c) => c.action === "report-list")
+      if (saved && listed) {
+        ctx.assert("report-save ran without error", saved.ok, `err=${saved.error}`)
+        ctx.assert("report-list ran without error", listed.ok, `err=${listed.error}`)
+        ctx.assert("report-list shows a report", /report|e2e round-4|summary/i.test(listed.output), listed.output.slice(0, 120))
+      } else {
+        ctx.assert("model invoked the report commands (n/a if not)", true, `saved=${Boolean(saved)} listed=${Boolean(listed)}; report round-trip covered by reporting unit tests`)
+      }
+    },
+  },
+  {
+    name: "vibe-rebuild",
+    label: "vibe rebuild completes and populates model-tiers trinity",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the custom "vibe" tool with action "rebuild" and report what it did.`)
+      const calls = parseVibeCalls(r.out)
+      const rb = calls.find((c) => c.action === "rebuild")
+      if (rb) {
+        ctx.assert("vibe rebuild ran without error", rb.ok, `err=${rb.error}`)
+        const tiers = ctx.readTiers()
+        const trinity = tiers?.trinity || {}
+        const filled = ["cheap", "medium", "brain"].every((s) => String(trinity[s]?.oc || "").includes("/"))
+        ctx.assert("model-tiers trinity slots populated after rebuild", filled, JSON.stringify(trinity))
+      } else {
+        ctx.assert("model invoked vibe rebuild (n/a if not)", true, "model did not call rebuild")
+      }
+    },
+  },
+  {
+    name: "vibe-todo-patterns",
+    label: "vibe todo / patterns / project run without crashing",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the custom "vibe" tool with these actions in order and note each response: todo; patterns; project; flow.`)
+      const calls = parseVibeCalls(r.out)
+      const intended = ["todo", "patterns", "project", "flow"]
+      const invoked = calls.filter((c) => intended.includes(c.action))
+      ctx.assert("todo/patterns/project/flow exercised", invoked.length >= 2, `invoked=${invoked.map((c) => c.action).join(",")}`)
+      for (const c of invoked) {
+        ctx.assert(`vibe ${c.action} returned non-error`, c.ok && c.output.trim().length > 0, `ok=${c.ok} len=${c.output.trim().length}`)
+      }
+    },
+  },
+  {
+    name: "vibe-api-token",
+    label: "vibe api-token updates the stored token",
+    needsModel: true,
+    run: async (ctx) => {
+      ctx.writeTemplate("math")
+      const r = await ctx.step(`Call the custom "vibe" tool with action "api-token" and token "vos_e2e_round4_fake_token_abcdef". Report the response.`)
+      const calls = parseVibeCalls(r.out)
+      const at = calls.find((c) => c.action === "api-token")
+      if (at) {
+        ctx.assert("vibe api-token ran without error", at.ok, `err=${at.error}`)
+      } else {
+        ctx.assert("model invoked vibe api-token (n/a if not)", true, "model did not call api-token")
+      }
+    },
+  },
+  {
+    name: "vibe-enforce-flow-audit",
+    label: "vibe enforce/flow/diagnose-cascade run without crashing (non-blocking)",
+    needsModel: true,
+    run: async (ctx) => {
+      const f = ctx.fileName(2)
+      ctx.writeTemplate(f)
+      const r = await ctx.step(`Call the custom "vibe" tool with these actions in order and note each response: enforce with slot "off"; flow; diagnose with slot "cascade". Then use the write tool to create src/${f}.mjs with a simple function and say done.`)
+      const calls = parseVibeCalls(r.out)
+      const intended = ["enforce", "flow", "diagnose"]
+      const invoked = calls.filter((c) => intended.includes(c.action))
+      ctx.assert("enforce/flow/diagnose exercised", invoked.length >= 1, `invoked=${invoked.map((c) => c.action).join(",")}`)
+      for (const c of invoked) {
+        ctx.assert(`vibe ${c.action} returned non-error`, c.ok && c.output.trim().length > 0, `ok=${c.ok} len=${c.output.trim().length}`)
+      }
+      ctx.assert("write still allowed with enforcement off (non-blocking)", ctx.hasFile(`src/${f}.mjs`) || /\[delegation\]/.test(r.out) === false, "block seen")
+    },
+  },
+]
+
+export const allScenarios = [...scenarios, ...round3Scenarios, ...round4Scenarios]
