@@ -109,7 +109,31 @@ function isVerificationEvent(ev: GateEvent): boolean {
 
 function isMutationTool(ev: GateEvent | RecentTool): boolean {
   const t = String(ev.tool || "").toLowerCase()
-  return t === "write" || t === "edit" || t === "notebookedit"
+  if (t === "write" || t === "edit" || t === "notebookedit") return true
+  if (t === "bash") return bashWriteTargets(String((ev as RecentTool).target || "")).length > 0
+  return false
+}
+
+// Extract file paths written by a bash command (echo/cat/printf/tee redirects,
+// sed -i in-place edits). Lets the gate catch models that mutate source via
+// bash instead of the write/edit tools — a common shortcut.
+function bashWriteTargets(command: string): string[] {
+  const cmd = String(command || "")
+  const targets: string[] = []
+  const re = /(?:>>|>|\btee(?:\s+-a)?\s+|\bsed\s+-i\b[^\n;]*\s+)\s*["']?([^\s"'`<>|;&]+)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(cmd))) {
+    const p = String(m[1] || "").trim()
+    if (p && !p.startsWith("-")) targets.push(p)
+  }
+  return targets
+}
+
+function mutationTarget(ev: RecentTool): string {
+  const t = String(ev.tool || "").toLowerCase()
+  if (t === "write" || t === "edit" || t === "notebookedit") return String(ev.target || "")
+  if (t === "bash") return bashWriteTargets(String(ev.target || ""))[0] || ""
+  return ""
 }
 
 function isSourceTarget(target: string): boolean {
@@ -145,8 +169,8 @@ export function runQualityGate(input: {
   const testVerification = verifications.some(
     (v) => v.exitCode === 0 && TEST_RUN_RE.test(v.family || v.tool || ""),
   )
-  const touchedSource = recentMutations.some((m) => isSourceTarget(String(m.target || "")))
-  const touchedTest = recentMutations.some((m) => isTestTarget(String(m.target || "")))
+  const touchedSource = recentMutations.some((m) => isSourceTarget(mutationTarget(m)))
+  const touchedTest = recentMutations.some((m) => isTestTarget(mutationTarget(m)))
 
   // flow classification
   const stateClaims = claims.filter((c) => c.kind === "state" || c.kind === "numeric" || c.kind === "exit")

@@ -14,7 +14,7 @@ import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, copyFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { scenarios, TIER_MODELS } from "./scenarios.mjs"
+import { allScenarios, TIER_MODELS } from "./scenarios.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const BUNDLE = join(ROOT, "dist", "vibeOS.js")
@@ -39,7 +39,7 @@ const TIMEOUT_MS = Number(flag("--timeout", "150000"))
 
 if (has("--list")) {
   console.log("E2E scenarios:")
-  for (const s of scenarios) console.log(`  ${s.name.padEnd(24)} ${s.label}`)
+  for (const s of allScenarios) console.log(`  ${s.name.padEnd(24)} ${s.label}`)
   process.exit(0)
 }
 if (!MODEL) {
@@ -208,6 +208,21 @@ const ctx = {
   readOutcomes: () => { const p = join(OUT, "mockdata", "outcomes.jsonl"); return existsSync(p) ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : [] },
   writePluginRepo: () => writePluginRepo(),
   seedSelection: (overrides) => seedSelection(overrides),
+  readVerifiedSavings: () => {
+    try {
+      const p = join(trial.home, "delegation-state.json")
+      if (!existsSync(p)) return 0
+      const state = JSON.parse(readFileSync(p, "utf8"))
+      const sessions = state?.sessions && typeof state.sessions === "object" ? state.sessions : {}
+      let total = 0
+      for (const sid of Object.keys(sessions)) {
+        total += Number(sessions[sid]?.verified_savings_usd || 0)
+      }
+      return Math.round(total * 10000) / 10000
+    } catch {
+      return 0
+    }
+  },
   assert: (label, ok, detail) => asserts.push({ scenario: scenario, label, ok, detail: detail || "" }),
   step: async (prompt, opts = {}) => {
     const offline = opts.offline === true
@@ -226,6 +241,7 @@ const ctx = {
       VIBEOS_MCP_PORT: "0",
       VIBEOS_QUALITY_GATE: "1",
       OPENCODE_DISABLE_AUTOUPDATE: "1",
+      ...(opts.env || {}),
     }
     const mockBefore = mockCount()
     const stepId = `${trial.name}-${(trial.sessionId || "t0")}`
@@ -272,7 +288,7 @@ const ctx = {
 // ── run ──
 async function main() {
   startMock()
-  const runSet = ONLY ? scenarios.filter((s) => s.name === ONLY) : scenarios
+  const runSet = ONLY ? allScenarios.filter((s) => s.name === ONLY) : allScenarios
   console.log(`\n[vibeOS E2E round 2] seed=${SEED} model=${MODEL} K=${K} out=${OUT}`)
   let totalFail = 0
   for (const s of runSet) {
