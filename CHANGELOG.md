@@ -1,23 +1,30 @@
-## Unreleased
-- test: E2E round 8 — `full-workflow-live` scenario (5 live prompts across fresh sessions: research → code-edit → gate → status → code-fix → diagnose; proves gate/coherence/state-safety/CLI surface in one workflow)
-- chore: `npm run build:dist` script to emit dist-ts for loader-based tests; AGENTS.md workflow rule added
-- docs: docs/ARCHITECTURE_AUDIT_PLAN.md status — Phases B/D/A/C done, E/F remaining
-- perf: footer hot path debounced to ~1/sec per directory (was re-running 18-22 sync fs ops + sqlite evidence per streamed chunk); footer no longer runs evaluateClaimEvidence twice per paint (reuses the session-health snapshot's copy)
-- docs: docs/ARCHITECTURE_AUDIT_PLAN.md status — Phases B/D/A done, C done, E/F remaining
-- security: token/env files written atomically with 0600 perms; world-readable legacy token files tightened to 0600 on read (bootstrap token stays embedded/valid per design)
-- fix: [vibeOS] console errors are no longer silently dropped — they persist to session-events as footer-error events so a swallowed failure is diagnosable; updateState retry-exhaustion always logs; ledger flush re-queues lines on failure instead of dropping them
-- feat: `vibe diagnose` now surfaces token-file perms, the corruption log, and drift alerts (previously write-only)
-- refactor: break the only cross-layer import cycle cascade <-> blackbox/vibemax (autoSelectMode moved to pure vibeOS-lib/mode-select); remove confirmed-dead code (lie-detector module, setFlowStateWriter, trackUserCorrection + learned-rule promotion, resolveRestorableOpenCodeAgent, updateOpenCodeConfig, probeApiHealth, isApiLatencyDegraded, markApiConnected/markApiFallbackState, hasCompletionClaims, detectMetaWorkDrift, runWithGlobalHookLock, getBlackboxEnabled, cascade no-op stubs, _runDeferredStartupBootstrap stub)
-- docs: docs/ARCHITECTURE_AUDIT_PLAN.md — six-phase architectural audit (layering/coupling, reliability, performance, security, data model, decomposition) with preliminary size/cycle/silent-swallow findings
-- audit: docs/INTEGRATION_AUDIT.md — subsystem/mutation matrix, verified interference findings, minimal-composition spec
-- fix: concurrent state writers — blackbox-state.json, model-tiers.json, delegation-state.json (flow warns), savings-ledger.jsonl, session-events/<sid>.jsonl, orch-*.json all now write via the shared lock/atomic paths (no more unlocked whole-file or non-atomic writes)
-- fix: gate note no longer lands after the footer (would break the footer strip → footer+gate+footer); gate runs before the footer
-- fix: exactly one thinking directive per prompt (manual pin wins) and one loop-prevention directive (severity-tagged wins) instead of contradictory/redundant stacks
+## 0.27.4
+
+### Architecture audit (Phases B/D/A/C)
+- fix: concurrent state writers — `blackbox-state.json`, `model-tiers.json`, `delegation-state.json` (flow warns), `savings-ledger.jsonl`, `session-events/<sid>.jsonl`, `orch-*.json` all now write via the shared lock/atomic paths (no more unlocked whole-file or non-atomic writes)
+- fix: gate note no longer lands after the footer (footer+gate+footer corruption); gate runs before the footer
+- fix: exactly one thinking directive per prompt (manual pin wins) and one loop-prevention directive (severity-tagged wins)
 - fix: control vector computed once per turn (turn-scoped CV cache) instead of twice with divergent results
-- fix: API-fallback vibelitex pin is authoritative while in fallback; backend resolved_tier governs otherwise (no same-turn slot yank)
-- test: E2E round 7 — all-systems-on integration scenarios (no state corruption, no footer/gate breakage, parseable JSON, no tmp litter)
-- feat: TDD gate is OFF by default and auto-ONs the moment a session switches to coding; `vibe gate tdd on|off|auto` persists the choice, `VIBEOS_GATE_TDD=on|off` overrides it, and the always-on rules (fake "tests pass", unverified non-code claims) still catch cheating
-- test: E2E round 6 — TDD gate toggle scenarios (research turn silent, coding turn auto-ON, explicit off/on, `vibe gate tdd` command surface)
+- fix: API-fallback `vibelitex` pin is authoritative while in fallback; backend `resolved_tier` governs otherwise
+- fix: `[vibeOS]` console errors persist to session-events (footer-error events) instead of being silently dropped; `updateState` retry-exhaustion always logs; ledger flush re-queues lines on failure
+- refactor: break the only cross-layer import cycle `cascade <-> blackbox/vibemax` (`autoSelectMode` moved to pure `vibeOS-lib/mode-select.ts`); remove confirmed-dead code (`lie-detector`, `setFlowStateWriter`, `trackUserCorrection` + learned-rule promotion, `resolveRestorableOpenCodeAgent`, `updateOpenCodeConfig`, `probeApiHealth`, `isApiLatencyDegraded`, `markApiConnected`, `hasCompletionClaims`, `detectMetaWorkDrift`, `runWithGlobalHookLock`, `getBlackboxEnabled`, cascade no-op stubs, `_runDeferredStartupBootstrap` stub)
+- security: token/env files written atomically with `0600` perms; world-readable legacy token files tightened to `0600` on read
+- perf: footer hot path debounced to ~1/sec per directory (was re-running 18–22 sync fs ops + sqlite evidence per streamed chunk); no longer runs `evaluateClaimEvidence` twice per paint
+
+### CLI / features
+- feat: `vibe diagnose` now surfaces token-file perms, the corruption log, and drift alerts (were write-only)
+- feat: TDD gate is OFF by default and auto-ONs the moment a session switches to coding; `vibe gate tdd on|off|auto` persists the choice
+
+### Tests
+- test: E2E round 6 — TDD gate toggle scenarios (research silent, coding auto-ON, explicit off/on, `vibe gate tdd` surface)
+- test: E2E round 7 — all-systems-on integration scenarios (state-safety, footer/gate coherence, parseable JSON, no tmp litter)
+- test: E2E round 8 — `full-workflow-live` scenario (5 live prompts across fresh sessions: research → code-edit → gate → status → code-fix → diagnose)
+- test: impact harness — measures what the plugin does to output (baseline vs plugin-on latency, code-written-on-disk, test-exit-code, cascade coherence); initial run: +57% latency overhead, 6/6 code-written, 0 hallucinations
+- chore: `npm run build:dist` script + AGENTS.md workflow rule for stale dist-ts prevention
+
+### Docs
+- audit: `docs/INTEGRATION_AUDIT.md` — subsystem/mutation matrix, verified interference findings, minimal-composition spec
+- docs: `docs/ARCHITECTURE_AUDIT_PLAN.md` — six-phase architectural audit plan (Phases B/D/A/C executed, E/F remaining)
 
 ## 0.27.3
 - feat: deterministic quality gate — completion claims must be backed by real tool evidence; non-blocking enforcement (#504)
