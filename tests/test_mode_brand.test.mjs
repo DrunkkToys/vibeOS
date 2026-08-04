@@ -44,10 +44,10 @@ test("mode router default is VibeUltraX", async () => {
 
 before(() => {
   sandbox = mkdtempSync(join(tmpdir(), "mode-brand-test-"));
-  mkdirSync(join(sandbox, ".claude", "scratch"), { recursive: true });
+  mkdirSync(join(sandbox, ".vibeos", "scratch"), { recursive: true });
   mkdirSync(join(sandbox, "my-project"), { recursive: true });
 
-  writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
+  writeFileSync(join(sandbox, ".vibeos", "model-tiers.json"), JSON.stringify({
     trinity: {
       brain: { oc: "deepseek/deepseek-v4-pro", cc: "deepseek-v4-pro" },
       medium: { oc: "deepseek/deepseek-v4-flash", cc: "deepseek-v4-flash" },
@@ -56,7 +56,7 @@ before(() => {
     selection: { enabled: true, active_slot: "medium" },
   }, null, 2));
 
-  writeFileSync(join(sandbox, ".claude", "delegation-state.json"), JSON.stringify({
+  writeFileSync(join(sandbox, ".vibeos", "delegation-state.json"), JSON.stringify({
     sessions: {},
     lifetime: { total_savings_usd: 0, cache_savings_usd: 0, missed_context7_usd: 0 },
     session_started_at: new Date().toISOString(),
@@ -83,7 +83,7 @@ for (const modeId of Object.keys(BRAND_EXPECTATIONS)) {
     const { getOC_SID } = await import("../src/lib/turn-classify.js?t=" + Date.now());
     const sid = getOC_SID();
 
-    writeFileSync(join(sandbox, ".claude", "blackbox-state.json"), JSON.stringify({
+    writeFileSync(join(sandbox, ".vibeos", "blackbox-state.json"), JSON.stringify({
       sessions: {
         [sid]: { optimization_mode: modeId },
       },

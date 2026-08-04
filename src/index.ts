@@ -1106,7 +1106,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   _mcpProjectDirectory = directory || ""
   const hookHome = process.env.HOME || USER_HOME
   const hookFp = projectFingerprint(directory || "")
-  const resolvedVibeOSHome = process.env.VIBEOS_HOME || join(hookHome, ".claude")
+  const resolvedVibeOSHome = process.env.VIBEOS_HOME || join(hookHome, ".vibeos")
   const lastVibeOSHome = getRuntimeVibeOSHome()
   const existingSessionId = _OC_SID
   const shouldReuseSessionId = lastVibeOSHome === resolvedVibeOSHome && existingSessionId && existingSessionId.startsWith("opencode-") && existsSync(join(resolvedVibeOSHome, "delegation-state.json"))

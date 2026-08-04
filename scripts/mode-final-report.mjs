@@ -3,7 +3,7 @@ import { readFileSync, appendFileSync } from "fs";
 import { join } from "path";
 const HOME = process.env.HOME;
 
-const benchLog = readFileSync(join(HOME, ".claude", "experiment-benchmark.jsonl"), "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l));
+const benchLog = readFileSync(join(HOME, ".vibeos", "experiment-benchmark.jsonl"), "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l));
 const modeBench = benchLog.filter(r => r.event === "mode-benchmark" && !r.error);
 const tokenBench = benchLog.filter(r => r.event === "benchmark-token-latency" && !r.error);
 
@@ -171,6 +171,6 @@ const report = {
     "Auto-record mode usage data to populate calibration for all modes"
   ]
 };
-const rf = join(HOME, ".claude", "reports", "mode-benchmark-final-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
+const rf = join(HOME, ".vibeos", "reports", "mode-benchmark-final-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
 appendFileSync(rf, JSON.stringify(report, null, 2) + "\n");
 console.log("Full report: " + rf);

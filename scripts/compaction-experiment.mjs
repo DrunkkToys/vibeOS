@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync } from "fs";
 import { join } from "path";
 const HOME = process.env.HOME;
-const BENCH_LOG = join(HOME, ".claude", "experiment-benchmark.jsonl");
+const BENCH_LOG = join(HOME, ".vibeos", "experiment-benchmark.jsonl");
 const API_KEY = process.env.DEEPSEEK_API_KEY;
 if (!API_KEY) { console.error("DEEPSEEK_API_KEY required"); process.exit(1); }
 
@@ -187,7 +187,7 @@ async function run() {
   }
 
   // Save full report
-  const rf = join(HOME, ".claude", "reports", "compaction-exp-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
+  const rf = join(HOME, ".vibeos", "reports", "compaction-exp-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
   const report = {
     meta: { generated_at: new Date().toISOString(), type: "compaction-experiment", turns: TURNS.length, compact_at_turn: COMPACT_TURN },
     hypothesis: "Compaction at turn 7 prevents the 55% quality drop at turns 9-11",

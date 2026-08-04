@@ -40,7 +40,7 @@ function writeJson(path, value) {
 }
 
 function readTiers(home = homedir()) {
-  return readJson(join(process.env.VIBEOS_HOME || join(home, ".claude"), "model-tiers.json"))
+  return readJson(join(process.env.VIBEOS_HOME || join(home, ".vibeos"), "model-tiers.json"))
 }
 
 function primaryAgent(existing = {}) {

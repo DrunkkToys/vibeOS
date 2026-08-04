@@ -11,8 +11,8 @@ import { fileURLToPath } from "node:url"
 const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(__dirname, "..")
-const RESULTS_LOG = join(HOME, ".claude", "experiment-v5-results.jsonl")
-const REPORT_DIR = join(HOME, ".claude", "reports")
+const RESULTS_LOG = join(HOME, ".vibeos", "experiment-v5-results.jsonl")
+const REPORT_DIR = join(HOME, ".vibeos", "reports")
 const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z"
 
 const API_KEY = process.env.DEEPSEEK_API_KEY
@@ -194,7 +194,7 @@ async function main() {
   // Load v3 data (mode directives)
   const v3Data = []
   try {
-    const lines = readFileSync(join(HOME,".claude","experiment-v3-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean)
+    const lines = readFileSync(join(HOME,".vibeos","experiment-v3-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean)
     for (const l of lines) {
       const r = JSON.parse(l)
       if (r.ok !== false && r.combined) v3Data.push({

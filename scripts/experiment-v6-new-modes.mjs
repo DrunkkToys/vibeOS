@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url"
 
 const HOME = homedir(), __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(__dirname, "..")
-const LOG = join(HOME, ".claude", "experiment-v6-results.jsonl")
-const RPT = join(HOME, ".claude", "reports")
+const LOG = join(HOME, ".vibeos", "experiment-v6-results.jsonl")
+const RPT = join(HOME, ".vibeos", "reports")
 const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z"
 const API_KEY = process.env.DEEPSEEK_API_KEY
 if (!API_KEY) { console.error("FATAL: DEEPSEEK_API_KEY not set"); process.exit(1) }
@@ -180,11 +180,11 @@ async function main() {
   // Merge v3+v5+v6
   let all=[...ok]
   try{
-    const v3=readFileSync(join(HOME,".claude","experiment-v3-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l))
+    const v3=readFileSync(join(HOME,".vibeos","experiment-v3-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l))
     all.push(...v3.filter(r=>r.ok!==false&&r.combined).map(r=>({variant:r.variant,scenario:r.scenario,domain:r.domain,combined:r.combined,ev:r.evidenceDepth||0,hy:r.hypothesisCoverage||0,un:r.uncertaintyDisc||0,th:r.thoroughness||0,tok:(r.tokensIn||0)+(r.tokensOut||0)})))
   }catch{}
   try{
-    const v5=readFileSync(join(HOME,".claude","experiment-v5-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l))
+    const v5=readFileSync(join(HOME,".vibeos","experiment-v5-results.jsonl"),"utf-8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l))
     all.push(...v5.filter(r=>r.ok!==false&&r.combined).map(r=>({variant:r.variant,scenario:r.scenario,domain:r.domain,combined:r.combined,ev:r.ev||0,hy:r.hyp||0,un:r.unc||0,th:r.tho||0,tok:r.tok||0})))
   }catch{}
 

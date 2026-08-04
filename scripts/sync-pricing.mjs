@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 //
 // sync-pricing.mjs — fetch current per-token pricing from OpenRouter
-// and write the merged cache to ~/.claude/model-pricing-cache.json.
+// and write the merged cache to ~/.vibeos/model-pricing-cache.json.
 //
 // Run before every release to ensure the plugin has fresh fallback data.
 // Also updates the hardcoded MODEL_USD_PER_TURN entries in src/index.ts
@@ -15,7 +15,7 @@ import { homedir } from "node:os"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
-const CACHE_PATH = join(homedir(), ".claude", "model-pricing-cache.json")
+const CACHE_PATH = join(homedir(), ".vibeos", "model-pricing-cache.json")
 const INDEX_PATH = join(ROOT, "src", "index.ts")
 
 const TURN_INPUT = 700

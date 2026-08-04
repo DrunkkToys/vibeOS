@@ -49,8 +49,8 @@ const FILES = ["math"]
 function setupProject(dir, withPlugin = true) {
   mkdirSync(join(dir, "src"), { recursive: true })
   mkdirSync(join(dir, "tests"), { recursive: true })
-  mkdirSync(join(dir, ".claude", "quality-gate"), { recursive: true })
-  mkdirSync(join(dir, ".claude", "session-events"), { recursive: true })
+  mkdirSync(join(dir, ".vibeos", "quality-gate"), { recursive: true })
+  mkdirSync(join(dir, ".vibeos", "session-events"), { recursive: true })
   writeFileSync(join(dir, "src/math.mjs"), "export function add(a, b) {\n  return a + b\n}\n")
   writeFileSync(join(dir, "tests/math.test.mjs"), 'import test from "node:test"\nimport assert from "node:assert/strict"\nimport { add } from "../src/math.mjs"\ntest("add", () => assert.equal(add(2, 3), 5))\n')
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "impact-proj", type: "module", scripts: { test: "node --test tests/" } }, null, 2))
@@ -77,7 +77,7 @@ function runPrompt(projectDir, prompt, env = {}) {
       maxBuffer: 64 * 1024 * 1024,
       env: {
         ...process.env,
-        VIBEOS_HOME: join(projectDir, ".claude"),
+        VIBEOS_HOME: join(projectDir, ".vibeos"),
         VIBEOS_API_URL: BASE_URL,
         VIBEOS_API_TOKEN: "vos_" + "a".repeat(64),
         VIBEOS_MCP_PORT: "0",

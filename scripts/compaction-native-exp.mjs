@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from "fs";
 import { join } from "path";
 const HOME = process.env.HOME;
-const BENCH_LOG = join(HOME, ".claude", "experiment-benchmark.jsonl");
+const BENCH_LOG = join(HOME, ".vibeos", "experiment-benchmark.jsonl");
 const API_KEY = process.env.DEEPSEEK_API_KEY;
 if (!API_KEY) { console.error("DEEPSEEK_API_KEY required"); process.exit(1); }
 
@@ -199,7 +199,7 @@ async function run() {
   }
 
   // Save
-  const rf = join(HOME, ".claude", "reports", "compaction-native-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
+  const rf = join(HOME, ".vibeos", "reports", "compaction-native-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json");
   writeFileSync(rf, JSON.stringify({
     meta: { generated_at: new Date().toISOString(), type: "compaction-native-exp" },
     results: all.map(r => ({ tier: r.tier, degradation: r.degradation, first3: r.avgF3, last2: r.avgL2, cost: r.totalCost })),

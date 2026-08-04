@@ -127,7 +127,7 @@ try {
     try {
       const { execSync } = await import("node:child_process")
       const CRON_MARKER = "# vibeOS nightly pricing sync"
-      const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".claude")
+      const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".vibeos")
       const CRON_LINE = "0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(cronLogDir, "pricing-sync-cron.log") + " 2>&1"
       let currentCrontab = ""
       try { currentCrontab = execSync("crontab -l 2>/dev/null || true", { encoding: "utf8" }) } catch (e) { /* no crontab yet */ }
@@ -141,7 +141,7 @@ try {
       if (process.platform === "darwin") {
         process.stderr.write("[vibeOS deploy]   macOS: grant Full Disk Access in System Settings > Privacy > Full Disk Access, then re-run deploy.\n")
       } else {
-        const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".claude")
+        const cronLogDir = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".vibeos")
         process.stderr.write("[vibeOS deploy]   Linux: crontab -e and add '0 0 * * * " + join(ROOT, "scripts", "nightly-experiment-cron.sh") + " >> " + join(cronLogDir, "pricing-sync-cron.log") + " 2>&1'\n")
       }
       process.stderr.write("[vibeOS deploy]   24h pricing sync is recommended to keep model cost data current.\n")

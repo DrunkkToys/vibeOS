@@ -17,8 +17,8 @@ const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(__dirname, "..")
 const SCENARIOS_PATH = resolve(PROJECT, "src", "vibeOS-lib", "tests", "experiment-scenarios.json")
-const RESULTS_LOG = join(HOME, ".claude", "experiment-forensic-results.jsonl")
-const REPORT_DIR = join(HOME, ".claude", "reports")
+const RESULTS_LOG = join(HOME, ".vibeos", "experiment-forensic-results.jsonl")
+const REPORT_DIR = join(HOME, ".vibeos", "reports")
 const REPORT_PATH = join(REPORT_DIR, "experiment-forensic-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z.json")
 
 const API_KEY = process.env.DEEPSEEK_API_KEY

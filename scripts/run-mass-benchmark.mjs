@@ -2,8 +2,8 @@
 import { appendFileSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 const HOME = process.env.HOME;
-const BENCH_LOG = join(HOME, ".claude", "experiment-benchmark.jsonl");
-const REPORT_DIR = join(HOME, ".claude", "reports");
+const BENCH_LOG = join(HOME, ".vibeos", "experiment-benchmark.jsonl");
+const REPORT_DIR = join(HOME, ".vibeos", "reports");
 const API_KEY = process.env.DEEPSEEK_API_KEY;
 if (!API_KEY) { console.error("DEEPSEEK_API_KEY required"); process.exit(1); }
 const TIERS = [

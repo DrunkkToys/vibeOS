@@ -3,8 +3,8 @@ import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { homedir } from "node:os"
 
-const STATE_FILE = join(homedir(), ".claude", "delegation-state.json")
-const LEDGER_FILE = join(homedir(), ".claude", "savings-ledger.jsonl")
+const STATE_FILE = join(homedir(), ".vibeos", "delegation-state.json")
+const LEDGER_FILE = join(homedir(), ".vibeos", "savings-ledger.jsonl")
 
 function readLedger() {
   if (!existsSync(LEDGER_FILE)) return { delegation: 0, cache: 0, quality: 0, entries: 0 }
