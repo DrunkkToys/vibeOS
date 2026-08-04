@@ -1,8 +1,8 @@
 # Architectural Audit — Plan
 
-> Status: **Phases B, D, and A (cycle-break + dead-code) executed** on
-> `feat/arch-audit-bda` (merged). Remaining: C (performance), E (data model),
-> F (decomposition), and the deferred `state.ts` cluster extraction.
+> Status: **Phases B, D, A (cycle-break + dead-code), and C (footer hot-path
+> debounce) executed** on `feat/arch-audit-c` (merged). Remaining: E (data
+> model), F (decomposition), and the deferred `state.ts` cluster extraction.
 > This doc defines the audit's scope, method, and per-phase deliverables.
 
 ## Goal

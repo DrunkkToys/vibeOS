@@ -2459,6 +2459,19 @@ function readLedgerTotals(): { delegation: number, cache: number, context7: numb
   }
 }
 
+// Cheap probe for the footer's display debounce: lets a cached footer skip its
+// expensive state resolution UNLESS the savings ledger actually changed (the
+// same mtime+size gate reconcileStateFromLedger uses), so new savings entries
+// are never hidden for the debounce window.
+export function ledgerStatNow(): { mtime: number; size: number } {
+  try {
+    const st = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE) : null
+    return { mtime: st?.mtimeMs || 0, size: st?.size || 0 }
+  } catch {
+    return { mtime: 0, size: 0 }
+  }
+}
+
 function reconcileStateFromLedger(): void {
   try {
     const ledgerStat = existsSync(SAVINGS_LEDGER_FILE) ? statSync(SAVINGS_LEDGER_FILE) : null
