@@ -1,4 +1,5 @@
 ## Unreleased
+- docs: docs/ARCHITECTURE_AUDIT_PLAN.md — six-phase architectural audit (layering/coupling, reliability, performance, security, data model, decomposition) with preliminary size/cycle/silent-swallow findings
 - audit: docs/INTEGRATION_AUDIT.md — subsystem/mutation matrix, verified interference findings, minimal-composition spec
 - fix: concurrent state writers — blackbox-state.json, model-tiers.json, delegation-state.json (flow warns), savings-ledger.jsonl, session-events/<sid>.jsonl, orch-*.json all now write via the shared lock/atomic paths (no more unlocked whole-file or non-atomic writes)
 - fix: gate note no longer lands after the footer (would break the footer strip → footer+gate+footer); gate runs before the footer
