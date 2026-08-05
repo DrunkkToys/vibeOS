@@ -691,12 +691,14 @@ export function invalidateApiToken() {
 // keep the bootstrap token intact so the next call can naturally re-exchange
 // for a fresh one -- unlike invalidateApiToken(), this is not a permanent
 // disable and does not set _tokenInvalidated.
+// NOTE: do NOT reset _apiFallbackMode here. The rejecting call already set it
+// (remoteCall catch) so the footer hides the flash icon for this failed turn;
+// the flag clears naturally on the next successful call (remoteCall line ~880).
 export function clearRejectedToken(): void {
   VIBEOS_API_TOKEN = ""
   delete process.env.VIBEOS_API_TOKEN
   _apiClientGen++
   _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
-  _apiFallbackMode = false
   persistPrimaryApiEnvState({ token: "" })
   console.warn("[vibeOS] Rejected API token cleared; will retry bootstrap exchange")
 }

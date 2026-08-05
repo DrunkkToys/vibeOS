@@ -997,7 +997,17 @@ test("cascade: cooldown health probe 401 self-heals instead of sticking in fallb
 
     const result = await freshApiClient.remoteCall("health", [], () => ({ local: true }))
     assert.equal(result.local, true, "fallback invoked for this call since the rejected token just failed")
-    assert.equal(freshApiClient.isApiFallback(), false, "a rejected token self-heals (clearRejectedToken) instead of leaving the plugin stuck in fallback forever")
+    assert.equal(freshApiClient.isApiFallback(), true, "the failed 401 call keeps the plugin in fallback (flash icon hidden) for this turn")
+    assert.equal(freshApiClient.isApiConnected(), false, "flash icon hidden on 401")
+
+    // Self-heal: a subsequent SUCCESSFUL bootstrap exchange clears fallback.
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ api_token: "vos_" + "c".repeat(64), ok: true }),
+    })
+    await freshApiClient.remoteCall("health", [], () => ({ local: true }))
+    assert.equal(freshApiClient.isApiFallback(), false, "a later successful call self-heals out of fallback")
+    assert.equal(freshApiClient.isApiConnected(), true, "flash icon returns after self-heal")
   } finally {
     Date.now = REAL_DATE_NOW
     delete globalThis.__vibeOSRuntimeState
