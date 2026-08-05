@@ -1,3 +1,12 @@
+## 0.27.5
+
+### Fixes
+- fix: decouple vibeOS from `~/.claude` — own home is `~/.vibeos` (`resolveVibeOSHome`/`getVibeOSHome`, all scripts, uninstaller never touches `~/.claude`; real Claude data preserved); `uninstall --quit-app` now actually terminates the running OpenCode app (flag was swallowed by bin/setup.js)
+- fix: a 401 auth rejection keeps the plugin in fallback (footer flash icon hidden) for the failed turn instead of immediately flipping back to connected; the rejected token still clears so the next call re-exchanges and self-heals
+
+### Tests
+- test: E2E scenarios hardened against model/API variance — `vibe-gate-tdd-toggle` accepts the `action=tdd` spelling; `integration-no-torn-json` tolerates the known DeepSeek `reasoning_content` API error (model engaged thinking mid-run)
+
 ## 0.27.4
 
 ### Architecture audit (Phases B/D/A/C)
