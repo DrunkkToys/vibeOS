@@ -168,8 +168,14 @@ test("contract: auth rejection self-heals (clears the rejected token) instead of
 
     const result = await api.remoteCall("health", [], () => "auth-fallback")
     assert.equal(result, "auth-fallback", "auth failure falls back locally for this call")
-    assert.equal(api.isApiFallback(), false, "clearRejectedToken() self-heals so the plugin isn't stuck in fallback after a rejected token")
-    assert.equal(api.isApiConnected(), true, "self-heal restores orchestration connectivity so the next call can re-exchange a fresh token")
+    assert.equal(api.isApiFallback(), true, "the failed 401 call keeps fallback active so the flash icon hides")
+    assert.equal(api.isApiConnected(), false, "flash icon hidden while auth is rejected")
+
+    // Self-heal: the rejected token is cleared so the NEXT successful exchange restores connectivity.
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ api_token: "vos_" + "c".repeat(64) }) })
+    await api.remoteCall("health", [], () => "auth-fallback")
+    assert.equal(api.isApiFallback(), false, "next successful call self-heals out of fallback")
+    assert.equal(api.isApiConnected(), true, "connectivity restored after re-exchange")
   } finally {
     global.fetch = prevFetch
     await restore(ctx)
