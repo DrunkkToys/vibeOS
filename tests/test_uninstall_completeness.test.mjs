@@ -92,7 +92,7 @@ function runUninstall(env) {
     env: {
       ...process.env,
       HOME: env.home,
-      VIBEOS_HOME: join(env.home, ".vibeos"),
+      VIBEOS_HOME: env.vibeosHome || join(env.home, ".vibeos"),
       VIBEOS_UNINSTALL_SKIP_SYSTEM: "1",
       VIBEOS_OPENCODE_HOME: "",
       XDG_CONFIG_HOME: "",
@@ -237,5 +237,45 @@ test("uninstall removes the deployed copy of itself from the plugin dir", () => 
   } finally {
     rmSync(s.home, { recursive: true, force: true })
     rmSync(s.project, { recursive: true, force: true })
+  }
+})
+
+// A VIBEOS_HOME pointing at a directory vibeOS does not own must NEVER be
+// deleted wholesale. ~/.claude was vibeOS's own default VIBEOS_HOME before
+// commit b14861c9, and that commit dropped the guard that excluded it — so an
+// uninstall would recursively delete Claude Code's home: projects/, memory/,
+// session history, settings.
+test("uninstall refuses to delete a VIBEOS_HOME pointing at a foreign home dir", () => {
+  const home = mkdtempSync(join(tmpdir(), "vibeos-foreign-home-"))
+  const project = mkdtempSync(join(tmpdir(), "vibeos-foreign-proj-"))
+  try {
+    const claudeHome = join(home, ".claude")
+    writeFile(join(claudeHome, "projects", "p", "session.jsonl"), "{}\n")
+    writeFile(join(claudeHome, "projects", "p", "memory", "MEMORY.md"), "- [n](n.md)\n")
+    writeFile(join(claudeHome, "settings.json"), "{}")
+
+    runUninstall({ home, cwd: project, vibeosHome: claudeHome })
+
+    assert.equal(existsSync(join(claudeHome, "settings.json")), true, "~/.claude/settings.json was destroyed")
+    assert.equal(existsSync(join(claudeHome, "projects", "p", "session.jsonl")), true, "session history was destroyed")
+    assert.equal(existsSync(join(claudeHome, "projects", "p", "memory", "MEMORY.md")), true, "memory was destroyed")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+    rmSync(project, { recursive: true, force: true })
+  }
+})
+
+test("uninstall refuses a VIBEOS_HOME of / or the home dir itself", () => {
+  for (const bad of ["/", "HOME_ITSELF"]) {
+    const home = mkdtempSync(join(tmpdir(), "vibeos-badroot-"))
+    const project = mkdtempSync(join(tmpdir(), "vibeos-badroot-proj-"))
+    try {
+      writeFile(join(home, "keepme.txt"), "do not delete")
+      runUninstall({ home, cwd: project, vibeosHome: bad === "HOME_ITSELF" ? home : bad })
+      assert.equal(existsSync(join(home, "keepme.txt")), true, `VIBEOS_HOME=${bad} wiped the home dir`)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(project, { recursive: true, force: true })
+    }
   }
 })
