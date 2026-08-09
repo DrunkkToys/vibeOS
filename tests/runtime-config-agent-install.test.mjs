@@ -192,7 +192,12 @@ test("runtimeTierCoherence: detects degraded (missing agents)", async () => {
   } finally { s.cleanup() }
 })
 
-test("resolveOpenCodeHomes: returns .opencode and .config/opencode when HOME set", async () => {
+test("resolveOpenCodeHomes: returns exactly one home, ~/.opencode, when HOME set", async () => {
+  // Single global source of truth (2026-08-09): scanning both ~/.opencode and
+  // ~/.config/opencode caused vibeOS to load twice in one OpenCode process
+  // (duplicate MODULE_TYPELESS_PACKAGE_JSON warnings for two vibeOS.js paths,
+  // confirmed live). Exactly one home, no exceptions, unless an explicit
+  // override env var is set.
   const cb = `?t=${Date.now()}`
   const { resolveOpenCodeHomes } = await import(`../src/lib/runtime-paths.js${cb}`)
   const oldHome = process.env.HOME
@@ -201,14 +206,8 @@ test("resolveOpenCodeHomes: returns .opencode and .config/opencode when HOME set
   delete process.env.XDG_CONFIG_HOME
   try {
     const homes = resolveOpenCodeHomes()
-    if (homes.length < 2) {
-      console.log("DEBUG homes:", homes)
-      console.log("DEBUG HOME:", process.env.HOME)
-      console.log("DEBUG XDG:", process.env.XDG_CONFIG_HOME)
-    }
-    assert.ok(homes.length >= 2, `should return at least 2 homes, got ${homes.length}: ${JSON.stringify(homes)}`)
-    assert.ok(homes.some(h => h.endsWith(".opencode")), `should include .opencode`)
-    assert.ok(homes.some(h => h.endsWith("opencode") && !h.endsWith(".opencode")), `should include config/opencode`)
+    assert.equal(homes.length, 1, `should return exactly 1 home, got ${homes.length}: ${JSON.stringify(homes)}`)
+    assert.ok(homes[0].endsWith(".opencode"), `should be .opencode, got ${homes[0]}`)
   } finally {
     process.env.HOME = oldHome
     if (oldXdg) process.env.XDG_CONFIG_HOME = oldXdg

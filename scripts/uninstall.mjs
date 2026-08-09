@@ -171,10 +171,24 @@ function stripVibeFromConfig(path) {
 }
 
 // Known VIBEOS_HOME locations. Never touches ~/.claude (Claude Code's home).
+// A state root is deleted RECURSIVELY, so it must be a directory vibeOS owns.
+// ~/.claude was vibeOS's own default VIBEOS_HOME before the decoupling commit,
+// and it is Claude Code's home: projects/, memory/, session history, settings.
+// Deleting it wholesale destroys unrelated user data. Same for HOME itself, /,
+// and any ancestor of HOME.
+function isDeletableStateRoot(candidate) {
+  const path = resolve(String(candidate || "").trim())
+  if (!path || path === "/" || path === resolve(HOME)) return false
+  if (path === resolve(join(HOME, ".claude"))) return false
+  // Any ancestor of HOME (e.g. /Users, /Users/<name>/..) is never vibeOS state.
+  if (resolve(HOME).startsWith(path.endsWith("/") ? path : path + "/")) return false
+  return true
+}
+
 function collectStateRoots() {
   const roots = new Set()
   const explicit = process.env.VIBEOS_HOME?.trim()
-  if (explicit && explicit !== join(HOME, ".vibeos")) roots.add(explicit)
+  if (explicit && explicit !== join(HOME, ".vibeos") && isDeletableStateRoot(explicit)) roots.add(explicit)
   for (const p of [
     join(HOME, ".vibeos"),
     join(HOME, ".vibetheog"),
@@ -189,9 +203,11 @@ function collectStateRoots() {
 function removeStateDirs() {
   let removed = 0
   for (const root of collectStateRoots()) {
+    // Second gate: collectStateRoots already filters, but this is a recursive
+    // delete of a user-supplied path, so it is checked again at the call site.
+    if (!isDeletableStateRoot(root)) continue
     if (existsSync(root)) {
-      try { rmSync(root, { recursive: true, force: true }) } catch {}
-      removed++
+      if (rmQuiet(root)) removed++
     }
   }
   return removed

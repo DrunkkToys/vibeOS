@@ -268,11 +268,7 @@ function resolveOpenCodeHomes2() {
   const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME;
   if (override) return [override];
   const base = process.env.HOME || USER_HOME;
-  const homes = [join4(base, ".opencode")];
-  const xdgConfig = process.env.XDG_CONFIG_HOME || join4(base, ".config");
-  const xdgOpenCode = join4(xdgConfig, "opencode");
-  if (xdgOpenCode !== homes[0]) homes.push(xdgOpenCode);
-  return homes;
+  return [join4(base, ".opencode")];
 }
 function hasOpenCodeConfig(dir) {
   return existsSync5(join4(dir, "opencode.json")) || existsSync5(join4(dir, "opencode.jsonc"));

@@ -19,15 +19,18 @@ export function resolveVibeOSHome(): string {
   return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".vibeos")
 }
 
+// Single global source of truth: OpenCode (CLI and desktop sidecar alike)
+// treats ~/.opencode as the one and only default config/plugin home. Previously
+// this scanned both ~/.opencode and the XDG ~/.config/opencode, which caused
+// vibeOS to load twice in one process (duplicate MODULE_TYPELESS_PACKAGE_JSON
+// warnings for two different vibeOS.js paths, confirmed live). Operator
+// directive 2026-08-09: exactly one home, no exceptions. See
+// scripts/lib/opencode-homes.mjs for the deploy-time counterpart.
 export function resolveOpenCodeHomes(): string[] {
   const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME
   if (override) return [override]
   const base = process.env.HOME || USER_HOME
-  const homes = [join(base, ".opencode")]
-  const xdgConfig = process.env.XDG_CONFIG_HOME || join(base, ".config")
-  const xdgOpenCode = join(xdgConfig, "opencode")
-  if (xdgOpenCode !== homes[0]) homes.push(xdgOpenCode)
-  return homes
+  return [join(base, ".opencode")]
 }
 
 function hasOpenCodeConfig(dir: string): boolean {

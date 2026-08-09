@@ -107,6 +107,38 @@ describe("loop-guard: escalation (the PR-348 loop)", () => {
     const v = g.observe("gh pr view 348")
     assert.equal(v.level, "none")
   })
+
+  // Regression (Finding 4, live M5 diagnostic session 2026-08-09): the poll
+  // branch summed every poll-SHAPED command in the window regardless of
+  // whether the underlying target differed, so distinct sleep-wrapped
+  // diagnostic commands (different PIDs, different hosts, different batch
+  // numbers) got misclassified as "polled the same status N times" and the
+  // Bash tool was blocked outright, even though nothing was actually
+  // repeating. Only genuinely identical (post-normalization) poll targets
+  // should accumulate toward the threshold.
+  it("does not block distinct sleep-wrapped diagnostic commands with different targets", () => {
+    const g = new ToolLoopGuard()
+    const cmds = [
+      "sleep 5 && ssh m5 ps -p 8162",
+      "sleep 5 && ssh m5 ps -p 7480",
+      "sleep 5 && ssh m5 cat farm_gptoss/mule_invent_b1.log",
+      "sleep 5 && ssh m5 cat farm_qwen9b/mule_invent_b01.log",
+      "sleep 5 && ssh m5 curl 127.0.0.1:1234/api/v0/models",
+    ]
+    for (const c of cmds) {
+      assert.equal(g.observe(c).level, "none")
+    }
+  })
+
+  it("still blocks the same poll target repeated even across varying sleep durations", () => {
+    const g = new ToolLoopGuard()
+    let v
+    for (let i = 0; i < LOOP_BLOCK_THRESHOLD; i++) {
+      v = g.observe(`sleep ${10 + i} && ssh m5 ps -p 8162`)
+    }
+    assert.equal(v.level, "block")
+    assert.equal(v.kind, "poll")
+  })
 })
 
 // Regression: repeated edit/write FAILURES on the same file burn a full model
