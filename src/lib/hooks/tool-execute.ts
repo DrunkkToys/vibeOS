@@ -262,12 +262,20 @@ function _mutateBlockedToolArgs(toolName, sources, blockedPath, outputObj) {
   }
 }
 
-// Neutralize a runaway bash loop: replace the command with a harmless echo that
-// surfaces the stop directive, and mark the result blocked. Mirrors the
-// write/edit block path so the tool "runs" but does nothing costly.
+// Neutralize a runaway bash loop: replace the command with an inert no-op and
+// mark the result blocked. Mirrors the write/edit block path so the tool
+// "runs" but does nothing costly. The stop directive is delivered ONLY via
+// the tool result (output.error / pendingUiNote), never embedded in the
+// command text itself -- earlier this rewrote the command to
+// `echo "[vibeOS loop-guard] ${directive}"`, which put that exact string into
+// the model's own tool-call history. On the next turn the model would see
+// its own "last command" already looking like a guard message and re-emit
+// something matching it, re-triggering the guard every time and producing an
+// unbreakable self-referential loop (live-reproduced twice, 2026-08-09,
+// driving an M5 diagnostic session -- 15+ consecutive blocked turns).
 function _neutralizeBashLoop(input, output, directive) {
-  const safe = String(directive || "loop blocked").replace(/"/g, "'")
-  const replacement = `echo "[vibeOS loop-guard] ${safe}"`
+  void directive
+  const replacement = ": # blocked by vibeOS loop-guard"
   for (const src of [output?.args, input?.args]) {
     if (!src || typeof src !== "object") continue
     if (typeof src.command === "string") src.command = replacement
@@ -279,6 +287,10 @@ function _neutralizeBashLoop(input, output, directive) {
     output.status = "error"
     output.error = output.error || "blocked runaway bash loop"
   }
+}
+
+export function _neutralizeBashLoopForTest(input, output, directive): void {
+  _neutralizeBashLoop(input, output, directive)
 }
 
 function _dequeueTelemetryStart(tool) {
