@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 // vibeOS uninstall — mirrors scripts/deploy.mjs in reverse.
-// Removes the plugin entry, vibe tier agents, default_agent, plugin files,
-// the /vibe skill, the launch agent, the nightly cron, the global npm link,
-// every known runtime state dir (VIBEOS_HOME, ~/.vibetheog, ~/.vibeos,
-// desktop vibeOS, debug artifacts), vibe-named state files in ~/.claude,
-// the project-level opencode.json registrations, and stray deploy artifacts.
-// Leaves ~/.claude, ~/.config/opencode and ~/.opencode/bin/opencode intact so
+// Sweeps EVERY OpenCode home an install could have targeted (~/.opencode, the
+// XDG dir, the desktop app support dir, the project-level .opencode, plus any
+// VIBEOS_OPENCODE_HOME override) and removes: the plugin entry and vibe tier
+// agents from opencode.json AND opencode.jsonc, default_agent, plugin files,
+// the /vibe skill, home-root runtime artifacts (retention log, pattern store),
+// vibeOS auto-generated project skills, the launch agent, the nightly cron, the
+// global npm link, every known runtime state dir (VIBEOS_HOME, ~/.vibetheog,
+// ~/.vibeos, desktop vibeOS, debug artifacts), the legacy home-root deployment,
+// and stray deploy artifacts.
+// Leaves ~/.claude, OpenCode's own config and ~/.opencode/bin/opencode intact so
 // OpenCode itself keeps working and a reinstall starts from a blank slate.
+// Set VIBEOS_UNINSTALL_SKIP_SYSTEM=1 to skip the machine-global side effects
+// (crontab, launchctl bootout, npm unlink) — they ignore a redirected HOME.
 
 import { execFileSync, execSync } from "node:child_process"
 import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync, mkdirSync } from "node:fs"
@@ -15,7 +21,8 @@ import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { resolveOpenCodeHomes } from "./lib/opencode-homes.mjs"
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const SELF_PATH = fileURLToPath(import.meta.url)
+const __dirname = dirname(SELF_PATH)
 const ROOT = join(__dirname, "..")
 const HOME = homedir()
 
@@ -23,6 +30,46 @@ const VIBE_AGENTS = ["vibe", "vibe-cheap", "vibe-medium", "vibe-brain"]
 const VIBE_DEFAULT_AGENT_RE = /^vibe$|^vibe-(cheap|medium|brain)$/
 const LAUNCH_AGENT_LABEL = "com.vibeos.opencode-event-retention"
 const CRON_MARKER = "# vibeOS nightly pricing sync"
+const OC_CONFIG_NAMES = ["opencode.json", "opencode.jsonc"]
+
+// Machine-wide side effects (crontab, launchctl, npm link) are global: they
+// ignore a redirected HOME. Tests set this to keep an isolated run isolated.
+const SKIP_SYSTEM = process.env.VIBEOS_UNINSTALL_SKIP_SYSTEM === "1"
+
+function safeReaddir(dir) {
+  try {
+    return existsSync(dir) ? readdirSync(dir) : []
+  } catch {
+    return []
+  }
+}
+
+function rmQuiet(target) {
+  if (!existsSync(target)) return false
+  try {
+    rmSync(target, { recursive: true, force: true })
+  } catch {
+    return false
+  }
+  return true
+}
+
+// Every directory an install (current, legacy, XDG, desktop, or project-level)
+// could have deployed into. The uninstaller must sweep all of them, not just
+// the one the current deploy would pick.
+function uninstallHomes(cwd = process.cwd()) {
+  const homes = new Set(resolveOpenCodeHomes({ cwd }))
+  const xdgConfig = process.env.XDG_CONFIG_HOME?.trim() || join(HOME, ".config")
+  for (const h of [
+    join(HOME, ".opencode"),
+    join(xdgConfig, "opencode"),
+    join(HOME, "Library", "Application Support", "ai.opencode.desktop"),
+    join(cwd, ".opencode"),
+  ]) {
+    homes.add(h)
+  }
+  return [...homes]
+}
 
 function writeLine(text = "") {
   process.stdout.write(text + "\n")
@@ -81,7 +128,14 @@ function writeJsonAtomic(path, value) {
 }
 
 function unregisterFromOpenCodeConfig(home) {
-  const ocConfigPath = join(home, "opencode.json")
+  let changed = false
+  for (const name of OC_CONFIG_NAMES) {
+    if (unregisterFromConfigFile(join(home, name))) changed = true
+  }
+  return changed
+}
+
+function unregisterFromConfigFile(ocConfigPath) {
   if (!existsSync(ocConfigPath)) return false
   let config = readJson(ocConfigPath)
   let changed = false
@@ -91,8 +145,9 @@ function unregisterFromOpenCodeConfig(home) {
       const p = typeof entry === "string" ? entry : String(entry?.path || entry?.ref || "")
       return !p || !p.includes("vibeOS")
     })
-    if (config.plugin.length === 0) delete config.plugin
-    if (config.plugin?.length !== before) changed = true
+    const after = config.plugin.length
+    if (after === 0) delete config.plugin
+    if (after !== before) changed = true
   }
   if (config.agent && typeof config.agent === "object") {
     for (const name of VIBE_AGENTS) {
@@ -144,11 +199,9 @@ function removeStateDirs() {
 
 function removeDebugArtifacts() {
   let removed = 0
-  for (const name of readdirSync(HOME)) {
+  for (const name of safeReaddir(HOME)) {
     if (name.startsWith(".vibelm-debug") || name.startsWith(".vibeos-")) {
-      const target = join(HOME, name)
-      try { rmSync(target, { recursive: true, force: true }) } catch {}
-      removed++
+      if (rmQuiet(join(HOME, name))) removed++
     }
   }
   return removed
@@ -167,6 +220,7 @@ function removeVibeosHomeFiles() {
 
 function removePluginFiles(home) {
   const pluginDir = join(home, "plugins")
+  let removed = false
   const targets = [
     join(pluginDir, "vibeOS.js"),
     join(pluginDir, "vibeOS.js.deploying"),
@@ -177,38 +231,70 @@ function removePluginFiles(home) {
     join(pluginDir, "opencode-retention.log"),
   ]
   for (const t of targets) {
-    if (existsSync(t)) {
-      try { rmSync(t, { recursive: true, force: true }) } catch {}
+    if (rmQuiet(t)) removed = true
+  }
+  // The deployed copy of THIS script. Node has already read it into memory, so
+  // deleting it mid-run is safe on POSIX; skip the copy we are executing from
+  // on platforms where it is not.
+  const deployedSelf = join(pluginDir, "uninstall.mjs")
+  if (existsSync(deployedSelf) && (process.platform !== "win32" || resolve(deployedSelf) !== resolve(SELF_PATH))) {
+    if (rmQuiet(deployedSelf)) removed = true
+  }
+  return removed
+}
+
+// Files vibeOS writes at the OpenCode home ROOT (not under plugins/):
+// the launch agent's stdout/stderr sink from deploy.mjs, and the pattern
+// store from src/lib/pattern-store.ts. Never touches OpenCode's own files.
+function removeRuntimeArtifacts(home) {
+  let removed = false
+  for (const name of [
+    "opencode-retention.log",
+    "learned-patterns.json",
+    "recent-events.jsonl",
+  ]) {
+    if (rmQuiet(join(home, name))) removed = true
+  }
+  return removed
+}
+
+// Project skills generated by ensureProjectSkill() carry an explicit
+// "Auto-generated by vibeOS" marker. Hand-written skills are left alone.
+function removeGeneratedProjectSkills(dir) {
+  let removed = false
+  for (const skillsDir of [join(dir, ".opencode", "skills"), join(dir, "skills")]) {
+    for (const entry of safeReaddir(skillsDir)) {
+      const skillPath = join(skillsDir, entry, "SKILL.md")
+      if (!existsSync(skillPath)) continue
+      let body = ""
+      try { body = readFileSync(skillPath, "utf8") } catch { continue }
+      if (!body.includes("Auto-generated by vibeOS")) continue
+      if (rmQuiet(join(skillsDir, entry))) removed = true
     }
   }
+  return removed
 }
 
 function removeSkills(home) {
-  const targets = [
-    join(home, "skills", "vibe"),
-    join(home, ".opencode", "skills", "vibe"),
-  ]
-  for (const t of targets) {
-    if (existsSync(t)) {
-      try { rmSync(t, { recursive: true, force: true }) } catch {}
-    }
+  let removed = false
+  for (const t of [join(home, "skills", "vibe"), join(home, ".opencode", "skills", "vibe")]) {
+    if (rmQuiet(t)) removed = true
   }
+  return removed
 }
 
 function pruneEmptyDirs(home) {
-  for (const rel of ["plugins", "skills"]) {
+  for (const rel of ["plugins", "skills", join(".opencode", "skills"), ".opencode"]) {
     const dir = join(home, rel)
     if (!existsSync(dir)) continue
-    try {
-      const entries = readdirSync(dir)
-      if (entries.length === 0) rmSync(dir, { recursive: true, force: true })
-    } catch {}
+    if (safeReaddir(dir).length === 0) rmQuiet(dir)
   }
 }
 
 function unloadLaunchAgent() {
   const plistPath = join(HOME, "Library", "LaunchAgents", `${LAUNCH_AGENT_LABEL}.plist`)
   if (!existsSync(plistPath)) return false
+  if (SKIP_SYSTEM) return rmQuiet(plistPath)
   try {
     const domain = `gui/${process.getuid?.() || 0}`
     try { execFileSync("launchctl", ["bootout", domain, plistPath], { stdio: "ignore" }) } catch {}
@@ -218,6 +304,7 @@ function unloadLaunchAgent() {
 }
 
 function removeCron() {
+  if (SKIP_SYSTEM) return false
   try {
     const current = execSync("crontab -l 2>/dev/null || true", { encoding: "utf8" })
     if (!current.includes(CRON_MARKER)) return false
@@ -231,6 +318,7 @@ function removeCron() {
 }
 
 function unlinkGlobalPackage() {
+  if (SKIP_SYSTEM) return false
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"))
     const name = pkg?.name
@@ -299,36 +387,23 @@ function detectRunningOpenCode() {
   }
 }
 
-function removeHomeRootDeployment() {  let did = false
+function removeHomeRootDeployment() {
+  let did = false
   if (stripVibeFromConfig(join(HOME, "opencode.json"))) did = true
   const pluginDir = join(HOME, "plugins")
   for (const rel of ["vibeOS.js", "vibeOS.js.deploying", "vibeOS.js.tmp", "assets", ".env.production", "tests"]) {
-    const t = join(pluginDir, rel)
-    if (existsSync(t)) {
-      try { rmSync(t, { recursive: true, force: true }) } catch {}
-      did = true
-    }
+    if (rmQuiet(join(pluginDir, rel))) did = true
   }
-  try {
-    if (existsSync(pluginDir) && readdirSync(pluginDir).length === 0) rmSync(pluginDir, { recursive: true, force: true })
-  } catch {}
-  for (const name of readdirSync(HOME)) {
+  if (existsSync(pluginDir) && safeReaddir(pluginDir).length === 0) rmQuiet(pluginDir)
+  for (const name of safeReaddir(HOME)) {
     if (name.startsWith("config.json.vibeos-bak-")) {
-      try { rmSync(join(HOME, name), { force: true }) } catch {}
-      did = true
+      if (rmQuiet(join(HOME, name))) did = true
     }
   }
   for (const p of [join(HOME, "data", "vibemax-model.json"), join(HOME, ".config", "data", "vibemax-model.json")]) {
-    if (existsSync(p)) {
-      try { rmSync(p, { force: true }) } catch {}
-      did = true
-    }
+    if (rmQuiet(p)) did = true
   }
-  const dbBackup = join(HOME, ".local", "share", "opencode", "opencode.db.vibeos-backup")
-  if (existsSync(dbBackup)) {
-    try { rmSync(dbBackup, { force: true }) } catch {}
-    did = true
-  }
+  if (rmQuiet(join(HOME, ".local", "share", "opencode", "opencode.db.vibeos-backup"))) did = true
   return did
 }
 
@@ -337,27 +412,36 @@ writeLine("vibeOS — clean uninstall")
 writeLine()
 
 let didSomething = false
-for (const home of resolveOpenCodeHomes({ cwd: process.cwd() })) {
+const HOMES = uninstallHomes()
+
+if (removeGeneratedProjectSkills(process.cwd())) {
+  writeLine("✓ removed vibeOS auto-generated project skill(s) from this project")
+  didSomething = true
+}
+
+for (const home of HOMES) {
   if (unregisterFromOpenCodeConfig(home)) {
     writeLine(`✓ unregistered vibeOS from ${home}/opencode.json`)
     didSomething = true
   }
-  removePluginFiles(home)
-  removeSkills(home)
+  const cleaned = [
+    removePluginFiles(home),
+    removeSkills(home),
+    removeRuntimeArtifacts(home),
+  ].some(Boolean)
   pruneEmptyDirs(home)
-  writeLine(`✓ removed plugin files + /vibe skill from ${home}/`)
-  didSomething = true
+  if (cleaned) {
+    writeLine(`✓ removed plugin files, /vibe skill and runtime artifacts from ${home}/`)
+    didSomething = true
+  }
 }
 
 const stripped = []
-for (const home of resolveOpenCodeHomes({ cwd: process.cwd() })) {
-  for (const p of [home, join(HOME, ".config", "opencode"), join(HOME, "Library", "Application Support", "ai.opencode.desktop")]) {
-    const path = join(p, "opencode.json")
-    if (stripVibeFromConfig(path)) stripped.push(path)
+for (const p of [process.cwd(), join(process.cwd(), ".opencode")]) {
+  for (const name of OC_CONFIG_NAMES) {
+    const path = join(p, name)
+    if (unregisterFromConfigFile(path)) stripped.push(path)
   }
-}
-for (const p of [join(process.cwd(), "opencode.json"), join(process.cwd(), ".opencode", "opencode.json")]) {
-  if (stripVibeFromConfig(p)) stripped.push(p)
 }
 for (const path of [...new Set(stripped)]) {
   writeLine(`✓ stripped vibe agents/config from ${path}`)

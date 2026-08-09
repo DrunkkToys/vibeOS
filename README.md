@@ -268,16 +268,24 @@ npx vibeostheog uninstall        # or: node bin/setup.js uninstall
 
 It removes everything vibeOS created:
 
-- Plugin files (`plugins/vibeOS.js`, assets, `.env.production`, retention job) and the `/vibe` skill
-- The `vibe` / `vibe-cheap` / `vibe-medium` / `vibe-brain` agents and `default_agent` from every `opencode.json` (global, desktop app, and current project)
+It sweeps every OpenCode home an install could have targeted — `~/.opencode`, the XDG dir (`~/.config/opencode`), the desktop app support dir, the current project's `.opencode`, and any `VIBEOS_OPENCODE_HOME` override — and removes:
+
+- Plugin files (`plugins/vibeOS.js`, assets, `.env.production`, retention job, the deployed uninstaller) and the `/vibe` skill
+- The `vibe` / `vibe-cheap` / `vibe-medium` / `vibe-brain` agents and `default_agent` from every `opencode.json` **and** `opencode.jsonc`
+- Home-root runtime artifacts: `opencode-retention.log`, `learned-patterns.json`, `recent-events.jsonl`
+- vibeOS auto-generated project skills (`.opencode/skills/<project>/SKILL.md`) — hand-written skills are left alone
 - All runtime state dirs: `$VIBEOS_HOME`, `~/.vibetheog`, `~/.vibeos`, `~/Library/Application Support/ai.opencode.desktop/vibeOS`, and `~/.vibelm-debug-*` artifacts
-- vibe-named files inside `~/.claude` (state, locks, model-tiers) — never your Claude data
+- The legacy home-root deployment (`~/opencode.json`, `~/plugins`, `config.json.vibeos-bak-*`)
 - The `com.vibeos.opencode-event-retention` launch agent and the nightly pricing cron
 - The global `vibeostheog` npm link
 
-It deliberately leaves `~/.claude`, `~/.config/opencode`, and `~/.opencode/bin/opencode` (the OpenCode binary itself) untouched so OpenCode keeps working.
+It deliberately leaves `~/.claude`, OpenCode's own config, and `~/.opencode/bin/opencode` (the OpenCode binary itself) untouched so OpenCode keeps working.
 
-You can also run it from inside a session with `vibe uninstall` (falls back to printing the `npx` command when the uninstaller script is not locally reachable). Reinstall anytime with `npx vibeostheog setup`.
+An uninstall marker is written to `~/.opencode/vibeOS-uninstalled` and `~/.config/opencode/vibeOS-uninstalled`. An OpenCode process that loaded vibeOS before the removal still holds the bundle in memory; the marker makes that instance **inert** — it registers zero hooks, so it cannot recreate `$VIBEOS_HOME` or re-register the tier agents on the next turn. Restart OpenCode to unload it fully. Reinstall (`npx vibeostheog setup`) clears the marker.
+
+You can also run it from inside a session with `vibe uninstall` — the uninstaller is deployed next to the plugin bundle, so it runs for real rather than printing instructions.
+
+Set `VIBEOS_UNINSTALL_SKIP_SYSTEM=1` to skip the machine-global side effects (crontab, `launchctl bootout`, `npm unlink -g`); those ignore a redirected `HOME`, so tests and sandboxed runs must set it.
 
 ## Quality Gate
 

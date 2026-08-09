@@ -76,6 +76,14 @@ try {
     writeFileSync(tmpDest, bundle)
     renameSync(tmpDest, destPath)
     process.stderr.write(`[vibeOS deploy] dist/vibeOS.js -> ${home}/plugins/vibeOS.js (${bundle.length} bytes) [atomic]\n`)
+
+    // Ship the uninstaller next to the bundle so the in-session `vibe uninstall`
+    // can execute it (the deployed plugin dir has no scripts/ tree).
+    const uninstallSrc = join(ROOT, "dist", "uninstall.mjs")
+    if (existsSync(uninstallSrc)) {
+      copyFileSync(uninstallSrc, join(pluginDir, "uninstall.mjs"))
+      process.stderr.write(`[vibeOS deploy] dist/uninstall.mjs -> ${home}/plugins/uninstall.mjs\n`)
+    }
     await installRetentionAgent(pluginDir)
 
     if (existsSync(assetsPath)) {

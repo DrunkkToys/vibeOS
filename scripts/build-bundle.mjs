@@ -79,6 +79,25 @@ try {
 
 console.log("[bundle] Bundle created: bin/setup.js");
 
+// The uninstaller must be reachable from the DEPLOYED plugin dir: `vibe
+// uninstall` runs inside OpenCode from ~/.opencode/plugins/vibeOS.js, where no
+// scripts/ tree exists. Bundling it (it imports scripts/lib/*) makes the
+// in-session command actually run the uninstaller instead of only printing it.
+await build({
+  entryPoints: [join(ROOT, "scripts", "uninstall.mjs")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  outfile: join(DIST, "uninstall.mjs"),
+  target: "node22",
+  external: ["node:*"],
+  banner: { js: "#!/usr/bin/env node" },
+  minify: false,
+  sourcemap: false,
+});
+
+console.log("[bundle] Bundle created: dist/uninstall.mjs");
+
 // Copy non-JS assets (JSON configs, etc.)
 const assetsDir = join(DIST, 'assets');
 if (!existsSync(assetsDir)) mkdirSync(assetsDir, { recursive: true });

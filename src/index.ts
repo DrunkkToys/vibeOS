@@ -34,7 +34,7 @@ import { onChatParams, onChatHeaders, setChatParamsDirectory } from "./lib/hooks
 import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { setTddDirectory } from "./lib/tdd-enforcer.js"
-import { installVibeTierAgents, readDefaultAgent } from "./lib/runtime-config.js"
+import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled } from "./lib/runtime-config.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -1102,6 +1102,14 @@ async function ensureMcpServerRunning() {
 }
 // ── DelegationEnforcer — main plugin entry point ─────────────────────
 export async function DelegationEnforcer({ client, directory } = {}) {
+  // Uninstalled: an OpenCode process that loaded vibeOS before removal keeps the
+  // bundle in memory and would otherwise recreate VIBEOS_HOME, the state files
+  // and the tier-agent registrations on the very next turn — which is what made
+  // `vibe uninstall` look like it only half-worked. Register zero hooks instead.
+  if (isVibeOSUninstalled()) {
+    console.error("[vibeOS] uninstalled — plugin inert until reinstall (npx vibeostheog setup)")
+    return {}
+  }
   console.error(`[vibeOS] LOADED cwd=${directory}`)
   _mcpProjectDirectory = directory || ""
   const hookHome = process.env.HOME || USER_HOME
