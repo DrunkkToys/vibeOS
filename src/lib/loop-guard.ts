@@ -113,7 +113,7 @@ export class ToolLoopGuard {
     if (this.window.length > this.max) this.window.shift()
 
     if (poll) {
-      const pollCount = this.window.reduce((n, e) => (e.poll ? n + 1 : n), 0)
+      const pollCount = this.window.reduce((n, e) => (e.poll && e.sig === signature ? n + 1 : n), 0)
       let level: LoopLevel = "none"
       if (pollCount >= LOOP_BLOCK_THRESHOLD) level = "block"
       else if (pollCount >= LOOP_WARN_THRESHOLD) level = "warn"
