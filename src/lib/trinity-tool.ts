@@ -2077,15 +2077,27 @@ export function createTrinityTool(deps) {
         const { existsSync: fsExists } = await import("node:fs")
         const { execFileSync: execNode } = await import("node:child_process")
         const here = dirname(fileURLToPath(import.meta.url))
+        // `here` is the DEPLOYED plugin dir (~/.opencode/plugins) at runtime, not
+        // the repo. deploy.mjs ships dist/uninstall.mjs beside the bundle, so
+        // check that first; the repo/dist layouts are the dev-machine fallbacks.
         const candidates = [
+          join(here, "uninstall.mjs"),
+          join(here, "..", "uninstall.mjs"),
           join(here, "..", "scripts", "uninstall.mjs"),
+          join(here, "..", "..", "scripts", "uninstall.mjs"),
           join(here, "scripts", "uninstall.mjs"),
         ]
         const script = candidates.find((p) => fsExists(p))
         if (script) {
           try {
             const output = execNode(process.execPath, [script], { encoding: "utf8", cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] })
-            return "[vibeOS] Clean uninstall complete. Restart OpenCode to finish applying.\n\n" + String(output || "")
+            return [
+              "[vibeOS] Clean uninstall complete.",
+              "This OpenCode process still has the plugin loaded in memory, but it is now inert",
+              "(the uninstall marker disables every hook). Restart OpenCode to fully unload it.",
+              "",
+              String(output || ""),
+            ].join("\n")
           } catch (e) {
             return "[vibeOS-uninstall] Uninstaller failed: " + (e?.message || e)
           }

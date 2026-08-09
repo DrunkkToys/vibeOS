@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { readdirSync } from "node:fs"
+import { readdirSync, mkdtempSync } from "node:fs"
 import { join } from "node:path"
+import { tmpdir } from "node:os"
 import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
@@ -60,6 +61,14 @@ if (mode === "ci") {
 }
 args.push(...tests)
 
+// Isolate the uninstall marker from the developer's machine. A real
+// `vibe uninstall` leaves ~/.opencode/vibeOS-uninstalled behind, and an
+// uninstalled plugin registers zero hooks by design — without this every
+// hook test would fail on that machine while passing in CI. Tests that
+// exercise the marker set this variable themselves (node:test gives each
+// file its own process, so those overrides stay local).
+const markerIsolationDir = process.env.VIBEOS_UNINSTALLED_MARKER_DIR || mkdtempSync(join(tmpdir(), "vibeos-test-marker-"))
+
 const result = spawnSync(process.execPath, args, {
   stdio: "inherit",
   env: {
@@ -67,6 +76,7 @@ const result = spawnSync(process.execPath, args, {
     NODE_OPTIONS: [`--loader ${loader}`, process.env.NODE_OPTIONS || ""].filter(Boolean).join(" "),
     VIBEOS_MCP_PORT: process.env.VIBEOS_MCP_PORT || "0",
     VIBEOS_TEST_CONTEXT: "1",
+    VIBEOS_UNINSTALLED_MARKER_DIR: markerIsolationDir,
     VIBEOS_FAST_CI: mode === "ci" ? "1" : "0",
   },
 })
