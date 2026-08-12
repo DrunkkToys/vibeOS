@@ -258,6 +258,12 @@ Local dev checkout:
 }
 ```
 
+### Scoped to the vibe agent
+
+vibeOS runs **only while `vibe` is the agent selected in OpenCode's mode dropdown** (and inside its own `vibe-cheap` / `vibe-medium` / `vibe-brain` tier subagents). Pick `build` or `plan` and every automatic behavior switches off for that session — no footer, no system-prompt directives, no delegation enforcement, no per-turn model override — until you switch back. The selection is read from the agent OpenCode reports on each turn, so it takes effect on the next turn after you change the dropdown, with no restart.
+
+The `vibe` tool stays callable from any agent so `vibe status` and `vibe uninstall` always work. Set `VIBEOS_AGENT_GATE=off` to disable the gate and run vibeOS under every agent (pre-gate behavior).
+
 ## Uninstall
 
 vibeOS ships a clean, complete uninstaller — no leftovers, ready to reinstall:
@@ -271,7 +277,7 @@ It removes everything vibeOS created:
 It sweeps every OpenCode home an install could have targeted — `~/.opencode`, the XDG dir (`~/.config/opencode`), the desktop app support dir, the current project's `.opencode`, and any `VIBEOS_OPENCODE_HOME` override — and removes:
 
 - Plugin files (`plugins/vibeOS.js`, assets, `.env.production`, retention job, the deployed uninstaller) and the `/vibe` skill
-- The `vibe` / `vibe-cheap` / `vibe-medium` / `vibe-brain` agents and `default_agent` from every `opencode.json` **and** `opencode.jsonc`
+- The `vibe` / `vibe-cheap` / `vibe-medium` / `vibe-brain` agents and `default_agent` from every `opencode.json` **and** `opencode.jsonc` — plus the legacy `mode` block entries and any vibeOS-authored `agent/vibe*.md` file, so the `vibe` entry disappears from the mode dropdown whichever source your OpenCode build reads it from (hand-written `agent/vibe*.md` files are left alone)
 - Home-root runtime artifacts: `opencode-retention.log`, `learned-patterns.json`, `recent-events.jsonl`
 - vibeOS auto-generated project skills (`.opencode/skills/<project>/SKILL.md`) — hand-written skills are left alone
 - All runtime state dirs: `$VIBEOS_HOME`, `~/.vibetheog`, `~/.vibeos`, `~/Library/Application Support/ai.opencode.desktop/vibeOS`, and `~/.vibelm-debug-*` artifacts
@@ -281,7 +287,7 @@ It sweeps every OpenCode home an install could have targeted — `~/.opencode`, 
 
 It deliberately leaves `~/.claude`, OpenCode's own config, and `~/.opencode/bin/opencode` (the OpenCode binary itself) untouched so OpenCode keeps working.
 
-An uninstall marker is written to `~/.opencode/vibeOS-uninstalled` and `~/.config/opencode/vibeOS-uninstalled`. An OpenCode process that loaded vibeOS before the removal still holds the bundle in memory; the marker makes that instance **inert** — it registers zero hooks, so it cannot recreate `$VIBEOS_HOME` or re-register the tier agents on the next turn. Restart OpenCode to unload it fully. Reinstall (`npx vibeostheog setup`) clears the marker.
+An uninstall marker is written to `~/.opencode/vibeOS-uninstalled` and `~/.config/opencode/vibeOS-uninstalled`. An OpenCode process that loaded vibeOS before the removal still holds the bundle in memory; the marker makes that instance **inert** in both directions — a fresh load registers zero hooks, and hooks that were *already* registered (the in-session `vibe uninstall` case) check the marker on every call and no-op, so no footer, directive, state file or config write survives the uninstall. The `vibe` tool itself replies "uninstalled — this command is inert" for every action except `setup`. Restart OpenCode to unload it fully. Reinstall (`npx vibeostheog setup`) clears the marker.
 
 You can also run it from inside a session with `vibe uninstall` — the uninstaller is deployed next to the plugin bundle, so it runs for real rather than printing instructions.
 
@@ -521,6 +527,7 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 | VIBEOS_API_URL | https://api.vibetheog.com | Remote API base URL |
 | VIBEOS_API_TOKEN | unset | Remote API auth |
 | VIBEOS_API_BOOTSTRAP_TOKEN | unset | Bootstrap exchange |
+| VIBEOS_AGENT_GATE | unset | `off` runs vibeOS under every agent instead of only the `vibe` dropdown selection |
 | VIBEOS_MCP_PORT | 3001 | MCP server port |
 | VIBEOS_BUILD_CHANNEL | alpha | Build channel for API client |
 | VIBEOS_DEBUG | unset | Verbose debug logging |
@@ -546,6 +553,7 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 | Symptom | Fix |
 |---------|-----|
 | Plugin not loading | Check opencode.json entry. Restart Desktop. |
+| No footer / nothing happens | The mode dropdown is on `build` or `plan` — vibeOS only runs under the `vibe` agent. Switch back, or set VIBEOS_AGENT_GATE=off. |
 | Model won't switch | vibe rebuild then vibe set brain/medium/cheap |
 | Writes/edits blocked | Enforcement active -- delegate to cheap tier |
 | No footer visible | Verify plugin enabled, completions running |

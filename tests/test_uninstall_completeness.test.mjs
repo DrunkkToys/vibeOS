@@ -200,6 +200,40 @@ test("uninstall writes the marker and is idempotent on a second run", () => {
   }
 })
 
+// The "vibe" entry in OpenCode's mode dropdown can come from three places:
+// config.agent.vibe, a legacy config.mode.vibe block, or a markdown agent file
+// in <home>/agent/ or <project>/.opencode/agent/. All three must go.
+test("uninstall removes every source of the vibe mode-dropdown entry", () => {
+  const s = seedInstall()
+  try {
+    for (const h of [s.ocHome, s.xdgHome, s.desktopHome]) {
+      const cfg = JSON.parse(readFileSync(join(h, "opencode.json"), "utf8"))
+      cfg.mode = { vibe: { model: "x" }, build: { model: "y" } }
+      writeFile(join(h, "opencode.json"), JSON.stringify(cfg, null, 2))
+      writeFile(join(h, "agent", "vibe.md"), "---\nname: vibe\n---\nVibeUltraX primary agent\n")
+      writeFile(join(h, "agent", "vibe-cheap.md"), "---\nname: vibe-cheap\n---\nvibeOS cheap tier\n")
+      writeFile(join(h, "agent", "vibe-notes.md"), "---\nname: vibe-notes\n---\nmy own agent\n")
+    }
+    writeFile(join(s.project, ".opencode", "agent", "vibe.md"), "---\nname: vibe\n---\nvibeOS primary\n")
+
+    runUninstall({ home: s.home, cwd: s.project })
+
+    for (const h of [s.ocHome, s.xdgHome, s.desktopHome]) {
+      const cfg = JSON.parse(readJsonc(join(h, "opencode.json")))
+      assert.equal(Boolean(cfg.mode?.vibe), false, `mode.vibe survived in ${h}`)
+      assert.equal(Boolean(cfg.mode?.build), true, `non-vibe mode entry destroyed in ${h}`)
+      assert.equal(Boolean(cfg.agent?.vibe), false, `agent.vibe survived in ${h}`)
+      assert.equal(existsSync(join(h, "agent", "vibe.md")), false, `agent/vibe.md survived in ${h}`)
+      assert.equal(existsSync(join(h, "agent", "vibe-cheap.md")), false, `agent/vibe-cheap.md survived in ${h}`)
+      assert.equal(existsSync(join(h, "agent", "vibe-notes.md")), true, `hand-written agent md destroyed in ${h}`)
+    }
+    assert.equal(existsSync(join(s.project, ".opencode", "agent", "vibe.md")), false)
+  } finally {
+    rmSync(s.home, { recursive: true, force: true })
+    rmSync(s.project, { recursive: true, force: true })
+  }
+})
+
 test("uninstall on a bare HOME with nothing installed does not throw", () => {
   const home = mkdtempSync(join(tmpdir(), "vibeos-uninstall-bare-"))
   const project = mkdtempSync(join(tmpdir(), "vibeos-uninstall-bareproj-"))

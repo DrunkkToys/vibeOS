@@ -233,12 +233,34 @@ export function isVibeOSUninstalled(): boolean {
   }
 }
 
+// Hot-path variant: every hook consults the marker on every call so that an
+// in-session `vibe uninstall` takes effect immediately (the load-time check in
+// index.ts cannot fire again for an already-loaded bundle). The stat is cheap
+// but not free, so the answer is cached for a short window.
+const UNINSTALLED_CACHE_MS = 750
+let _uninstalledCachedAt = 0
+let _uninstalledCached = false
+
+export function isVibeOSUninstalledCached(): boolean {
+  const now = Date.now()
+  if (_uninstalledCachedAt && now - _uninstalledCachedAt < UNINSTALLED_CACHE_MS) return _uninstalledCached
+  _uninstalledCached = isVibeOSUninstalled()
+  _uninstalledCachedAt = now
+  return _uninstalledCached
+}
+
+export function resetUninstalledMarkerCache(): void {
+  _uninstalledCachedAt = 0
+  _uninstalledCached = false
+}
+
 export function clearVibeOSUninstalledMarker(): void {
   for (const p of vibeOSUninstalledMarkerPaths()) {
     try {
       if (existsSync(p)) rmSync(p, { force: true })
     } catch {}
   }
+  resetUninstalledMarkerCache()
 }
 
 export function installVibeTierAgents(projectDir = "", trinity: TrinityConfig, activeSlot: string | null = null, options: { includeGlobalHomes?: boolean } = {}): { changed: string[]; checked: string[] } {
