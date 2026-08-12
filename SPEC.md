@@ -335,13 +335,28 @@
 
 ### 10.2 Uninstall Leaves No Artifact Behind
 - **Contract**: The uninstaller sweeps every OpenCode home an install could have targeted (`~/.opencode`, the XDG dir, the desktop app support dir, the project `.opencode`, and any `VIBEOS_OPENCODE_HOME` override) and removes plugin files, the `/vibe` skill, home-root runtime artifacts (`opencode-retention.log`, `learned-patterns.json`, `recent-events.jsonl`), vibeOS auto-generated project skills, runtime state dirs, the legacy home-root deployment, and the stray `undefined/` deploy artifact. It strips the vibe plugin ref, tier agents, and `default_agent` from both `opencode.json` and `opencode.jsonc` while preserving non-vibe entries. It is idempotent and safe on a bare `HOME`.
-- **Test**: `tests/test_uninstall_completeness.test.mjs` — 8 tests
+- **Test**: `tests/test_uninstall_completeness.test.mjs` — 11 tests
+- **Module**: `scripts/uninstall.mjs`
+
+### 10.2b The `vibe` Mode-Dropdown Entry Disappears From Every Source
+- **Contract**: The dropdown entry can come from `config.agent.vibe`, a legacy `config.mode.vibe` block, or a markdown agent file (`<home>/agent/vibe*.md`, `<project>/.opencode/agent/vibe*.md`). Uninstall removes all three. Non-vibe `mode` entries and hand-written `agent/vibe*.md` files (no `vibeOS`/`VibeUltraX` marker in the body) are preserved.
+- **Test**: `tests/test_uninstall_completeness.test.mjs` — "uninstall removes every source of the vibe mode-dropdown entry"
 - **Module**: `scripts/uninstall.mjs`
 
 ### 10.3 An Uninstalled Plugin Is Inert
 - **Contract**: When the uninstall marker exists, `DelegationEnforcer` returns `{}` — zero hooks — so an OpenCode process still holding the bundle in memory cannot recreate `$VIBEOS_HOME` or re-register tier agents. Reinstall clears the marker.
 - **Test**: `tests/test_uninstalled_plugin_inert.test.mjs` — 2 tests
 - **Module**: `src/index.ts`, `src/lib/runtime-config.ts`
+
+### 10.3b Already-Registered Hooks Go Inert Mid-Process
+- **Contract**: The load-time check cannot fire again for a bundle that is already loaded, so every hook re-checks the marker per call via `isVibeOSUninstalledCached()` (750 ms cache). After an in-session `vibe uninstall`, `experimental.chat.system.transform`, `experimental.text.complete` and `shell.env` leave their outputs untouched, and the `vibe` tool returns the inert notice for every action except `setup`.
+- **Test**: `tests/test_agent_gate.test.mjs` — "an in-session uninstall makes already-registered hooks inert"
+- **Module**: `src/index.ts`, `src/lib/runtime-config.ts`, `src/lib/trinity-tool.ts`
+
+### 10.5 vibeOS Runs Only Under the `vibe` Agent
+- **Contract**: Automatic behavior is gated on the agent selected in OpenCode's mode dropdown. `vibe` and `vibe-*` tier subagents run the full pipeline; `build`/`plan`/any other agent gets no footer, no system directives, no enforcement, no model override, no env injection. The agent is learned from `chat.message`/`chat.params`/`chat.headers` and cached per session (256-entry LRU). Fallbacks: `VIBEOS_AGENT_GATE=off` disables the gate; a known session agent is authoritative; a host that never reports an agent runs vibeOS; otherwise the last reported agent applies. The `vibe` tool itself is never agent-gated.
+- **Test**: `tests/test_agent_gate.test.mjs` — 10 tests
+- **Module**: `src/lib/agent-gate.ts`, `src/index.ts`
 
 ### 10.4 The In-Session `vibe uninstall` Reaches the Uninstaller
 - **Contract**: `build-bundle.mjs` bundles `scripts/uninstall.mjs` to `dist/uninstall.mjs`; `deploy.mjs` copies it to `<ocHome>/plugins/uninstall.mjs`; `trinity-tool` resolves `join(here, "uninstall.mjs")` first. Without this the deployed plugin dir has no `scripts/` tree and `vibe uninstall` only printed instructions.

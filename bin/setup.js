@@ -781,6 +781,12 @@ function vibeOSUninstalledMarkerPaths() {
     join7(home, ".config", "opencode", VIBEOS_UNINSTALLED_MARKER)
   ];
 }
+var _uninstalledCachedAt = 0;
+var _uninstalledCached = false;
+function resetUninstalledMarkerCache() {
+  _uninstalledCachedAt = 0;
+  _uninstalledCached = false;
+}
 function clearVibeOSUninstalledMarker() {
   for (const p of vibeOSUninstalledMarkerPaths()) {
     try {
@@ -788,6 +794,7 @@ function clearVibeOSUninstalledMarker() {
     } catch {
     }
   }
+  resetUninstalledMarkerCache();
 }
 
 // src/bin/setup.ts

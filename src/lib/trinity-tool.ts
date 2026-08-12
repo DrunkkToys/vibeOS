@@ -11,7 +11,7 @@ import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getSessionHealthSnapshot, getLiveOpenCodeModel } from "./session-health.js"
 import { getVibeOSHome, getCurrentSessionId, withFileLock } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
-import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
+import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, isVibeOSUninstalledCached, resetUninstalledMarkerCache, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
 import { loadAxisOverrides, writeAxisOverride, clearAxisOverrides } from "./selection-manager.js"
 
@@ -393,8 +393,18 @@ export function createTrinityTool(deps) {
       token: deps.tool.schema.string().optional(),
     },
     async execute({ action, slot, level, model, token }: { action?: string; slot?: string; level?: string; model?: string; token?: string } = {}) {
-      if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (!action) action = "status"
+      // Post-uninstall: the bundle is still in memory, so the tool is still
+      // callable. Everything except a reinstall would recreate state that the
+      // uninstaller just deleted, so refuse and point at setup.
+      if (isVibeOSUninstalledCached() && action !== "setup" && action !== "uninstall") {
+        return [
+          "[vibeOS] uninstalled — this command is inert.",
+          "The plugin bundle is still loaded in this OpenCode process but every hook is off.",
+          "Restart OpenCode to unload it, or reinstall with: npx vibeostheog setup",
+        ].join("\n")
+      }
+      if (typeof deps._lazyRefresh === "function") deps._lazyRefresh()
       if (["brain", "medium", "cheap"].includes(action)) { slot = action; action = "set" }
       if (action === "gui") action = "dashboard"
       const keepExistingTrinitySlot = (existingSlot: unknown, nextModel: string) => {
@@ -2091,6 +2101,7 @@ export function createTrinityTool(deps) {
         if (script) {
           try {
             const output = execNode(process.execPath, [script], { encoding: "utf8", cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] })
+            resetUninstalledMarkerCache()
             return [
               "[vibeOS] Clean uninstall complete.",
               "This OpenCode process still has the plugin loaded in memory, but it is now inert",
