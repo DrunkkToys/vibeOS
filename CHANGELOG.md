@@ -1,3 +1,41 @@
+## 0.27.6
+- feat: TDD gate off by default, auto-ON on coding; vibe gate tdd on|off|auto
+- fix: skip footer telemetry post when no routing decision exists
+- fix: scope vibeOS to the vibe agent and finish the uninstall (#526)
+- fix: make uninstall actually remove everything, add live damage report
+- fix: loop-guard no longer echoes its own directive text as a command
+- fix: loop-guard poll counter now keys on target, not just shape
+- fix: resolveOpenCodeHomes returns single ~/.opencode home, not dual
+- fix: make uninstall actually remove everything
+- fix: 401 must keep fallback active (flash hidden) until next success
+- fix: decouple vibeOS from ~/.claude — own home is ~/.vibeos
+- fix: integration audit — lock/atomic all state writers, dedupe prompts, gate-before-footer
+- docs: document v0.27.5 fixes (decouple ~/.claude, 401 fallback) + E2E hardening
+- docs: plan the six-phase architectural audit
+- test: make two E2E scenarios robust to model/API variance
+- test: update auth-rejection contract to verify real self-heal (401 keeps fallback until next success)
+- test: impact harness — measures what the plugin does to output
+- test: full-workflow-live E2E + build:dist script
+- chore: bump v0.27.4 — architectural audit + impact harness
+- chore: reconcile CHANGELOG for released v0.27.3 (single section, drop duplicate)
+Merge pull request #525 from DrunkkToys/fix/uninstall-complete-cleanup
+Merge branch 'master' into fix/uninstall-complete-cleanup
+Merge pull request #524 from DrunkkToys/fix/uninstall-complete-cleanup
+Merge pull request #523 from DrunkkToys/fix/e2e-robustness-changelog
+Merge pull request #522 from DrunkkToys/fix/401-fallback-persistence
+Merge pull request #521 from DrunkkToys/fix/decouple-claude-home
+Merge pull request #520 from DrunkkToys/release/v0.27.4
+Merge pull request #519 from DrunkkToys/feat/impact-harness
+Merge pull request #518 from DrunkkToys/feat/long-e2e-build-dist
+Merge pull request #517 from DrunkkToys/feat/arch-audit-c
+audit C (perf): debounce footer hot path to ~1/sec, dedup claim evidence
+Merge pull request #516 from DrunkkToys/feat/arch-audit-bda
+audit B+D+A: un-mute vibeOS errors, harden token files, break cascade cycle, drop dead code
+Merge pull request #515 from DrunkkToys/feat/architecture-audit
+Merge pull request #514 from DrunkkToys/fix/integration-audit
+Merge pull request #513 from DrunkkToys/feat/gate-tdd-auto
+
+
 ## Unreleased
 
 ### Fixes
