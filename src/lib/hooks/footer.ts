@@ -1516,6 +1516,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
           const gateVerdict = readLatestGateVerdict(getVibeOSHome(), state.sid)
           const gateOutcome = gateVerdict ? (gateVerdict.passed ? "positive" : "negative") : null
           const outcome = gateOutcome || state._rewardOutcome || null
+          if (!outcome) return
           getApiClient().recordRoutingDecision({
             session_id: state.sid,
             mode: state.displayMode || null,
