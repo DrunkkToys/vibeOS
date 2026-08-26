@@ -68,8 +68,26 @@ test("live blackbox state is shared through the canonical getter", async () => {
   assert.ok(String(status).includes("REFINING") || String(status).includes("resolved"), String(status))
 })
 
-test("cleanup", () => {
-  process.env.HOME = prevHome
-  process.env.VIBEOS_HOME = prevVibeHome
-  rmSync(sandbox, { recursive: true, force: true })
+test("cleanup", async () => {
+  try {
+    // Drain the buffered savings-ledger entries while the sandbox still exists.
+    // The flush timer re-queues and retries every LEDGER_BUFFER_FLUSH_MS on
+    // failure, so removing the sandbox first left a ref'd 5s timer appending to
+    // a deleted path forever -- this file's process then never exited and the
+    // whole file failed on the suite's test timeout even though both tests pass.
+    const stateModule = await import("../src/lib/state.js")
+    stateModule._flushLedgerBuffer()
+    // `process.env.X = undefined` stores the literal string "undefined", so an
+    // unset VIBEOS_HOME used to be "restored" to "undefined". Every later write
+    // then resolved against the relative path undefined/ in the repo root, and
+    // the savings-ledger flush timer retried its failing append forever, which
+    // both polluted the tree and kept this test file's process alive until the
+    // suite timeout. Delete the variable when it was unset.
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevVibeHome === undefined) delete process.env.VIBEOS_HOME
+    else process.env.VIBEOS_HOME = prevVibeHome
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true })
+  }
 })

@@ -13,10 +13,22 @@ export const USER_HOME = (() => {
 
 type RuntimeHomeContext = { home?: string }
 
+// `process.env.X = someUndefinedVar` stores the literal string "undefined", and
+// tests that snapshot/restore these variables hit that every time the variable
+// was unset to begin with. A home of "undefined" is a *relative* path, so every
+// state write lands in a stray undefined/ directory under the process cwd (the
+// repo root, when the suite runs). Treat those non-values as unset so the normal
+// fallback chain applies. See tests/cascade_audit_path_safety.test.mjs.
+function envPath(value: string | undefined): string | undefined {
+  const trimmed = String(value ?? "").trim()
+  if (!trimmed || trimmed === "undefined" || trimmed === "null") return undefined
+  return trimmed
+}
+
 const RUNTIME_HOME_CONTEXT = new AsyncLocalStorage<RuntimeHomeContext>()
 
 export function resolveVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || join(process.env.HOME || USER_HOME, ".vibeos")
+  return envPath(process.env.VIBEOS_HOME) || join(envPath(process.env.HOME) || USER_HOME, ".vibeos")
 }
 
 // Single global source of truth: OpenCode (CLI and desktop sidecar alike)
@@ -27,9 +39,9 @@ export function resolveVibeOSHome(): string {
 // directive 2026-08-09: exactly one home, no exceptions. See
 // scripts/lib/opencode-homes.mjs for the deploy-time counterpart.
 export function resolveOpenCodeHomes(): string[] {
-  const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME
+  const override = envPath(process.env.VIBEOS_OPENCODE_HOME) || envPath(process.env.OPENCODE_HOME)
   if (override) return [override]
-  const base = process.env.HOME || USER_HOME
+  const base = envPath(process.env.HOME) || USER_HOME
   return [join(base, ".opencode")]
 }
 
@@ -45,11 +57,11 @@ export function resolveOpenCodeHome(): string {
   for (const home of homes) {
     if (existsSync(home)) return home
   }
-  return homes[0] || join(process.env.HOME || USER_HOME, ".config", "opencode")
+  return homes[0] || join(envPath(process.env.HOME) || USER_HOME, ".config", "opencode")
 }
 
 export function getVibeOSHome(): string {
-  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join(process.env.HOME || USER_HOME, ".vibeos")
+  return envPath(process.env.VIBEOS_HOME) || envPath(RUNTIME_HOME_CONTEXT.getStore()?.home) || join(envPath(process.env.HOME) || USER_HOME, ".vibeos")
 }
 
 export function getOpenCodeHome(): string {
@@ -61,7 +73,7 @@ export function getOpenCodeHomes(): string[] {
 }
 
 export function setVibeOSHomeContext(home: string): void {
-  const resolved = String(home || "").trim() || resolveVibeOSHome()
+  const resolved = envPath(home) || resolveVibeOSHome()
   try {
     process.env.VIBEOS_HOME = resolved
   } catch {}

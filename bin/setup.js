@@ -260,14 +260,19 @@ var USER_HOME = (() => {
     return tmpdir2();
   }
 })();
+function envPath(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed || trimmed === "undefined" || trimmed === "null") return void 0;
+  return trimmed;
+}
 var RUNTIME_HOME_CONTEXT = new AsyncLocalStorage();
 function resolveVibeOSHome() {
-  return process.env.VIBEOS_HOME || join4(process.env.HOME || USER_HOME, ".vibeos");
+  return envPath(process.env.VIBEOS_HOME) || join4(envPath(process.env.HOME) || USER_HOME, ".vibeos");
 }
 function resolveOpenCodeHomes2() {
-  const override = process.env.VIBEOS_OPENCODE_HOME || process.env.OPENCODE_HOME;
+  const override = envPath(process.env.VIBEOS_OPENCODE_HOME) || envPath(process.env.OPENCODE_HOME);
   if (override) return [override];
-  const base = process.env.HOME || USER_HOME;
+  const base = envPath(process.env.HOME) || USER_HOME;
   return [join4(base, ".opencode")];
 }
 function hasOpenCodeConfig(dir) {
@@ -281,10 +286,10 @@ function resolveOpenCodeHome2() {
   for (const home of homes) {
     if (existsSync5(home)) return home;
   }
-  return homes[0] || join4(process.env.HOME || USER_HOME, ".config", "opencode");
+  return homes[0] || join4(envPath(process.env.HOME) || USER_HOME, ".config", "opencode");
 }
 function getVibeOSHome2() {
-  return process.env.VIBEOS_HOME || RUNTIME_HOME_CONTEXT.getStore()?.home || join4(process.env.HOME || USER_HOME, ".vibeos");
+  return envPath(process.env.VIBEOS_HOME) || envPath(RUNTIME_HOME_CONTEXT.getStore()?.home) || join4(envPath(process.env.HOME) || USER_HOME, ".vibeos");
 }
 
 // src/lib/state/scratchpad-cache.ts
