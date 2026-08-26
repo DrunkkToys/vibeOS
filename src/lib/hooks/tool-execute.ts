@@ -51,7 +51,7 @@ import { saveReport } from "../reporting.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
-import { computeDifficulty, cascadeDecide, hashQuery } from "../../vibeOS-lib/ml-router.js"
+import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -311,18 +311,6 @@ function _slotRank(slot: string | null): number {
   return 0
 }
 
-function _slotFromModel(model: string | null, trinityCheap: string | null, trinityMedium: string | null, trinityBrain: string | null): string | null {
-  if (!model) return null
-  if (trinityBrain && model === trinityBrain) return "brain"
-  if (trinityMedium && model === trinityMedium) return "medium"
-  if (trinityCheap && model === trinityCheap) return "cheap"
-  const tier = classify(model)
-  if (tier === "high") return "brain"
-  if (tier === "mid") return "medium"
-  if (tier === "budget") return "cheap"
-  return null
-}
-
 function _modelForSlot(slot: string | null, trinityCheap: string | null, trinityMedium: string | null, trinityBrain: string | null): string | null {
   if (slot === "brain") return trinityBrain
   if (slot === "medium") return trinityMedium
@@ -410,160 +398,65 @@ function _writeCascadeAudit(prompt: string, slot: string | null, model: string |
   }
 }
 
-export function resolveCascadeRouteDecision(input: unknown = {}): unknown {
-  const prompt = String(input?.prompt || "")
-  const firstWord = String(input?.firstWord || prompt.trim().split(/\s+/)[0] || "").toLowerCase()
-  const trinityCheap = input?.trinityCheap || null
-  const trinityMedium = input?.trinityMedium || null
-  const trinityBrain = input?.trinityBrain || null
-  const hasMedia = input?.hasMedia === true
-  const backendRoute = input?.backendRoute && typeof input.backendRoute === "object" ? input.backendRoute : null
-  const backendExplicit = backendRoute?.explicit === true || backendRoute?.allow_local_upgrade === false
-  const cascadeRoot = _normalizeCascadeRoot(input?.activePipeline, _slotFromModel(input?.tierTarget || input?.exploratoryTarget || null, trinityCheap, trinityMedium, trinityBrain))
-  let cascadeSelectedModel = input?.exploratoryTarget || input?.tierTarget || null
-  const explicitTarget = cascadeSelectedModel
-  let cascadeSelectedSlot = _slotFromModel(cascadeSelectedModel, trinityCheap, trinityMedium, trinityBrain)
-  let cascadeSource = cascadeSelectedModel ? (input?.exploratoryTarget ? "exploratory" : "tier") : "none"
-  let cascadeReason = cascadeSelectedModel ? `${cascadeSource}:${firstWord || input?.currentTier || "task"}` : "no target"
-  // selectedModel/selectedSlot/source/reason are set below by the backend branch
-  // (line ~390) or the no-backend/merge branch (line ~466) — this is the single
-  // decision point; nothing reads these placeholder values before then.
-  let selectedModel: string | null = null
-  let selectedSlot: string | null = null
-  let source = "none"
-  let reason = "no target"
-  let localConfidence = 0
-  let localScore = 0
-  let cascadeDecision = null
+// The tier envelope the per-message ML difficulty engine is allowed to move
+// within: the mode's declared pipeline, widened by whatever the live route
+// actually spans, plus the current regime slot.
+//
+// This replaces the former resolveCascadeRouteDecision, which had zero call
+// sites, was tree-shaken out of dist/vibeOS.js, and was therefore validated by
+// tests against code that never shipped. Production Task routing reads the
+// control vector and adjusts it with computeDifficulty (see the task branch
+// below); this is the envelope that adjustment respects.
+//
+// Reading active_pipeline alone made the ML inert everywhere but vibeultrax:
+// every other mode declares a single-slot pipeline, so the gate's
+// `root.includes(suggestedTier) && suggestedTier !== regimeSlot` could never
+// both hold. Widening by route_path lets a backend escalation open the envelope
+// while an explicitly single-tier mode (vibeqmax = brain only) stays closed.
+export function mlCascadeRoot(selection: unknown, fallbackSlot: string | null): string[] {
+  const envelope = new Set<string>([
+    ..._normalizeCascadeRoot(selection?.active_pipeline, null),
+    ..._normalizeCascadeRoot(selection?.route_path, null),
+  ])
+  if (fallbackSlot) envelope.add(fallbackSlot)
+  const out = [...envelope]
+    .filter((slot) => slot === "cheap" || slot === "medium" || slot === "brain")
+    .sort((a, b) => _slotRank(a) - _slotRank(b))
+  if (out.length > 0) return out
+  return fallbackSlot ? [fallbackSlot] : []
+}
 
-  const applyLocalCandidate = (slot: string | null, model: string | null, nextSource: string, nextReason: string, force = false) => {
-    if (!slot || !model || hasMedia) return
-    if (!cascadeSelectedSlot || force || _slotRank(slot) > _slotRank(cascadeSelectedSlot)) {
-      cascadeSelectedSlot = slot
-      cascadeSelectedModel = model
-      cascadeSource = nextSource
-      cascadeReason = nextReason
+// Pull an ML tier verdict into the envelope instead of discarding it.
+//
+// The gate used to be a plain `envelope.includes(suggestedTier)`, which drops
+// any verdict landing outside the envelope. That made the whole mechanism
+// unreachable outside vibeultrax: computeDifficulty only ever returns "medium"
+// at level "moderate", and the gate excludes moderate, so the reachable
+// verdicts are "cheap" and "brain". Under a vibemax envelope of
+// ["medium","brain"] a confident "cheap" was therefore thrown away and the
+// Task stayed on the brain baseline the backend had opened.
+//
+// Clamping keeps the envelope a hard bound -- the result is always a member --
+// while letting a verdict below the floor land on the floor. Single-slot
+// envelopes clamp to themselves, so vibeqmax/vibelitex stay no-ops.
+export function clampSlotToEnvelope(tier: unknown, envelope: string[]): string | null {
+  const slot = String(tier || "").trim().toLowerCase()
+  if (!Array.isArray(envelope) || envelope.length === 0) return null
+  if (envelope.includes(slot)) return slot
+  // _slotRank returns 0 for anything unrecognised, so test membership rather
+  // than the rank -- an unknown verdict must be ignored, not clamped to cheap.
+  if (slot !== "cheap" && slot !== "medium" && slot !== "brain") return null
+  const rank = _slotRank(slot)
+  let best: string | null = null
+  let bestDistance = Infinity
+  for (const candidate of envelope) {
+    const distance = Math.abs(_slotRank(candidate) - rank)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = candidate
     }
   }
-
-  if (backendRoute?.target) {
-    selectedModel = String(backendRoute.target)
-    selectedSlot = backendRoute?.target_slot || backendRoute?.targetSlot || _slotFromModel(selectedModel, trinityCheap, trinityMedium, trinityBrain)
-    source = "backend"
-    reason = backendRoute?.reason || "backend route"
-      _writeCascadeAudit(prompt, selectedSlot, selectedModel, { escalate: selectedSlot !== "cheap", useCheap: selectedSlot === "cheap", confidence: backendRoute.confidence || 1, reason: `backend: ${reason}`, source }, {
-        selectedSlot,
-        selectedModel,
-        source,
-        routePath: normalizeRoutePath(cascadeRoot, selectedSlot),
-        cascadeDepth: normalizeRoutePath(cascadeRoot, selectedSlot).length || 1,
-        executed: true,
-      })
-  }
-
-  const precomputedEmbeddingMode = input?.embeddingMode ? String(input.embeddingMode) : null
-  if (!backendRoute?.target && precomputedEmbeddingMode) {
-    const isBudget = /budget|lite|speed|cheap/i.test(precomputedEmbeddingMode)
-    const isQuality = /quality|brain|ultra|opus|pro/i.test(precomputedEmbeddingMode)
-    if (isBudget && trinityCheap) {
-      applyLocalCandidate("cheap", trinityCheap, "embedding", `embedding=${precomputedEmbeddingMode}`)
-    } else if (isQuality && trinityBrain) {
-      applyLocalCandidate("brain", trinityBrain, "embedding", `embedding=${precomputedEmbeddingMode}`)
-    } else if (trinityMedium) {
-      applyLocalCandidate("medium", trinityMedium, "embedding", `embedding=${precomputedEmbeddingMode}`)
-    }
-  }
-
-  if (input?.mlEnabled !== false) {
-    try {
-      const mlDifficulty = computeDifficulty(prompt)
-      localConfidence = mlDifficulty.confidence
-      localScore = mlDifficulty.score
-      if (mlDifficulty.confidence >= Number(input?.mlConfidenceThreshold ?? ML_CONFIDENCE_THRESHOLD) && mlDifficulty.level !== "moderate") {
-        const mlSlot = mlDifficulty.suggestedTier
-        const mlModel = _modelForSlot(mlSlot, trinityCheap, trinityMedium, trinityBrain)
-        if (mlModel) {
-          applyLocalCandidate(mlSlot, mlModel, "ml", `${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}`)
-        }
-      }
-    } catch (err) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] ML route resolver error: ${err.message}`)
-    }
-  }
-
-  // Stress upgrade: must run BEFORE cascade decision so it doesn't skip
-  // when cascadeSelectedSlot gets changed by cascade escalation
-  if (cascadeSelectedSlot === "cheap" && trinityMedium && Number(input?.stressScore || 0) > 0.5) {
-    applyLocalCandidate("medium", trinityMedium, "stress", `stress ${Number(input?.stressScore || 0).toFixed(2)}`, true)
-  }
-
-  if (cascadeRoot.length > 1 && trinityCheap && trinityMedium) {
-    try {
-      cascadeDecision = cascadeDecide(prompt, 0.001, 0.005, 0.02, 0.85)
-      if (cascadeDecision.escalate) {
-        const slot = cascadeRoot.length > 2 && (cascadeDecision.confidence >= 0.7 || cascadeDecision.level === "complex") ? cascadeRoot[2] : cascadeRoot[1]
-        const model = _modelForSlot(slot, trinityCheap, trinityMedium, trinityBrain)
-        if (model) {
-          applyLocalCandidate(slot, model, "cascade", cascadeDecision.reason)
-        }
-      } else if (cascadeDecision.useCheap && !cascadeSelectedModel) {
-        applyLocalCandidate(cascadeRoot[0], _modelForSlot(cascadeRoot[0], trinityCheap, trinityMedium, trinityBrain), "cascade", cascadeDecision.reason)
-      }
-      _writeCascadeAudit(prompt, cascadeSelectedSlot, cascadeSelectedModel, { ...cascadeDecision, source: cascadeSource }, {
-        selectedSlot: cascadeSelectedSlot,
-        selectedModel: cascadeSelectedModel,
-        source: cascadeSource,
-        routePath: normalizeRoutePath(cascadeRoot, cascadeSelectedSlot),
-        cascadeDepth: normalizeRoutePath(cascadeRoot, cascadeSelectedSlot).length || 1,
-        executed: true,
-      })
-    } catch (err) {
-      if (DEBUG_INTERNALS) console.error(`[vibeOS] cascade route resolver error: ${err.message}`)
-    }
-  }
-
-  if (!backendRoute?.target) {
-    selectedModel = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedModel : (explicitTarget || cascadeSelectedModel)
-    selectedSlot = (cascadeSource === "stress" || cascadeSource === "cascade") ? cascadeSelectedSlot : (explicitTarget ? _slotFromModel(explicitTarget, trinityCheap, trinityMedium, trinityBrain) : cascadeSelectedSlot)
-    source = cascadeSource
-    reason = cascadeReason
-  } else if (!backendExplicit && cascadeSelectedSlot && _slotRank(cascadeSelectedSlot) > _slotRank(selectedSlot)) {
-    // Backend route is not marked explicit/non-negotiable, and local cascade
-    // escalated to a higher-ranked slot: local cascade outranks the backend.
-    selectedModel = cascadeSelectedModel
-    selectedSlot = cascadeSelectedSlot
-    source = cascadeSource
-    reason = cascadeReason
-  }
-
-  const routePath = normalizeRoutePath(cascadeRoot, selectedSlot)
-  const cascadeRoutePath = normalizeRoutePath(cascadeRoot, cascadeSelectedSlot)
-  const selectedSubagent = taskSubagentTypeForSlot(selectedSlot)
-  const cascadeSelectedSubagent = taskSubagentTypeForSlot(cascadeSelectedSlot)
-  const requiresDelegation = selectedSlot === "medium" || selectedSlot === "brain"
-  return {
-    selectedModel,
-    selectedSlot,
-    selectedSubagent,
-    requiresDelegation,
-    shouldOverrideLocal: Boolean(selectedModel),
-    delegationReason: requiresDelegation ? reason : "",
-    reason,
-    source,
-    cascadeDepth: routePath.length || 1,
-    cascadeRoot,
-    routePath,
-    cascadeSelectedModel,
-    cascadeSelectedSlot,
-    cascadeSelectedSubagent,
-    cascadeRoutePath,
-    backendTarget: backendRoute?.target || null,
-    backendExplicit,
-    localConfidence,
-    localScore,
-    cascadeConfidence: cascadeDecision?.confidence || 0,
-    cascadeReason: cascadeDecision?.reason || "",
-  }
+  return best
 }
 
 // Strip any vibeOS footer block(s) already at the head of a tool-output string.
@@ -827,30 +720,31 @@ export const onToolExecuteBefore = async (input, output) => {
     // adjust the tier UP OR DOWN for this one message -- bidirectional, never
     // regime-sticky. A cheap-baseline turn escalates when the prompt is
     // genuinely complex; a brain-baseline turn de-escalates when the prompt is
-    // genuinely trivial. This wires the ML difficulty engine (previously
-    // computed via resolveCascadeRouteDecision but never consulted by real Task
-    // routing) into production routing. See docs/live-debug-session-notes.md
-    // round 13.
+    // genuinely trivial. This wires the ML difficulty engine into production
+    // routing; the envelope it may move within comes from mlCascadeRoot above.
+    // See docs/live-debug-session-notes.md round 13.
     const _rawSlot = String(selection.worker_slot || selection.selected_slot || "").trim().toLowerCase()
     const _regimeSlot = (_rawSlot === "cheap" || _rawSlot === "medium" || _rawSlot === "brain")
       ? _rawSlot
       : (currentTier === "high" ? "medium" : "cheap")
-    const _cascadeRoot = _normalizeCascadeRoot(selection.active_pipeline, _regimeSlot)
+    const _cascadeRoot = mlCascadeRoot(selection, _regimeSlot)
     let _slot = _regimeSlot
     let _routeSource = "control-vector"
     let _routeReason = `worker slot ${_regimeSlot}`
     if (input?.mlEnabled !== false && _prompt.length > 0) {
       try {
         const mlDifficulty = computeDifficulty(_prompt)
+        const _mlSlot = clampSlotToEnvelope(mlDifficulty.suggestedTier, _cascadeRoot)
         if (
           mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD &&
           mlDifficulty.level !== "moderate" &&
-          _cascadeRoot.includes(mlDifficulty.suggestedTier) &&
-          mlDifficulty.suggestedTier !== _regimeSlot
+          _mlSlot &&
+          _mlSlot !== _regimeSlot
         ) {
-          _slot = mlDifficulty.suggestedTier
+          _slot = _mlSlot
           _routeSource = "ml"
-          _routeReason = `ml ${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)} (regime=${_regimeSlot})`
+          const _clamped = _mlSlot === mlDifficulty.suggestedTier ? "" : ` clamped from ${mlDifficulty.suggestedTier}`
+          _routeReason = `ml ${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}${_clamped} (regime=${_regimeSlot})`
         }
       } catch (mlErr) {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] ML per-turn route adjustment error: ${mlErr.message}`)

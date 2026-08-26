@@ -606,15 +606,21 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("route_path", routePath)
     if (isUltraX) {
       ensureVibeUltraXSubagents(null, syncDirectory)
-      writeIf("entry_slot", entrySlot || "cheap")
-      writeIf("worker_slot", workerSlot || null)
-      writeIf("selected_slot", workerSlot || null)
-      writeIf("worker_model", workerModel || null)
-      writeIf("selected_subagent", selectedSubagent || null)
-      writeIf("requires_delegation", requiresDelegation)
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
     }
+    // These six are the single source of truth that Task routing reads
+    // (tool-execute.ts: `selection.worker_slot || selection.selected_slot`).
+    // Each used to be written ONLY inside the isUltraX branch above, so the
+    // moment the mode left vibeultrax all six froze at their last vibeultrax
+    // value and every subagent route in every other mode ran off stale state.
+    // They are per-turn state, not a vibeultrax feature.
+    writeIf("entry_slot", entrySlot || (isUltraX ? "cheap" : null))
+    writeIf("worker_slot", workerSlot || null)
+    writeIf("selected_slot", workerSlot || null)
+    writeIf("worker_model", workerModel || null)
+    writeIf("selected_subagent", isUltraX ? selectedSubagent || null : null)
+    writeIf("requires_delegation", requiresDelegation)
 
     const compatibilityMode = currentSel.onboarding_mode === "assist"
     const flowManuallyDisabled = currentSel.flow_enabled === false && currentSel.flow_enforce === false
