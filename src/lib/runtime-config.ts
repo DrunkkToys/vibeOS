@@ -96,9 +96,14 @@ export function buildVibeTierAgent(slot: string, model: string, existing: JsonRe
 export function collectOpenCodeConfigPaths(projectDir = "", options: { includeGlobalHomes?: boolean } = {}): string[] {
   const { includeGlobalHomes = true } = options
   const candidates: string[] = []
-  if (projectDir) {
-    candidates.push(join(projectDir, "opencode.json"))
-    candidates.push(join(projectDir, ".opencode", "opencode.json"))
+  // The desktop app's shared server process runs with cwd "/", so callers that
+  // fall back to process.cwd() handed us the filesystem root as a "project".
+  // Every config write then targeted /opencode.json, which is EROFS on macOS.
+  const dir = String(projectDir || "").trim()
+  const isRealProjectDir = !!dir && dir !== "/" && dir !== "." && existsSync(dir)
+  if (isRealProjectDir) {
+    candidates.push(join(dir, "opencode.json"))
+    candidates.push(join(dir, ".opencode", "opencode.json"))
   }
   if (includeGlobalHomes) {
     for (const home of getOpenCodeHomes()) candidates.push(join(home, "opencode.json"))
@@ -274,13 +279,18 @@ export function installVibeTierAgents(projectDir = "", trinity: TrinityConfig, a
     checked.push(path)
     const config = readOpenCodeConfig(path)
     if (!config || typeof config !== "object") continue
-    if (installVibeTierAgentsInConfig(config, trinity, activeSlot)) {
-      writeOpenCodeConfig(path, config)
-      changed.push(path)
-    } else if (!existsSync(path)) {
-      writeOpenCodeConfig(path, config)
-      changed.push(path)
-    }
+    // A config path we cannot write (read-only mount, permissions, a path that
+    // vanished) must never propagate out of here: this runs inside the per-turn
+    // control sync, where a throw discards the routing decision for the turn.
+    try {
+      if (installVibeTierAgentsInConfig(config, trinity, activeSlot)) {
+        writeOpenCodeConfig(path, config)
+        changed.push(path)
+      } else if (!existsSync(path)) {
+        writeOpenCodeConfig(path, config)
+        changed.push(path)
+      }
+    } catch {}
   }
   return { changed, checked }
 }

@@ -624,7 +624,11 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("enabled", true)
     writeIf("route_path", routePath)
     if (isUltraX) {
-      ensureVibeUltraXSubagents(null, syncDirectory)
+      // Best-effort: registering the tier subagents is a convenience, while the
+      // slot writes below are the actual routing decision. A failure here used to
+      // throw out of syncControlSettings into its catch, which returns the
+      // PREVIOUS state -- so the backend's tier choice was dropped every turn.
+      try { ensureVibeUltraXSubagents(null, syncDirectory) } catch {}
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
     }
@@ -860,6 +864,23 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
   } catch (err) {
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
+    // This catch returns a fallback that PRESERVES the previous slot state. In the
+    // desktop app console.error goes nowhere, so a throw here looked exactly like
+    // "the backend chose the same slot again" -- the orchestrator silently stopped
+    // honouring every routing decision and nothing anywhere said so.
+    try {
+      const vibeHome = getVibeOSHome()
+      if (vibeHome && vibeHome !== "undefined" && !vibeHome.startsWith("undefined")) {
+        const auditDir = join(vibeHome, "cascade-audit")
+        mkdirSync(auditDir, { recursive: true })
+        appendFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+          _ts: new Date().toISOString(),
+          source: "control-sync-error",
+          message: String(err?.message || err),
+          stack: String(err?.stack || "").split("\n").slice(0, 4).join(" | "),
+        }) + "\n")
+      }
+    } catch {}
     const fallbackSel = loadSelection()
     const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null
     const fallbackEntrySlot = fallbackSel?.entry_slot || fallbackSel?.active_slot || rootSlotForControlVector(cv, modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias)) || cv?.tier_bias || null
@@ -1971,6 +1992,23 @@ export const onSystemTransform = async (_input, output) => {
 
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`)
+    // console.error is not reachable in the desktop app, so a throw here used to
+    // be completely invisible: the hook died, no routing was applied, and the
+    // only symptom was slot state that silently never moved. Record it where the
+    // rest of the routing evidence already lives.
+    try {
+      const vibeHome = getVibeOSHome()
+      if (vibeHome && vibeHome !== "undefined" && !vibeHome.startsWith("undefined")) {
+        const auditDir = join(vibeHome, "cascade-audit")
+        mkdirSync(auditDir, { recursive: true })
+        appendFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+          _ts: new Date().toISOString(),
+          sessionId: String(_OC_SID || ""),
+          source: "system-transform-error",
+          message: String(err?.message || err),
+        }) + "\n")
+      }
+    } catch {}
   }
 }
 
