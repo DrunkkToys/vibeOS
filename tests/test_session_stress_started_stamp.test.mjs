@@ -14,18 +14,27 @@ import { describe, it, beforeEach, afterEach } from "node:test"
 import assert from "node:assert"
 import { readFileSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 let _tmpDir, _origHome
 
 function isolateHome() {
   _origHome = process.env.HOME
-  _tmpDir = mkdtempSync(join(import.meta.dirname, "../tmp-stress-started-test-"))
+  // Sandbox under os.tmpdir(), never under the repo: a relative mkdtemp prefix
+  // left 24+ tmp-stress-started-test-XXXXXX/ directories untracked in the repo
+  // root, because the prefix resolved against tests/.. instead of the temp dir.
+  _tmpDir = mkdtempSync(join(tmpdir(), "vibeos-stress-started-"))
   process.env.HOME = _tmpDir
 }
 
 function restoreHome() {
-  process.env.HOME = _origHome
-  if (_tmpDir) { try { rmSync(_tmpDir, { recursive: true, force: true }) } catch {} }
+  try {
+    if (_origHome === undefined) delete process.env.HOME
+    else process.env.HOME = _origHome
+  } finally {
+    if (_tmpDir) { try { rmSync(_tmpDir, { recursive: true, force: true }) } catch {} }
+    _tmpDir = undefined
+  }
 }
 
 let saveSessionStress, recordSaving, getVibeOSHome, _OC_SID
