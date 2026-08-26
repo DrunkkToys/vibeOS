@@ -583,9 +583,28 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const durablePipeline = modeCascadeRoot(cv.optimization_mode || userOptMode, cv.cascade_root || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const routePath = normalizeRoutePath(cv.route_path || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const isUltraX = isVibeUltraXMode(cv.optimization_mode || userOptMode)
-    const entrySlot = rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias || null
-    const workerSlot = normalizeSlot(cv.selected_slot || cv.tier_bias)
-    const workerModel = String(cv.selected_model || cv.selectedModel || modelForSlot(workerSlot) || "")
+    // An explicit `vibe axis tier <slot>` pin is user intent and outranks the
+    // backend slot on BOTH paths. computeAxisBundle() already honours it when the
+    // API is unreachable; without this the pin silently did nothing whenever the
+    // API answered, which is the normal case.
+    const axisTierPin = normalizeSlot(
+      currentSel.axis_overrides && typeof currentSel.axis_overrides === "object"
+        ? (currentSel.axis_overrides as Record<string, unknown>).tier
+        : null,
+    )
+    const entrySlot = axisTierPin || rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias || null
+    const workerSlot = axisTierPin || normalizeSlot(cv.selected_slot || cv.tier_bias)
+    // The backend may name a model this machine has not configured (observed live:
+    // "openrouter/openai/o1-pro" against a trinity on another provider entirely).
+    // tool-execute routes Task delegation off worker_model, so an unconfigured id
+    // fails the turn -- clamp anything outside the local trinity to the slot model.
+    const backendModel = String(cv.selected_model || cv.selectedModel || "").trim()
+    const trinityModels = [TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean)
+    const backendModelIsConfigured = !!backendModel && trinityModels.includes(backendModel)
+    const workerModel = String(
+      (axisTierPin ? modelForSlot(axisTierPin) : backendModelIsConfigured ? backendModel : null) ||
+      modelForSlot(workerSlot) || "",
+    )
     const selectedSubagent = String(cv.selected_subagent || cv.selectedSubagent || vibeUltraXSubagentForSlot(workerSlot) || "")
     const requiresDelegation = isUltraX && (workerSlot === "medium" || workerSlot === "brain")
 
