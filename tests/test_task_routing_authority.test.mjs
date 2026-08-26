@@ -16,6 +16,9 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import * as _pricingMod from "../src/lib/pricing.js"
+import { routeDiag, setPricing } from "./route-diagnostics.mjs"
+setPricing(_pricingMod)
 
 const CHEAP = "opencode/big-pickle"
 const MEDIUM = "opencode-go/mimo-v2.5"
@@ -90,7 +93,8 @@ test("vibemax: the ML de-escalates a trivial Task inside the span the backend op
   try {
     const args = await routeTask(TRIVIAL, "vibemax")
     assert.equal(args.model, MEDIUM,
-      "a confident trivial verdict must pull the Task off the brain baseline down to the envelope floor")
+      "a confident trivial verdict must pull the Task off the brain baseline down to the envelope floor\n" +
+      routeDiag({ case: "vibemax de-escalation", expected: MEDIUM, got: args.model }))
     assert.equal(args.modelID, MEDIUM)
     assert.equal(args.modelId, MEDIUM)
   } finally {
@@ -109,7 +113,8 @@ test("vibeqmax: an explicitly single-tier mode is not de-escalated by a trivial 
   })
   try {
     const args = await routeTask(TRIVIAL, "vibeqmax")
-    assert.equal(args.model, BRAIN, "vibeqmax means brain only -- the ML must not route out of the declared envelope")
+    assert.equal(args.model, BRAIN, "vibeqmax means brain only -- the ML must not route out of the declared envelope\n" +
+      routeDiag({ case: "vibeqmax hard bound", expected: BRAIN, got: args.model }))
   } finally {
     ctx.cleanup()
   }
@@ -132,7 +137,8 @@ test("the control vector's worker slot is what routes a Task when the ML does no
   })
   try {
     const args = await routeTask(TRIVIAL, "cv", { mlEnabled: false })
-    assert.equal(args.model, MEDIUM, "worker_slot is the single source of truth for the baseline")
+    assert.equal(args.model, MEDIUM, "worker_slot is the single source of truth for the baseline\n" +
+      routeDiag({ case: "control-vector baseline", expected: MEDIUM, got: args.model }))
   } finally {
     ctx.cleanup()
   }

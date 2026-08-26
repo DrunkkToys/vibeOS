@@ -13,6 +13,9 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import * as _pricingMod from "../src/lib/pricing.js"
+import { routeDiag, setPricing } from "./route-diagnostics.mjs"
+setPricing(_pricingMod)
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-cascade-depth-"))
 const claudeDir = join(sandbox, ".claude")
@@ -55,6 +58,11 @@ async function routeTaskRow(prompt, tag, selection = {}) {
   const te = await import("../src/lib/hooks/tool-execute.js?depth=" + tag + Date.now())
   const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
   await te.onToolExecuteBefore({ tool: "task", mlEnabled }, { args })
+  if (!args.model && !args.modelID && !args.modelId) {
+    // The hook produced no model. Dump what it saw so a CI-only failure
+    // names its cause instead of just asserting null.
+    console.log("ROUTE_DIAG " + routeDiag({ suite: "cascade_footer_depth.test.mjs" }))
+  }
   const lines = readFileSync(auditFile, "utf-8").trim().split("\n").filter(Boolean)
   return JSON.parse(lines[lines.length - 1])
 }

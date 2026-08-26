@@ -14,6 +14,9 @@ import { join } from "node:path"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import * as _pricingMod from "../src/lib/pricing.js"
+import { routeDiag, setPricing } from "./route-diagnostics.mjs"
+setPricing(_pricingMod)
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-cascade-audit-"))
 const prevHome = process.env.VIBEOS_HOME
@@ -56,6 +59,11 @@ loadTrinitySlotsFromTiersFile()
 test("[cascade-audit] a cascade decision appends a parseable _ts line", async () => {
   const args = { prompt: COMPLEX, subagent_type: "general", model: null, modelID: null, modelId: null }
   await te.onToolExecuteBefore({ tool: "task", mlEnabled: false }, { args })
+  if (!args.model && !args.modelID && !args.modelId) {
+    // The hook produced no model. Dump what it saw so a CI-only failure
+    // names its cause instead of just asserting null.
+    console.log("ROUTE_DIAG " + routeDiag({ suite: "cascade_audit_writer.test.mjs" }))
+  }
   assert.ok(existsSync(auditFile), "cascade-audit.jsonl must be written")
   const lines = readFileSync(auditFile, "utf-8").trim().split("\n").filter(Boolean)
   assert.ok(lines.length >= 1, "at least one audit line")

@@ -9,6 +9,9 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import * as _pricingMod from "../src/lib/pricing.js"
+import { routeDiag, setPricing } from "./route-diagnostics.mjs"
+setPricing(_pricingMod)
 
 test("vibeultrax control vector keeps durable cascade root for simple route", async () => {
   const vu = await import("../dist-ts/vibeOS-lib/blackbox/vibeultrax.js?route-root=" + Date.now())
@@ -299,6 +302,11 @@ async function routePrecedenceTask(prompt, selection, tag) {
     const mod = await import("../src/lib/hooks/tool-execute.js?route-prec=" + tag + Date.now())
     const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
     await mod.onToolExecuteBefore({ tool: "task" }, { args })
+    if (!args.model && !args.modelID && !args.modelId) {
+      // The hook produced no model. Dump what it saw so a CI-only failure
+      // names its cause instead of just asserting null.
+      console.log("ROUTE_DIAG " + routeDiag({ suite: "cascade_route_contract.test.mjs" }))
+    }
     return args
   } finally {
     for (const [k, v] of Object.entries(old)) {
