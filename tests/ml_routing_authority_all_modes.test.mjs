@@ -175,3 +175,35 @@ test("the production ML routing path survives into the shipped bundle", () => {
   assert.ok(bundle.includes("computeDifficulty"), "the live ML difficulty engine must ship")
   assert.ok(bundle.includes("mlCascadeRoot"), "the ML envelope resolver must ship, not be tree-shaken like its predecessor")
 })
+
+// ── Defect 2b: a verdict outside the envelope is clamped, not discarded ──
+
+test("clampSlotToEnvelope pulls an out-of-envelope verdict to the nearest allowed slot", async () => {
+  const te = await import(DIST("lib/hooks/tool-execute.js"))
+  // The reachable case: vibemax's envelope excludes cheap, and computeDifficulty
+  // only ever suggests cheap or brain (medium arrives at level "moderate", which
+  // the gate excludes). A membership test would drop this verdict entirely.
+  assert.equal(te.clampSlotToEnvelope("cheap", ["medium", "brain"]), "medium")
+  assert.equal(te.clampSlotToEnvelope("brain", ["cheap", "medium"]), "medium")
+  // A member is returned unchanged.
+  assert.equal(te.clampSlotToEnvelope("brain", ["cheap", "medium", "brain"]), "brain")
+  // Single-slot envelopes clamp to themselves, so vibeqmax/vibelitex stay hard bounds.
+  assert.equal(te.clampSlotToEnvelope("cheap", ["brain"]), "brain")
+  assert.equal(te.clampSlotToEnvelope("brain", ["medium"]), "medium")
+})
+
+test("clampSlotToEnvelope ignores an unrecognised verdict instead of clamping it to cheap", async () => {
+  const te = await import(DIST("lib/hooks/tool-execute.js"))
+  // _slotRank returns 0 for unknown slots, so a rank-based guard would have
+  // clamped garbage to the bottom of the envelope.
+  assert.equal(te.clampSlotToEnvelope("turbo", ["medium", "brain"]), null)
+  assert.equal(te.clampSlotToEnvelope("", ["medium", "brain"]), null)
+  assert.equal(te.clampSlotToEnvelope(null, ["medium", "brain"]), null)
+  assert.equal(te.clampSlotToEnvelope("cheap", []), null)
+})
+
+test("clampSlotToEnvelope ships in the bundle", () => {
+  const bundle = readFileSync(join(process.cwd(), "dist", "vibeOS.js"), "utf8")
+  assert.ok(bundle.includes("clampSlotToEnvelope"),
+    "the clamp must survive bundling, or the ML gate silently reverts to dropping verdicts")
+})

@@ -426,6 +426,39 @@ export function mlCascadeRoot(selection: unknown, fallbackSlot: string | null): 
   return fallbackSlot ? [fallbackSlot] : []
 }
 
+// Pull an ML tier verdict into the envelope instead of discarding it.
+//
+// The gate used to be a plain `envelope.includes(suggestedTier)`, which drops
+// any verdict landing outside the envelope. That made the whole mechanism
+// unreachable outside vibeultrax: computeDifficulty only ever returns "medium"
+// at level "moderate", and the gate excludes moderate, so the reachable
+// verdicts are "cheap" and "brain". Under a vibemax envelope of
+// ["medium","brain"] a confident "cheap" was therefore thrown away and the
+// Task stayed on the brain baseline the backend had opened.
+//
+// Clamping keeps the envelope a hard bound -- the result is always a member --
+// while letting a verdict below the floor land on the floor. Single-slot
+// envelopes clamp to themselves, so vibeqmax/vibelitex stay no-ops.
+export function clampSlotToEnvelope(tier: unknown, envelope: string[]): string | null {
+  const slot = String(tier || "").trim().toLowerCase()
+  if (!Array.isArray(envelope) || envelope.length === 0) return null
+  if (envelope.includes(slot)) return slot
+  // _slotRank returns 0 for anything unrecognised, so test membership rather
+  // than the rank -- an unknown verdict must be ignored, not clamped to cheap.
+  if (slot !== "cheap" && slot !== "medium" && slot !== "brain") return null
+  const rank = _slotRank(slot)
+  let best: string | null = null
+  let bestDistance = Infinity
+  for (const candidate of envelope) {
+    const distance = Math.abs(_slotRank(candidate) - rank)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = candidate
+    }
+  }
+  return best
+}
+
 // Strip any vibeOS footer block(s) already at the head of a tool-output string.
 // tool.execute.after can run more than once against the same output object; without
 // this the footer was prepended each time, producing "— … —\n\n— … —\n\n<output>".
@@ -701,15 +734,17 @@ export const onToolExecuteBefore = async (input, output) => {
     if (input?.mlEnabled !== false && _prompt.length > 0) {
       try {
         const mlDifficulty = computeDifficulty(_prompt)
+        const _mlSlot = clampSlotToEnvelope(mlDifficulty.suggestedTier, _cascadeRoot)
         if (
           mlDifficulty.confidence >= ML_CONFIDENCE_THRESHOLD &&
           mlDifficulty.level !== "moderate" &&
-          _cascadeRoot.includes(mlDifficulty.suggestedTier) &&
-          mlDifficulty.suggestedTier !== _regimeSlot
+          _mlSlot &&
+          _mlSlot !== _regimeSlot
         ) {
-          _slot = mlDifficulty.suggestedTier
+          _slot = _mlSlot
           _routeSource = "ml"
-          _routeReason = `ml ${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)} (regime=${_regimeSlot})`
+          const _clamped = _mlSlot === mlDifficulty.suggestedTier ? "" : ` clamped from ${mlDifficulty.suggestedTier}`
+          _routeReason = `ml ${mlDifficulty.level} score=${mlDifficulty.score.toFixed(2)} conf=${mlDifficulty.confidence.toFixed(2)}${_clamped} (regime=${_regimeSlot})`
         }
       } catch (mlErr) {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] ML per-turn route adjustment error: ${mlErr.message}`)

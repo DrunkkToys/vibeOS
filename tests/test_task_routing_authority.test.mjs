@@ -63,21 +63,30 @@ async function routeTask(prompt, tag, extraInput = {}) {
 
 // ── The fix: the ML envelope is no longer vibeultrax-only ──
 
-test("vibemax: ML escalates a Task past the mode's single-slot pipeline when the live route spans further", async () => {
+test("vibemax: the ML de-escalates a trivial Task inside the span the backend opened", async () => {
+  // Production-reachable shape, taken from a live ~/.vibeos/model-tiers.json:
+  // vibemax ("medium tier auto-escalate") where the backend selected brain, so
+  // normalizeRoutePath persisted route_path ["medium","brain"]. Reading
+  // active_pipeline alone pinned the envelope to ["medium"], which excludes the
+  // brain baseline, so no adjustment was possible in either direction.
+  //
+  // Note route_path is clamped at the selected slot (normalizeRoutePath slices
+  // to idx+1), so it never reaches ABOVE the backend's pick. The reachable win
+  // is de-escalation within that span, not escalation past the backend.
   const ctx = withSandbox("vibeos-route-vibemax-", {
-    active_slot: "medium",
+    active_slot: "brain",
     optimization_mode: "vibemax",
     active_pipeline: ["medium"],
     route_path: ["medium", "brain"],
-    worker_slot: "medium",
-    selected_slot: "medium",
+    worker_slot: "brain",
+    selected_slot: "brain",
   })
   try {
-    const args = await routeTask(COMPLEX, "vibemax")
-    assert.equal(args.model, BRAIN,
-      "reading active_pipeline alone pinned the ML envelope to ['medium'], so this escalation was impossible")
-    assert.equal(args.modelID, BRAIN)
-    assert.equal(args.modelId, BRAIN)
+    const args = await routeTask(TRIVIAL, "vibemax")
+    assert.equal(args.model, MEDIUM,
+      "a confident trivial verdict must pull the Task off the brain baseline down to the envelope floor")
+    assert.equal(args.modelID, MEDIUM)
+    assert.equal(args.modelId, MEDIUM)
   } finally {
     ctx.cleanup()
   }
