@@ -16,6 +16,7 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
 import * as _pricingMod from "../src/lib/pricing.js"
 import { routeDiag, setPricing } from "./route-diagnostics.mjs"
 setPricing(_pricingMod)
@@ -52,6 +53,15 @@ function withSandbox(name, selection) {
     },
   }, null, 2))
   loadTrinitySlotsFromTiersFile()
+  // tool-execute.ts:700 gates the whole Task routing block on a truthy
+  // currentModel, which _refreshModel resolves from readConfig(projectDirectory)
+  // -- and projectDirectory falls back to cwd, the repo root. The repo root's
+  // opencode.json is gitignored, so on a dev machine it supplied a model and the
+  // block ran, while on a clean runner currentModel stayed null and the block was
+  // skipped entirely (null model, no audit row, no route log). Set it here so the
+  // sandbox is self-contained instead of borrowing host state.
+  setCurrentModel(CHEAP)
+  setCurrentTier("budget")
   return {
     cleanup() {
       for (const [k, v] of Object.entries(old)) {

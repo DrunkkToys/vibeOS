@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
 import * as _pricingMod from "../src/lib/pricing.js"
 import { routeDiag, setPricing } from "./route-diagnostics.mjs"
 setPricing(_pricingMod)
@@ -58,6 +59,12 @@ test("normalizer keeps vibeultrax active_pipeline durable when backend route is 
       },
     }))
     loadTrinitySlotsFromTiersFile()
+    // tool-execute.ts:700 gates the whole Task routing block on a truthy
+    // currentModel. Set it explicitly: it used to be inherited from whatever
+    // OpenCode config the host machine happened to have, so these suites passed
+    // on a dev box and skipped routing entirely on a clean runner.
+    setCurrentModel("testprov/orchestrator")
+    setCurrentTier("budget")
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-sync=" + Date.now())
     const result = mod.syncControlSettings({
@@ -113,6 +120,12 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
       },
     }))
     loadTrinitySlotsFromTiersFile()
+    // tool-execute.ts:700 gates the whole Task routing block on a truthy
+    // currentModel. Set it explicitly: it used to be inherited from whatever
+    // OpenCode config the host machine happened to have, so these suites passed
+    // on a dev box and skipped routing entirely on a clean runner.
+    setCurrentModel("testprov/orchestrator")
+    setCurrentTier("budget")
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-root-slot=" + Date.now())
     const result = mod.syncControlSettings({
@@ -178,6 +191,12 @@ test("sync route_path shrinks to depth 1 when the resolved slot is cheap (not pi
       },
     }))
     loadTrinitySlotsFromTiersFile()
+    // tool-execute.ts:700 gates the whole Task routing block on a truthy
+    // currentModel. Set it explicitly: it used to be inherited from whatever
+    // OpenCode config the host machine happened to have, so these suites passed
+    // on a dev box and skipped routing entirely on a clean runner.
+    setCurrentModel("testprov/orchestrator")
+    setCurrentTier("budget")
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-shrink-cheap=" + Date.now())
     const result = mod.syncControlSettings({
@@ -231,6 +250,12 @@ test("sync route_path shrinks to depth 2 when the resolved slot is medium", asyn
       },
     }))
     loadTrinitySlotsFromTiersFile()
+    // tool-execute.ts:700 gates the whole Task routing block on a truthy
+    // currentModel. Set it explicitly: it used to be inherited from whatever
+    // OpenCode config the host machine happened to have, so these suites passed
+    // on a dev box and skipped routing entirely on a clean runner.
+    setCurrentModel("testprov/orchestrator")
+    setCurrentTier("budget")
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-shrink-medium=" + Date.now())
     const result = mod.syncControlSettings({
@@ -298,6 +323,12 @@ async function routePrecedenceTask(prompt, selection, tag) {
     },
   }))
   loadTrinitySlotsFromTiersFile()
+  // tool-execute.ts:700 gates the whole Task routing block on a truthy
+  // currentModel. Set it explicitly: it used to be inherited from whatever
+  // OpenCode config the host machine happened to have, so these suites passed
+  // on a dev box and skipped routing entirely on a clean runner.
+  setCurrentModel("testprov/orchestrator")
+  setCurrentTier("budget")
   try {
     const mod = await import("../src/lib/hooks/tool-execute.js?route-prec=" + tag + Date.now())
     const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }

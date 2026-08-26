@@ -14,6 +14,7 @@ import { join } from "node:path"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
 import * as _pricingMod from "../src/lib/pricing.js"
 import { routeDiag, setPricing } from "./route-diagnostics.mjs"
 setPricing(_pricingMod)
@@ -55,6 +56,12 @@ writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
   },
 }, null, 2))
 loadTrinitySlotsFromTiersFile()
+// tool-execute.ts:700 gates the whole Task routing block on a truthy
+// currentModel. Set it explicitly: it used to be inherited from whatever
+// OpenCode config the host machine happened to have, so these suites passed
+// on a dev box and skipped routing entirely on a clean runner.
+setCurrentModel("testprov/orchestrator")
+setCurrentTier("budget")
 
 test("[cascade-audit] a cascade decision appends a parseable _ts line", async () => {
   const args = { prompt: COMPLEX, subagent_type: "general", model: null, modelID: null, modelId: null }

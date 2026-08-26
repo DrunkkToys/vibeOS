@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
 import * as _pricingMod from "../src/lib/pricing.js"
 import { routeDiag, setPricing } from "./route-diagnostics.mjs"
 setPricing(_pricingMod)
@@ -30,6 +31,12 @@ const TIERS = {
 
 writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify(TIERS))
 loadTrinitySlotsFromTiersFile()
+// tool-execute.ts:700 gates the whole Task routing block on a truthy
+// currentModel. Set it explicitly: it used to be inherited from whatever
+// OpenCode config the host machine happened to have, so these suites passed
+// on a dev box and skipped routing entirely on a clean runner.
+setCurrentModel("testprov/orchestrator")
+setCurrentTier("budget")
 writeFileSync(join(claudeDir, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }))
 
 const COMPLEX = "refactor the auth module across src/auth.ts src/session.ts to support OAuth and JWT refresh tokens"
@@ -55,6 +62,12 @@ async function routeTaskRow(prompt, tag, selection = {}) {
     },
   }))
   loadTrinitySlotsFromTiersFile()
+  // tool-execute.ts:700 gates the whole Task routing block on a truthy
+  // currentModel. Set it explicitly: it used to be inherited from whatever
+  // OpenCode config the host machine happened to have, so these suites passed
+  // on a dev box and skipped routing entirely on a clean runner.
+  setCurrentModel("testprov/orchestrator")
+  setCurrentTier("budget")
   const te = await import("../src/lib/hooks/tool-execute.js?depth=" + tag + Date.now())
   const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
   await te.onToolExecuteBefore({ tool: "task", mlEnabled }, { args })

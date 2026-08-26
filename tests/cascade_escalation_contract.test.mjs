@@ -19,6 +19,7 @@ import { join } from "node:path"
 // instance the hook itself imports; otherwise the slots load into a copy and
 // the suite silently falls back to ambient machine state.
 import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
 import * as _pricingMod from "../src/lib/pricing.js"
 import { routeDiag, setPricing } from "./route-diagnostics.mjs"
 setPricing(_pricingMod)
@@ -60,6 +61,12 @@ function withSandbox(name) {
     },
   }, null, 2))
   loadTrinitySlotsFromTiersFile()
+  // tool-execute.ts:700 gates the whole Task routing block on a truthy
+  // currentModel. Set it explicitly: it used to be inherited from whatever
+  // OpenCode config the host machine happened to have, so these suites passed
+  // on a dev box and skipped routing entirely on a clean runner.
+  setCurrentModel(CHEAP)
+  setCurrentTier("budget")
   return {
     cleanup() {
       for (const [k, v] of Object.entries(prev)) {
