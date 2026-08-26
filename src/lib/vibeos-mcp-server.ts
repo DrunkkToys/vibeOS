@@ -8,7 +8,7 @@ import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from
 import { extname, join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushDashboardMutationQueue, getDashboardBridgeBacklogCount, getDashboardBridgeProjection, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./dashboard-bridge.js"
-import { resolveApiToken } from "./api-client.js"
+import { resolveApiToken, ensureBootstrapExchange } from "./api-client.js"
 import { getLatestSessionHealthSnapshot, getSessionHealthSnapshot } from "./session-health.js"
 import { applySessionAction, buildDashboardHomeModel, buildSessionDetail, compareSessionOrchestrations, exportSessionOrchestration, importSessionOrchestration, normalizeSessionOrchestration, TEMPLATE_LIBRARY } from "./session-orchestrator.js"
 import { getSessionDelegationSavings } from "./session-savings.js"
@@ -183,6 +183,128 @@ async function proxyBackendJson(path: string, options: { method?: string; body?:
     data = text
   }
   return { status: response.status, data }
+}
+
+// Forwards an orchestrator run to the real backend and streams its SSE
+// response straight through to the client, so the backend's compression /
+// web-search / TDD / VibeUltraX plan steps and the computed control_vector
+// directives actually reach the caller instead of the single fixed
+// "direct" step this local server used to synthesize on its own.
+//
+// Returns the parsed `done` event payload once the backend stream ends, or
+// `null` if nothing was written to `res` yet (no token, network failure,
+// non-2xx status, no body) so the caller can fall back to a local response.
+// Once streaming to `res` has started this never returns null, since the
+// caller can no longer send a fresh response.
+//
+// Deliberately leaves `res` open (does not call res.end()) once the stream
+// completes successfully: the caller must persist the local session-store
+// mirror first, write before signal, so a client can never observe the
+// connection closing before the session record it describes is durable.
+async function forwardOrchestratorRun(
+  sessionId: string,
+  body: Record<string, unknown>,
+  res: http.ServerResponse
+): Promise<{ summary?: string; plan?: unknown; results?: unknown } | null> {
+  let token = resolveApiToken()
+  if (!token) {
+    // No session token on disk yet (fresh install, first run). The plugin
+    // ships with an embedded bootstrap token specifically so this never
+    // requires manual setup — exchange it for a real session token before
+    // falling back to the single-step local response.
+    try {
+      const exchanged = await ensureBootstrapExchange()
+      if (exchanged) token = resolveApiToken()
+    } catch {}
+  }
+  if (!token) return null
+
+  const base = resolveBackendApiBase()
+  let backendRes: Awaited<ReturnType<typeof fetch>>
+  try {
+    const url = new URL(`api/v1/orchestrator/sessions/${encodeURIComponent(sessionId)}/run`, base.endsWith("/") ? base : `${base}/`).href
+    backendRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+        "X-Requested-With": "vibeOS-dashboard",
+      },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    return null
+  }
+  if (!backendRes.ok || !backendRes.body) return null
+
+  writeSseHeaders(res)
+
+  const reader = backendRes.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let donePayload: { summary?: string; plan?: unknown; results?: unknown } | null = null
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      buffer += chunk
+      res.write(chunk)
+      let sepIdx: number
+      while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx)
+        buffer = buffer.slice(sepIdx + 2)
+        const lines = rawEvent.split("\n")
+        const eventLine = lines.find((l) => l.startsWith("event:"))
+        const dataLine = lines.find((l) => l.startsWith("data:"))
+        if (eventLine?.slice(6).trim() === "done" && dataLine) {
+          try { donePayload = JSON.parse(dataLine.slice(5).trim()) } catch {}
+        }
+      }
+    }
+  } catch {
+    // The read loop broke mid-stream after headers were already flushed to
+    // the client — there is no way to fall back to a fresh response at this
+    // point, so end the connection here directly. The caller checks
+    // `res.writableEnded` and skips its local session-store mirror + its
+    // own res.end() call when this happened.
+    if (!res.writableEnded) res.end()
+    return donePayload || { summary: undefined, plan: null, results: [] }
+  }
+  return donePayload || { summary: undefined, plan: null, results: [] }
+}
+
+function writeSseHeaders(res: http.ServerResponse): void {
+  res.setHeader("Content-Type", "text/event-stream")
+  res.setHeader("Cache-Control", "no-cache")
+  res.setHeader("Connection", "keep-alive")
+  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.statusCode = 200
+}
+
+// Appends a user turn + assistant turn to the local session-store mirror.
+// Shared by both the backend-forwarded run and the local-fallback run so the
+// dashboard's session list reflects whichever path actually served the
+// request, in the same shape either way.
+async function appendRunMessages(
+  sessionId: string,
+  prompt: string,
+  assistantMsg: { content: string; plan: unknown; results: { step: { tool: string; label: string; condition: null }; skipped: boolean; result?: unknown }[] }
+): Promise<void> {
+  const sessions = await readSessions()
+  const idx = sessions.findIndex((s) => s.id === sessionId)
+  if (idx === -1) return
+  const userMsg = { id: newId("msg"), role: "user" as const, content: prompt, plan: null, results: null, created_at: nowIso() }
+  sessions[idx] = {
+    ...sessions[idx],
+    messages: [
+      ...sessions[idx].messages,
+      userMsg,
+      { id: newId("msg"), role: "assistant" as const, created_at: nowIso(), ...assistantMsg },
+    ],
+    updated_at: nowIso(),
+  }
+  await writeSessions(sessions)
 }
 
 function getSessionsFromState(state: any): Record<string, any> {
@@ -979,12 +1101,28 @@ export function createMcpServer(deps: Deps): McpServer {
           }
           if (method === "POST" && resourceId && subResource === "run") {
             const prompt = String(body.prompt || "")
-            const _sourceContent = String(body.sourceContent || "")
-            res.setHeader("Content-Type", "text/event-stream")
-            res.setHeader("Cache-Control", "no-cache")
-            res.setHeader("Connection", "keep-alive")
-            res.setHeader("Access-Control-Allow-Origin", "*")
-            res.statusCode = 200
+            const forwarded = await forwardOrchestratorRun(resourceId, body, res)
+            if (forwarded) {
+              // The backend already streamed the SSE response body to `res`
+              // (compression / web-search / TDD / VibeUltraX steps, plus the
+              // computed control_vector directives in the final `done` event)
+              // but left the connection open so the local session-store
+              // mirror below is written and durable before the stream is
+              // signalled complete to the client.
+              if (!res.writableEnded) {
+                await appendRunMessages(resourceId, prompt, {
+                  content: forwarded.summary || `Ran flow for: ${prompt.slice(0, 120)}`,
+                  plan: forwarded.plan ?? null,
+                  results: (forwarded.results as { step: { tool: string; label: string; condition: null }; skipped: boolean; result?: unknown }[]) ?? [],
+                })
+                res.end()
+              }
+              return
+            }
+            // The backend was unreachable (offline / no API token / network
+            // error) for this run — serve a single direct-response turn locally
+            // so the request still completes instead of hanging or erroring.
+            writeSseHeaders(res)
             const flowData = { flow_name: "direct" }
             res.write(`event: flow\ndata: ${JSON.stringify(flowData)}\n\n`)
             const steps = [{ tool: "direct", label: "direct response", condition: null }]
@@ -992,14 +1130,11 @@ export function createMcpServer(deps: Deps): McpServer {
             res.write(`event: plan\ndata: ${JSON.stringify({ plan })}\n\n`)
             const stepResult = { step: steps[0], skipped: false, result: { text: `Processed: ${prompt.slice(0, 80)}` } }
             res.write(`event: step\ndata: ${JSON.stringify(stepResult)}\n\n`)
-            const sessions = await readSessions()
-            const idx = sessions.findIndex((s) => s.id === resourceId)
-            if (idx !== -1) {
-              const userMsg = { id: newId("msg"), role: "user" as const, content: prompt, plan: null, results: null, created_at: nowIso() }
-              const assistantMsg = { id: newId("msg"), role: "assistant" as const, content: `Ran flow for: ${prompt.slice(0, 120)}`, plan, results: [stepResult] as { step: { tool: string; label: string; condition: null }; skipped: boolean; result?: unknown }[], created_at: nowIso() }
-              sessions[idx] = { ...sessions[idx], messages: [...sessions[idx].messages, userMsg, assistantMsg], updated_at: nowIso() }
-              await writeSessions(sessions)
-            }
+            await appendRunMessages(resourceId, prompt, {
+              content: `Ran flow for: ${prompt.slice(0, 120)}`,
+              plan,
+              results: [stepResult],
+            })
             res.write(`event: done\ndata: {}\n\n`)
             res.end(); return
           }

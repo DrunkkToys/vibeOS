@@ -8,6 +8,15 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+// The hook resolves models from pricing's TRINITY_* globals, which are null
+// until this runs. Imported WITHOUT a cache-buster so it is the same module
+// instance the hook itself imports; otherwise the slots load into a copy and
+// the suite silently falls back to ambient machine state.
+import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
+import { setCurrentModel, setCurrentTier } from "../src/lib/state.js"
+import * as _pricingMod from "../src/lib/pricing.js"
+import { routeDiag, setPricing } from "./route-diagnostics.mjs"
+setPricing(_pricingMod)
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-cascade-depth-"))
 const claudeDir = join(sandbox, ".claude")
@@ -21,29 +30,66 @@ const TIERS = {
 }
 
 writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify(TIERS))
+loadTrinitySlotsFromTiersFile()
+// tool-execute.ts:700 gates the whole Task routing block on a truthy
+// currentModel. Set it explicitly: it used to be inherited from whatever
+// OpenCode config the host machine happened to have, so these suites passed
+// on a dev box and skipped routing entirely on a clean runner.
+setCurrentModel("testprov/orchestrator")
+setCurrentTier("budget")
 writeFileSync(join(claudeDir, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }))
 
 const COMPLEX = "refactor the auth module across src/auth.ts src/session.ts to support OAuth and JWT refresh tokens"
 
-test("cascade_tier is exported by tool-execute for control_vector persistence", async () => {
-  const te = await import("../src/lib/hooks/tool-execute.js?cascaded7=" + Date.now())
-  const res = te.resolveCascadeRouteDecision({
-    prompt: "refactor auth module from scratch to support OAuth, JWT, sessions, and refresh tokens across multiple files",
-    trinityCheap: "test/cheap",
-    trinityMedium: "test/medium",
-    trinityBrain: "test/brain",
-    activePipeline: ["cheap", "medium", "brain"],
-    mlEnabled: true,
-  })
-  assert.ok(res, "route decision exists")
-  if (res.selectedSlot === "medium") {
-    assert.equal(res.cascadeDepth, 2, "medium escalation has depth 2")
+const auditFile = join(claudeDir, "cascade-audit", "cascade-audit.jsonl")
+
+// Drives the production task-routing path and returns the audit row it wrote.
+// These assertions used to run against resolveCascadeRouteDecision, which had
+// zero call sites and was tree-shaken out of dist/vibeOS.js -- and several were
+// wrapped in `if (te.resolveCascadeRouteDecision)`, so they passed vacuously
+// once it was gone. The audit row is what production actually records.
+async function routeTaskRow(prompt, tag, selection = {}) {
+  const { mlEnabled = true, ...sel } = selection
+  writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify({
+    ...TIERS,
+    selection: {
+      ...TIERS.selection,
+      slot_locked: false,
+      optimization_mode: "vibeultrax",
+      worker_slot: "cheap",
+      selected_slot: "cheap",
+      ...sel,
+    },
+  }))
+  loadTrinitySlotsFromTiersFile()
+  // tool-execute.ts:700 gates the whole Task routing block on a truthy
+  // currentModel. Set it explicitly: it used to be inherited from whatever
+  // OpenCode config the host machine happened to have, so these suites passed
+  // on a dev box and skipped routing entirely on a clean runner.
+  setCurrentModel("testprov/orchestrator")
+  setCurrentTier("budget")
+  const te = await import("../src/lib/hooks/tool-execute.js?depth=" + tag + Date.now())
+  const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
+  await te.onToolExecuteBefore({ tool: "task", mlEnabled }, { args })
+  if (!args.model && !args.modelID && !args.modelId) {
+    // The hook produced no model. Dump what it saw so a CI-only failure
+    // names its cause instead of just asserting null.
+    console.log("ROUTE_DIAG " + routeDiag({ suite: "cascade_footer_depth.test.mjs" }))
   }
-  if (res.selectedSlot === "brain") {
-    assert.equal(res.cascadeDepth, 3, "brain escalation has depth 3")
-  }
-  assert.ok(res.selectedSlot, "route decision has a selected slot")
-  assert.equal(res.cascadeDepth, res.routePath?.length || 1, "cascadeDepth matches routePath.length")
+  const lines = readFileSync(auditFile, "utf-8").trim().split("\n").filter(Boolean)
+  return JSON.parse(lines[lines.length - 1])
+}
+
+test("the recorded cascade depth always equals the recorded route path length", async () => {
+  const row = await routeTaskRow(
+    "refactor auth module from scratch to support OAuth, JWT, sessions, and refresh tokens across multiple files",
+    "cv",
+  )
+  assert.ok(row.selectedSlot, "audit row records a selected slot")
+  assert.ok(Array.isArray(row.routePath), "audit row records a route path")
+  assert.equal(row.cascadeDepth, row.routePath.length, "cascadeDepth matches routePath.length")
+  if (row.selectedSlot === "medium") assert.equal(row.cascadeDepth, 2, "medium escalation has depth 2")
+  if (row.selectedSlot === "brain") assert.equal(row.cascadeDepth, 3, "brain escalation has depth 3")
 })
 
 test("footer buildFooterLine shows cascade tier label not model name", async () => {
@@ -65,36 +111,16 @@ test("footer buildFooterLine shows cascade tier label not model name", async () 
 })
 
 test("cascadeDepth matches routePath.length for cheap root -> cheap slot", async () => {
-  const te = await import("../src/lib/hooks/tool-execute.js?cascaded1=" + Date.now())
-  const res = te.resolveCascadeRouteDecision({
-    prompt: "hello",
-    trinityCheap: "test/cheap",
-    trinityMedium: "test/medium",
-    trinityBrain: "test/brain",
-    activePipeline: ["cheap", "medium", "brain"],
-    mlEnabled: true,
-  })
-  assert.ok(res, "route decision exists")
-  assert.ok(res.cascadeDepth >= 1, "cascadeDepth >= 1")
-  assert.equal(res.cascadeDepth, res.routePath?.length || 1, "cascadeDepth equals routePath.length")
+  const row = await routeTaskRow("hello", "cheap")
+  assert.equal(row.selectedSlot, "cheap", "a trivial prompt stays at the cheap root")
+  assert.deepEqual(row.routePath, ["cheap"], "cheap slot yields a depth-1 route")
+  assert.equal(row.cascadeDepth, 1)
 })
 
 test("cascadeDepth matches routePath.length for complex prompt", async () => {
-  const te = await import("../src/lib/hooks/tool-execute.js?cascaded2=" + Date.now())
-  const res = te.resolveCascadeRouteDecision({
-    prompt: COMPLEX,
-    trinityCheap: "test/cheap",
-    trinityMedium: "test/medium",
-    trinityBrain: "test/brain",
-    activePipeline: ["cheap", "medium", "brain"],
-    mlEnabled: true,
-  })
-  assert.ok(res, "route decision exists")
-  assert.equal(res.cascadeDepth, res.routePath?.length || 1, "cascadeDepth equals routePath.length")
-  assert.ok(res.cascadeDepth >= 1, "cascadeDepth >= 1")
-  if (res.routePath && res.routePath.length > 1) {
-    assert.ok(res.cascadeDepth > 1, "complex prompt escalates depth > 1")
-  }
+  const row = await routeTaskRow(COMPLEX, "complex")
+  assert.equal(row.cascadeDepth, row.routePath.length, "cascadeDepth equals routePath.length")
+  assert.ok(row.cascadeDepth >= 1, "cascadeDepth >= 1")
 })
 
 test("routePath length determines cascade icon", async () => {
@@ -121,61 +147,31 @@ test("footer cascadeDepth >= 3 shows ▸▸▸ icon, >= 2 shows ▸▸, < 2 show
   assert.ok(brain.includes("▸▸▸"), "brain cascade icon shows")
 })
 
-test("_routePathForSlot returns correct depth for each slot", async () => {
-  const te = await import("../src/lib/hooks/tool-execute.js?cascaded5=" + Date.now())
+test("normalizeRoutePath returns the correct depth for each slot", async () => {
+  // _routePathForSlot was removed as a duplicate; normalizeRoutePath in
+  // chat-transform is the single implementation. The old test guarded every
+  // assertion behind `if (te._routePathForSlot)`, so it asserted nothing.
+  const ct = await import("../src/lib/hooks/chat-transform.js?routepath=" + Date.now())
   const root = ["cheap", "medium", "brain"]
-  const noop = (s) => s.join("-")
-
-  const cheapPath = te._routePathForSlot ? te._routePathForSlot(root, "cheap") : noop(["cheap"])
-  if (te._routePathForSlot) {
-    assert.deepEqual(cheapPath, ["cheap"], "cheap routePath")
-    assert.equal(cheapPath.length, 1, "cheap depth 1")
-
-    const mediumPath = te._routePathForSlot(root, "medium")
-    assert.deepEqual(mediumPath, ["cheap", "medium"], "medium routePath")
-    assert.equal(mediumPath.length, 2, "medium depth 2")
-
-    const brainPath = te._routePathForSlot(root, "brain")
-    assert.deepEqual(brainPath, ["cheap", "medium", "brain"], "brain routePath")
-    assert.equal(brainPath.length, 3, "brain depth 3")
-  }
+  assert.deepEqual(ct.normalizeRoutePath(root, "cheap"), ["cheap"], "cheap routePath")
+  assert.deepEqual(ct.normalizeRoutePath(root, "medium"), ["cheap", "medium"], "medium routePath")
+  assert.deepEqual(ct.normalizeRoutePath(root, "brain"), ["cheap", "medium", "brain"], "brain routePath")
 })
 
 test("blackbox state persists cascade_depth after route decision", async () => {
-  const te = await import("../src/lib/hooks/tool-execute.js?cascaded6=" + Date.now())
-  const bb = await import("../src/lib/state.js?cascaded6b=" + Date.now())
-
-  const mockSid = "test-session-" + Date.now()
-  const mockState = {
-    sessions: { [mockSid]: { regime: "INIT" } },
-  }
+  // Production writes flat cascade keys onto sessions[_OC_SID], and only when
+  // that session already exists. The old test seeded a mock session id that
+  // production never touches, then wrote the values itself and asserted its own
+  // write -- it could not fail.
+  const { _OC_SID } = await import("../src/lib/state.js")
   const stateFile = join(claudeDir, "blackbox-state.json")
-  writeFileSync(stateFile, JSON.stringify(mockState))
+  writeFileSync(stateFile, JSON.stringify({ sessions: { [_OC_SID]: { regime: "INIT" } } }))
 
-  const loaded = bb.loadBlackboxState ? bb.loadBlackboxState() : mockState
-  if (loaded && loaded.sessions && loaded.sessions[mockSid]) {
-    const prevDepth = loaded.sessions[mockSid].cascade_depth
-    if (te.resolveCascadeRouteDecision) {
-      const res = te.resolveCascadeRouteDecision({
-        prompt: COMPLEX,
-        trinityCheap: "test/cheap",
-        trinityMedium: "test/medium",
-        trinityBrain: "test/brain",
-        activePipeline: ["cheap", "medium", "brain"],
-        mlEnabled: true,
-      })
-      if (res?.cascadeDepth && loaded.sessions[mockSid]) {
-        loaded.sessions[mockSid].cascade_depth = res.cascadeDepth
-        loaded.sessions[mockSid].route_path = res.routePath
-        writeFileSync(stateFile, JSON.stringify(loaded))
-      }
-    }
-    const after = JSON.parse(readFileSync(stateFile, "utf-8"))
-    assert.ok(after.sessions[mockSid].cascade_depth >= 1, "cascade_depth persisted")
-    assert.equal(
-      after.sessions[mockSid].cascade_depth,
-      after.sessions[mockSid].route_path?.length || 1,
-      "persisted cascade_depth matches route_path.length"
-    )
-  }
+  const row = await routeTaskRow(COMPLEX, "bbpersist", { worker_slot: "brain", selected_slot: "brain", mlEnabled: false })
+
+  const session = JSON.parse(readFileSync(stateFile, "utf-8")).sessions[_OC_SID]
+  assert.ok(session.cascade_depth >= 1, "cascade_depth persisted")
+  assert.ok(Array.isArray(session.route_path), "route_path persisted")
+  assert.equal(session.cascade_depth, session.route_path.length, "persisted cascade_depth matches route_path.length")
+  assert.equal(row.cascadeDepth, session.cascade_depth, "audit row and persisted state agree")
 })
