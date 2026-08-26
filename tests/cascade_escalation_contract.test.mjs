@@ -14,6 +14,11 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+// The hook resolves models from pricing's TRINITY_* globals, which are null
+// until this runs. Imported WITHOUT a cache-buster so it is the same module
+// instance the hook itself imports; otherwise the slots load into a copy and
+// the suite silently falls back to ambient machine state.
+import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
 
 const CHEAP = "opencode/big-pickle"
 const MEDIUM = "deepseek/deepseek-v4-flash"
@@ -51,6 +56,7 @@ function withSandbox(name) {
       budget: { regex: "big-pickle|cheap|chat" },
     },
   }, null, 2))
+  loadTrinitySlotsFromTiersFile()
   return {
     cleanup() {
       for (const [k, v] of Object.entries(prev)) {

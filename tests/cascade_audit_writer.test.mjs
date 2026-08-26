@@ -9,6 +9,11 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+// The hook resolves models from pricing's TRINITY_* globals, which are null
+// until this runs. Imported WITHOUT a cache-buster so it is the same module
+// instance the hook itself imports; otherwise the slots load into a copy and
+// the suite silently falls back to ambient machine state.
+import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-cascade-audit-"))
 const prevHome = process.env.VIBEOS_HOME
@@ -46,6 +51,7 @@ writeFileSync(join(sandbox, ".claude", "model-tiers.json"), JSON.stringify({
     brain: { oc: "deepseek/deepseek-v4-pro" },
   },
 }, null, 2))
+loadTrinitySlotsFromTiersFile()
 
 test("[cascade-audit] a cascade decision appends a parseable _ts line", async () => {
   const args = { prompt: COMPLEX, subagent_type: "general", model: null, modelID: null, modelId: null }

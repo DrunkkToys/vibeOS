@@ -8,6 +8,11 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+// The hook resolves models from pricing's TRINITY_* globals, which are null
+// until this runs. Imported WITHOUT a cache-buster so it is the same module
+// instance the hook itself imports; otherwise the slots load into a copy and
+// the suite silently falls back to ambient machine state.
+import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
 
 const sandbox = mkdtempSync(join(tmpdir(), "vibeos-cascade-depth-"))
 const claudeDir = join(sandbox, ".claude")
@@ -21,6 +26,7 @@ const TIERS = {
 }
 
 writeFileSync(join(claudeDir, "model-tiers.json"), JSON.stringify(TIERS))
+loadTrinitySlotsFromTiersFile()
 writeFileSync(join(claudeDir, "delegation-state.json"), JSON.stringify({ lifetime: {}, sessions: {} }))
 
 const COMPLEX = "refactor the auth module across src/auth.ts src/session.ts to support OAuth and JWT refresh tokens"
@@ -45,6 +51,7 @@ async function routeTaskRow(prompt, tag, selection = {}) {
       ...sel,
     },
   }))
+  loadTrinitySlotsFromTiersFile()
   const te = await import("../src/lib/hooks/tool-execute.js?depth=" + tag + Date.now())
   const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
   await te.onToolExecuteBefore({ tool: "task", mlEnabled }, { args })

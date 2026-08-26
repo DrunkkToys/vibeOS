@@ -4,6 +4,11 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+// The hook resolves models from pricing's TRINITY_* globals, which are null
+// until this runs. Imported WITHOUT a cache-buster so it is the same module
+// instance the hook itself imports; otherwise the slots load into a copy and
+// the suite silently falls back to ambient machine state.
+import { loadTrinitySlotsFromTiersFile } from "../src/lib/pricing.js"
 
 test("vibeultrax control vector keeps durable cascade root for simple route", async () => {
   const vu = await import("../dist-ts/vibeOS-lib/blackbox/vibeultrax.js?route-root=" + Date.now())
@@ -49,6 +54,7 @@ test("normalizer keeps vibeultrax active_pipeline durable when backend route is 
         brain: { oc: "test/brain" },
       },
     }))
+    loadTrinitySlotsFromTiersFile()
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-sync=" + Date.now())
     const result = mod.syncControlSettings({
@@ -103,6 +109,7 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
         brain: { oc: "test/brain" },
       },
     }))
+    loadTrinitySlotsFromTiersFile()
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-root-slot=" + Date.now())
     const result = mod.syncControlSettings({
@@ -167,6 +174,7 @@ test("sync route_path shrinks to depth 1 when the resolved slot is cheap (not pi
         brain: { oc: "test/brain" },
       },
     }))
+    loadTrinitySlotsFromTiersFile()
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-shrink-cheap=" + Date.now())
     const result = mod.syncControlSettings({
@@ -219,6 +227,7 @@ test("sync route_path shrinks to depth 2 when the resolved slot is medium", asyn
         brain: { oc: "test/brain" },
       },
     }))
+    loadTrinitySlotsFromTiersFile()
 
     const mod = await import("../dist-ts/lib/hooks/chat-transform.js?route-shrink-medium=" + Date.now())
     const result = mod.syncControlSettings({
@@ -285,6 +294,7 @@ async function routePrecedenceTask(prompt, selection, tag) {
       budget: { regex: "test/cheap" },
     },
   }))
+  loadTrinitySlotsFromTiersFile()
   try {
     const mod = await import("../src/lib/hooks/tool-execute.js?route-prec=" + tag + Date.now())
     const args = { prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
