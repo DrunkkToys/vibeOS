@@ -17,15 +17,15 @@
 
 ## 1. Cascade Model Routing
 
-### 1.1 Route Decision Returns {tier, mode, strategy} for Any Valid Input
-- **Contract**: `resolveCascadeRouteDecision` always returns an object with `{tier, mode, strategy}` when given valid inputs (stress, budget, complexity, current tier).
-- **Test**: `tests/cascade_contract_fuzz.test.mjs` — "fuzz: route decision with random stress/budget"
+### 1.1 Difficulty Scoring Returns a Usable Decision for Any Valid Input
+- **Contract**: `cascadeDecide` / `computeDifficulty` return a decision with a level, confidence and suggested tier for any prompt, and score simple and complex prompts to different depths.
+- **Test**: `tests/cascade_contract_fuzz.test.mjs` — "cascade: cascadeDecide returns different depths for simple vs complex prompts"
 - **Module**: `src/vibeOS-lib/ml-router.ts`
 
-### 1.2 Route Re-Evaluates Per Call (Not Cached Per Session)
-- **Contract**: `resolveCascadeRouteDecision` re-evaluates each call independently. Complex prompts route to medium/brain; simple prompts stay cheap.
+### 1.2 Route Re-Evaluates Per Message (Not Cached Per Session)
+- **Contract**: The task branch of `tool.execute.before` re-evaluates difficulty per message. A complex prompt from a cheap root delegates to medium/brain; a simple prompt stays cheap. Escalation requires `confidence >= 0.6` and a non-`moderate` level — weak signals deliberately leave the tier alone rather than churning it.
 - **Test**: `tests/cascade_escalation_contract.test.mjs` — "[escalation] a complex prompt from cheap root delegates to medium/brain" + "[escalation] a simple prompt stays cheap with no delegation"
-- **Module**: `src/vibeOS-lib/ml-router.ts`
+- **Module**: `src/lib/hooks/tool-execute.ts`
 
 ### 1.3 Bulk Batch Preserves Per-Message Re-Evaluation
 - **Contract**: Each message in a bulk batch is classified independently, not cached from the first message.
@@ -38,9 +38,9 @@
 - **Module**: `src/lib/hooks/shared-footer.ts`
 
 ### 1.5 Blackbox State Persists cascade_depth After Route Decision
-- **Contract**: After `resolveCascadeRouteDecision` runs, the resulting `cascade_depth` is persisted in blackbox state.
+- **Contract**: After the task branch resolves a route, `cascade_depth`, `route_path` and `pipeline_root` are persisted onto `sessions[_OC_SID]` in blackbox state, and the persisted depth equals the persisted route path length. Persistence updates an existing session only.
 - **Test**: `tests/cascade_footer_depth.test.mjs` — "blackbox state persists cascade_depth after route decision"
-- **Module**: `src/lib/vibeOS/blackbox.ts` / `src/lib/state.ts`
+- **Module**: `src/lib/hooks/tool-execute.ts` / `src/lib/state.ts`
 
 ### 1.6 VibeUltraX Pipeline Routes Correctly
 - **Contract**: VibeUltraX optimization mode selects brain tier for complex prompts without moving the root slot.
@@ -52,10 +52,17 @@
 - **Test**: `tests/cascade_route_contract.test.mjs` — "normalizer keeps vibeultrax active_pipeline durable when backend route is cheap"
 - **Module**: `src/lib/mode-router.ts`
 
-### 1.8 Remote Route Wins Only When Explicit; Otherwise Local Cascade Escalation Can Outrank It
-- **Contract**: When the remote API (`routeModel`) sets a `backendRoute.target` marked `explicit: true` (or `allow_local_upgrade: false`), that route is authoritative and local cascade is bypassed. When the backend route is not explicit, local cascade (`cascadeDecide` + `computeDifficulty`) is still evaluated, and if it resolves to a higher-ranked slot (brain > medium > cheap) than the backend's implied slot, the local cascade result wins instead.
-- **Test**: `tests/cascade_route_contract.test.mjs` — "route resolver lets local cascade escalation outrank a non-explicit backend target", "route resolver keeps an explicit backend target even when local cascade escalates higher"
-- **Module**: `src/lib/hooks/tool-execute.ts` (`resolveCascadeRouteDecision`, around line 390-475)
+### 1.8 Control Vector Is the Baseline; a Confident ML Verdict Adjusts It Within the Envelope
+- **Contract**: `syncControlSettings` writes the backend's decision into selection state, and the task branch of `tool.execute.before` takes `worker_slot || selected_slot` as the routing baseline. A per-message ML verdict that clears the confidence gate may adjust that baseline UP or DOWN, but never outside the envelope returned by `mlCascadeRoot` — the mode's declared pipeline widened by the live `route_path`. A single-tier envelope (e.g. vibeqmax = brain only) is a hard bound the ML cannot leave. Stress reaches routing by moving the control vector upstream, not in this branch.
+- **Test**: `tests/cascade_route_contract.test.mjs` — "a confident ML verdict escalates above the control vector baseline", "a confident ML verdict de-escalates below the control vector baseline", "the envelope is a hard bound: the ML cannot route outside the declared pipeline"
+- **Module**: `src/lib/hooks/tool-execute.ts` (`mlCascadeRoot` + the task branch of `onToolExecuteBefore`)
+- **History**: This section previously specified a `resolveCascadeRouteDecision` precedence rule (explicit backend target beats local cascade). That function had zero call sites and was tree-shaken out of `dist/vibeOS.js`; the contract described code that never shipped.
+
+### 1.8b Slot State Is Per-Turn, Not Vibeultrax-Only
+- **Contract**: `entry_slot`, `worker_slot`, `selected_slot`, `worker_model`, `selected_subagent` and `requires_delegation` are written on every `syncControlSettings` turn regardless of optimization mode. Leaving vibeultrax refreshes them; it must not leave them frozen at their last vibeultrax value. `requires_delegation` is false and `selected_subagent` is null outside vibeultrax, where the orchestrator runs at tier instead of delegating.
+- **Why it matters**: the task branch routes every Task off `worker_slot || selected_slot`. When these were written only inside the `isUltraX` branch, subagent routing in every other mode ran off stale vibeultrax state.
+- **Test**: `tests/ml_routing_authority_all_modes.test.mjs` — "leaving vibeultrax refreshes entry_slot instead of freezing the ultrax value", "leaving vibeultrax refreshes worker_slot, which is what Task routing reads", "leaving vibeultrax clears the ultrax delegation contract", "worker_model follows the refreshed slot", "vibeultrax itself is unchanged: cheap entry, escalated worker, delegation on"
+- **Module**: `src/lib/hooks/chat-transform.ts`
 
 ### 1.9 Remote API Unavailable → Local Fallback
 - **Contract**: When the remote API times out (>3000ms) or errors, the local cascade decision engine is used as fallback.

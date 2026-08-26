@@ -379,50 +379,47 @@ test("delegation hard block requires coherent brain tier agent binding", async (
   }
 })
 
-test("vibeultrax medium route selects general task delegation and stress can upgrade cheap delegation", async () => {
-  const mod = await import("../src/lib/hooks/tool-execute.js?tier-route=" + Date.now())
+test("vibeultrax medium route delegates a Task to the general subagent at the medium model", async () => {
+  // Was asserted against resolveCascadeRouteDecision, which never routed a
+  // Task and never shipped. Driven through the production hook instead.
+  const ctx = withSandbox("vibeos-tier-route-")
+  try {
+    writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+      selection: {
+        enabled: true,
+        active_slot: "cheap",
+        slot_locked: false,
+        optimization_mode: "vibeultrax",
+        active_pipeline: ["cheap", "medium", "brain"],
+        worker_slot: "medium",
+        selected_slot: "medium",
+        requires_delegation: true,
+      },
+      trinity: {
+        cheap: { oc: "opencode/big-pickle" },
+        medium: { oc: "opencode-go/mimo-v2.5" },
+        brain: { oc: "deepseek/deepseek-v4-flash" },
+      },
+      tiers: {
+        high: { regex: "v4-flash|pro|opus|brain" },
+        mid: { regex: "mimo|flash|sonnet|medium" },
+        budget: { regex: "big-pickle|cheap|chat" },
+      },
+    }, null, 2))
+    const mod = await import("../src/lib/hooks/tool-execute.js?tier-route=" + Date.now())
+    const args = {
+      prompt: "implement auth validation and integration tests",
+      subagent_type: "general",
+      model: null,
+      modelID: null,
+      modelId: null,
+    }
+    await mod.onToolExecuteBefore({ tool: "task", mlEnabled: false }, { args })
 
-  const medium = mod.resolveCascadeRouteDecision({
-    prompt: "implement auth validation and integration tests",
-    firstWord: "implement",
-    currentTier: "budget",
-    currentModel: "opencode/big-pickle",
-    trinityCheap: "opencode/big-pickle",
-    trinityMedium: "opencode-go/mimo-v2.5",
-    trinityBrain: "deepseek/deepseek-v4-flash",
-    activePipeline: ["cheap", "medium", "brain"],
-    backendRoute: null,
-    stressScore: 0,
-    localRoutingAllowed: true,
-    hasMedia: false,
-    exploratoryTarget: null,
-    tierTarget: "opencode-go/mimo-v2.5",
-    mlEnabled: true,
-    mlConfidenceThreshold: 0.6,
-  })
-  assert.equal(medium.selectedSlot, "medium")
-  assert.equal(medium.selectedSubagent, "general")
-  assert.equal(medium.requiresDelegation, true)
-
-  const stressed = mod.resolveCascadeRouteDecision({
-    prompt: "check status",
-    firstWord: "check",
-    currentTier: "budget",
-    currentModel: "opencode/big-pickle",
-    trinityCheap: "opencode/big-pickle",
-    trinityMedium: "opencode-go/mimo-v2.5",
-    trinityBrain: "deepseek/deepseek-v4-flash",
-    activePipeline: ["cheap", "medium", "brain"],
-    backendRoute: null,
-    stressScore: 0.8,
-    localRoutingAllowed: true,
-    hasMedia: false,
-    exploratoryTarget: "opencode/big-pickle",
-    tierTarget: "opencode/big-pickle",
-    mlEnabled: true,
-    mlConfidenceThreshold: 0.6,
-  })
-  assert.equal(stressed.selectedSlot, "medium")
-  assert.equal(stressed.selectedSubagent, "general")
-  assert.equal(stressed.requiresDelegation, true)
+    assert.equal(args.model, "opencode-go/mimo-v2.5")
+    assert.equal(args.subagent_type, "general")
+    assert.equal(mod.taskSubagentTypeForSlot("medium"), "general")
+  } finally {
+    ctx.cleanup()
+  }
 })
