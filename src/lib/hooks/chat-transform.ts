@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, appendFileSync } from "node:fs"
 import { join, basename } from "node:path"
 import { createHash } from "node:crypto"
 import {
@@ -583,9 +583,28 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     const durablePipeline = modeCascadeRoot(cv.optimization_mode || userOptMode, cv.cascade_root || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const routePath = normalizeRoutePath(cv.route_path || cv.pipeline_root, cv.selected_slot || cv.tier_bias)
     const isUltraX = isVibeUltraXMode(cv.optimization_mode || userOptMode)
-    const entrySlot = rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias || null
-    const workerSlot = normalizeSlot(cv.selected_slot || cv.tier_bias)
-    const workerModel = String(cv.selected_model || cv.selectedModel || modelForSlot(workerSlot) || "")
+    // An explicit `vibe axis tier <slot>` pin is user intent and outranks the
+    // backend slot on BOTH paths. computeAxisBundle() already honours it when the
+    // API is unreachable; without this the pin silently did nothing whenever the
+    // API answered, which is the normal case.
+    const axisTierPin = normalizeSlot(
+      currentSel.axis_overrides && typeof currentSel.axis_overrides === "object"
+        ? (currentSel.axis_overrides as Record<string, unknown>).tier
+        : null,
+    )
+    const entrySlot = axisTierPin || rootSlotForControlVector(cv, durablePipeline) || cv.selected_slot || cv.tier_bias || null
+    const workerSlot = axisTierPin || normalizeSlot(cv.selected_slot || cv.tier_bias)
+    // The backend may name a model this machine has not configured (observed live:
+    // "openrouter/openai/o1-pro" against a trinity on another provider entirely).
+    // tool-execute routes Task delegation off worker_model, so an unconfigured id
+    // fails the turn -- clamp anything outside the local trinity to the slot model.
+    const backendModel = String(cv.selected_model || cv.selectedModel || "").trim()
+    const trinityModels = [TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN].filter(Boolean)
+    const backendModelIsConfigured = !!backendModel && trinityModels.includes(backendModel)
+    const workerModel = String(
+      (axisTierPin ? modelForSlot(axisTierPin) : backendModelIsConfigured ? backendModel : null) ||
+      modelForSlot(workerSlot) || "",
+    )
     const selectedSubagent = String(cv.selected_subagent || cv.selectedSubagent || vibeUltraXSubagentForSlot(workerSlot) || "")
     const requiresDelegation = isUltraX && (workerSlot === "medium" || workerSlot === "brain")
 
@@ -605,10 +624,41 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("enabled", true)
     writeIf("route_path", routePath)
     if (isUltraX) {
-      ensureVibeUltraXSubagents(null, syncDirectory)
+      // Best-effort: registering the tier subagents is a convenience, while the
+      // slot writes below are the actual routing decision. A failure here used to
+      // throw out of syncControlSettings into its catch, which returns the
+      // PREVIOUS state -- so the backend's tier choice was dropped every turn.
+      try { ensureVibeUltraXSubagents(null, syncDirectory) } catch {}
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
     }
+    // Observability: the sync path had no audit row, so when a turn's slot state
+    // did not move there was no way to tell whether syncControlSettings ran at
+    // all, ran and computed the same values, or threw into the fallback. Every
+    // other routing decision writes to cascade-audit.jsonl; this one did not.
+    try {
+      const vibeHome = getVibeOSHome()
+      if (vibeHome && vibeHome !== "undefined" && !vibeHome.startsWith("undefined")) {
+        const auditDir = join(vibeHome, "cascade-audit")
+        mkdirSync(auditDir, { recursive: true })
+        appendFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+          _ts: new Date().toISOString(),
+          sessionId: String(sid || ""),
+          source: "control-sync",
+          optimizationMode: String(cv.optimization_mode || ""),
+          isUltraX,
+          axisTierPin: axisTierPin || null,
+          axisOverrides: currentSel.axis_overrides || null,
+          cvSelectedSlot: String(cv.selected_slot || ""),
+          cvTierBias: String(cv.tier_bias || ""),
+          entrySlot: entrySlot || null,
+          workerSlot: workerSlot || null,
+          workerModel: workerModel || null,
+          authoritative,
+        }) + "\n")
+      }
+    } catch {}
+
     // These six are the single source of truth that Task routing reads
     // (tool-execute.ts: `selection.worker_slot || selection.selected_slot`).
     // Each used to be written ONLY inside the isUltraX branch above, so the
@@ -814,6 +864,23 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     }
   } catch (err) {
     console.error("[vibeOS] syncControlSettings failed:", err?.message || err)
+    // This catch returns a fallback that PRESERVES the previous slot state. In the
+    // desktop app console.error goes nowhere, so a throw here looked exactly like
+    // "the backend chose the same slot again" -- the orchestrator silently stopped
+    // honouring every routing decision and nothing anywhere said so.
+    try {
+      const vibeHome = getVibeOSHome()
+      if (vibeHome && vibeHome !== "undefined" && !vibeHome.startsWith("undefined")) {
+        const auditDir = join(vibeHome, "cascade-audit")
+        mkdirSync(auditDir, { recursive: true })
+        appendFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+          _ts: new Date().toISOString(),
+          source: "control-sync-error",
+          message: String(err?.message || err),
+          stack: String(err?.stack || "").split("\n").slice(0, 4).join(" | "),
+        }) + "\n")
+      }
+    } catch {}
     const fallbackSel = loadSelection()
     const fallbackSlot = fallbackSel?.active_slot || cv?.tier_bias || null
     const fallbackEntrySlot = fallbackSel?.entry_slot || fallbackSel?.active_slot || rootSlotForControlVector(cv, modeCascadeRoot(cv?.optimization_mode, cv?.cascade_root || cv?.pipeline_root, cv?.selected_slot || cv?.tier_bias)) || cv?.tier_bias || null
@@ -1577,25 +1644,11 @@ export const onSystemTransform = async (_input, output) => {
         saveBlackboxStateToCtx(blackboxState)
       }
     } catch {}
-    const system = output?.system
-    if (!Array.isArray(system)) return
-
-    if (isApiConnected()) {
-      try {
-        const bb = loadBlackboxStateFromCtx()
-        if (!bb.enabled || _blackboxEnabled === false) {
-          setBlackboxEnabled(true)
-          if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
-        }
-      } catch {}
-    } else if (_blackboxEnabled === false) {
-      try {
-        const bb = loadBlackboxStateFromCtx()
-        if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
-        setBlackboxEnabled(true)
-      } catch {}
-    }
-
+    // The backend control vector must be APPLIED before this hook can return.
+    // It previously ran after the `!Array.isArray(output.system)` guard below, so
+    // a turn whose output carried no system array returned first and the routing
+    // decision was silently discarded. Injecting system directives needs the
+    // system array; applying routing state does not.
     const sel = loadSelection()
     const syncResult = syncControlSettings(_controlVector, {
       persistOptimizationMode: true,
@@ -1633,6 +1686,26 @@ export const onSystemTransform = async (_input, output) => {
         }
       }
     } catch {}
+
+    const system = output?.system
+    if (!Array.isArray(system)) return
+
+    if (isApiConnected()) {
+      try {
+        const bb = loadBlackboxStateFromCtx()
+        if (!bb.enabled || _blackboxEnabled === false) {
+          setBlackboxEnabled(true)
+          if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+        }
+      } catch {}
+    } else if (_blackboxEnabled === false) {
+      try {
+        const bb = loadBlackboxStateFromCtx()
+        if (!bb.enabled) { bb.enabled = true; saveBlackboxStateToCtx(bb) }
+        setBlackboxEnabled(true)
+      } catch {}
+    }
+
     const fp = ensureProjectContext(hookDirectory)
     const rawStress = latestUserIntent ? scoreStress(latestUserIntent) : 0
     const stressScore = rawStress * (_controlVector?.stress_multiplier ?? 1)
@@ -1919,6 +1992,23 @@ export const onSystemTransform = async (_input, output) => {
 
   } catch (err) {
     console.error(`[vibeOS] system.transform failed: ${err.message}`)
+    // console.error is not reachable in the desktop app, so a throw here used to
+    // be completely invisible: the hook died, no routing was applied, and the
+    // only symptom was slot state that silently never moved. Record it where the
+    // rest of the routing evidence already lives.
+    try {
+      const vibeHome = getVibeOSHome()
+      if (vibeHome && vibeHome !== "undefined" && !vibeHome.startsWith("undefined")) {
+        const auditDir = join(vibeHome, "cascade-audit")
+        mkdirSync(auditDir, { recursive: true })
+        appendFileSync(join(auditDir, "cascade-audit.jsonl"), JSON.stringify({
+          _ts: new Date().toISOString(),
+          sessionId: String(_OC_SID || ""),
+          source: "system-transform-error",
+          message: String(err?.message || err),
+        }) + "\n")
+      }
+    } catch {}
   }
 }
 
