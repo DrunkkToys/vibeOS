@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
 import { gradeHidden, gradeVisible } from "./ml-task/grade.mjs"
 import { TURNS } from "./ml-task/prompts.mjs"
-import { ARM_DEFS, applyEfficiency, mean, scoreComponents, stdev, voidReason } from "./ml-task/score.mjs"
+import { ARM_DEFS, applyEfficiency, mean, retryDecision, scoreComponents, stdev, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -129,6 +129,27 @@ function setupTrial(arm, index) {
 }
 
 // ── one turn ──
+// The free tiers throttle: turns come back with 429/502/503 "Service temporarily
+// overloaded" after a few seconds and no work done. Voiding those loses a session
+// that is already several minutes in, so a transient failure is retried.
+//
+// A turn is only retried when it did NO work. Once the model has called a tool it
+// may have edited files, and re-sending the prompt would double-apply the edit and
+// silently corrupt the trial it is meant to rescue.
+function runTurnWithRetry(trial, turn, sessionId) {
+  for (let attempt = 0; ; attempt++) {
+    const result = runTurn(trial, turn, sessionId)
+    result.attempts = attempt + 1
+    const decision = retryDecision(result, attempt)
+    if (!decision.retry) {
+      if (result.status !== 0) result.retryBlocked = decision.reason
+      return result
+    }
+    console.log(`    ${turn.id.padEnd(14)} ${decision.reason}, retrying in ${decision.waitMs / 1000}s (attempt ${attempt + 2})`)
+    execSync(`sleep ${decision.waitMs / 1000}`)
+  }
+}
+
 function runTurn(trial, turn, sessionId) {
   const def = ARM_DEFS[trial.arm]
   const env = {
@@ -159,11 +180,15 @@ function runTurn(trial, turn, sessionId) {
 
   let sid = sessionId
   const text = []
+  const errors = []
+  let toolCalls = 0
   for (const line of stdout.split("\n")) {
     let j = null
     try { j = JSON.parse(line) } catch { continue }
     if (!j) continue
     if (!sid && j.sessionID) sid = j.sessionID
+    if (j.type === "tool_use") toolCalls++
+    if (j.type === "error") errors.push(JSON.stringify(j.error || {}))
     if (typeof j.text === "string") text.push(j.text)
     if (j.part && typeof j.part.text === "string") text.push(j.part.text)
   }
@@ -175,6 +200,8 @@ function runTurn(trial, turn, sessionId) {
     sessionId: sid,
     text: text.join("\n"),
     stdoutBytes: stdout.length,
+    toolCalls,
+    errorText: errors.join(" | ") + " " + stderr,
   }
 }
 
@@ -225,10 +252,11 @@ async function main() {
       const turns = []
       let sid = null
       for (const turn of TURNS.slice(0, MAX_TURNS)) {
-        const t = runTurn(trial, turn, sid)
+        const t = runTurnWithRetry(trial, turn, sid)
         sid = t.sessionId || sid
         turns.push(t)
-        console.log(`    ${turn.id.padEnd(14)} status=${t.status} ${Math.round(t.elapsedMs / 1000)}s`)
+        console.log(`    ${turn.id.padEnd(14)} status=${t.status} ${Math.round(t.elapsedMs / 1000)}s` +
+          (t.attempts > 1 ? ` (${t.attempts} attempts)` : "") + (t.retryBlocked ? ` [not retried: ${t.retryBlocked}]` : ""))
         if (t.status !== 0) break
       }
       const ev = collectEvidence(trial)

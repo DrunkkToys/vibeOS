@@ -75,3 +75,20 @@ export function stdev(xs) {
   const m = mean(xs)
   return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (xs.length - 1))
 }
+
+// The free tiers throttle: turns come back with 429/502/503 "Service temporarily
+// overloaded" after a few seconds with no work done. Voiding those loses a session
+// that is already several minutes in, so a transient failure is retried.
+export const RETRYABLE = /\b(429|502|503|504)\b|temporarily overloaded|rate.?limit|overloaded_error|too many requests|streaming response failed|service unavailable/i
+export const RETRY_BACKOFF_MS = [15000, 45000, 120000]
+
+// A turn is only retried when it did NO work. Once the model has called a tool it may
+// have edited files, and re-sending the prompt would double-apply the edit — silently
+// corrupting the very trial the retry is meant to rescue.
+export function retryDecision(turn, attempt, backoff = RETRY_BACKOFF_MS) {
+  if (turn.status === 0) return { retry: false, reason: "succeeded" }
+  if (!RETRYABLE.test(turn.errorText || "")) return { retry: false, reason: "not a transient provider failure" }
+  if (turn.toolCalls > 0) return { retry: false, reason: "tool calls already ran" }
+  if (attempt >= backoff.length) return { retry: false, reason: "retries exhausted" }
+  return { retry: true, waitMs: backoff[attempt], reason: "transient provider failure" }
+}

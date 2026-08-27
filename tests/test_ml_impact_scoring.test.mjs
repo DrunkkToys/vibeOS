@@ -210,3 +210,27 @@ test("efficiency is normalised against the fastest scored trial, and voids are e
   assert.equal(results[2].qscore, undefined, "a voided trial must never get a qscore")
   assert.ok(results[0].qscore > results[1].qscore)
 })
+
+test("a transient provider failure is retried with backoff", () => {
+  const turn = { status: 1, toolCalls: 0, errorText: 'Streaming response failed: [502] Service temporarily overloaded' }
+  const d0 = score.retryDecision(turn, 0)
+  assert.equal(d0.retry, true)
+  assert.equal(d0.waitMs, score.RETRY_BACKOFF_MS[0])
+  assert.ok(score.retryDecision(turn, 1).waitMs > d0.waitMs, "backoff must grow")
+  assert.equal(score.retryDecision(turn, score.RETRY_BACKOFF_MS.length).retry, false, "retries must be bounded")
+})
+
+test("a turn that already ran a tool is never retried", () => {
+  // Re-sending a prompt after the model edited files would double-apply the edit and
+  // silently corrupt the trial the retry is meant to rescue.
+  const turn = { status: 1, toolCalls: 3, errorText: "[503] Service temporarily overloaded" }
+  const d = score.retryDecision(turn, 0)
+  assert.equal(d.retry, false)
+  assert.match(d.reason, /tool calls already ran/)
+})
+
+test("a genuine failure is not retried away", () => {
+  assert.equal(score.retryDecision({ status: 1, toolCalls: 0, errorText: "SyntaxError: unexpected token" }, 0).retry, false)
+  assert.equal(score.retryDecision({ status: 0, toolCalls: 0, errorText: "" }, 0).retry, false)
+  assert.equal(score.retryDecision({ status: 1, toolCalls: 0, errorText: "Insufficient Balance 402" }, 0).retry, false)
+})
