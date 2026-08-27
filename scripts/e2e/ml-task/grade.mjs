@@ -4,7 +4,7 @@
 // only AFTER the session has ended, so the model can never read, run, or edit
 // the thing that scores it.
 
-import { copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs"
+import { copyFileSync, mkdirSync, readdirSync, existsSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { spawnSync } from "node:child_process"
@@ -15,13 +15,35 @@ export function hiddenTestNames() {
   return readdirSync(HIDDEN).filter((f) => f.endsWith(".test.mjs")).sort()
 }
 
+// `node --test` only expands glob patterns from Node 22 on; on Node 20 the pattern
+// matches nothing and the run exits 0 having executed no tests. Enumerate the files
+// ourselves so the grader behaves identically on every supported Node.
+function collectTests(root) {
+  const found = []
+  const walk = (d) => {
+    let entries = []
+    try { entries = readdirSync(d) } catch { return }
+    for (const name of entries.sort()) {
+      const abs = join(d, name)
+      let st
+      try { st = statSync(abs) } catch { continue }
+      if (st.isDirectory()) walk(abs)
+      else if (/\.(test|spec)\.(mjs|js|cjs)$/.test(name)) found.push(abs)
+    }
+  }
+  walk(root)
+  return found
+}
+
 function runNodeTest(dir, target) {
   // NODE_TEST_CONTEXT leaks into the child when the grader itself is invoked from a
   // `node --test` run; node then refuses to run the file ("run() is being called
   // recursively") and exits 0 having executed nothing. Strip it.
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
-  const res = spawnSync(process.execPath, ["--test", target], {
+  const targets = Array.isArray(target) ? target : [target]
+  if (!targets.length) return { ok: false, pass: 0, fail: 0, ran: false, out: "no test files found" }
+  const res = spawnSync(process.execPath, ["--test", ...targets], {
     cwd: dir, encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, env,
   })
   const out = (res.stdout || "") + (res.stderr || "")
@@ -35,8 +57,8 @@ function runNodeTest(dir, target) {
 
 // The visible suite the model can see. Used for the no-regression component.
 export function gradeVisible(dir) {
-  if (!existsSync(join(dir, "tests"))) return { ok: false, pass: 0, fail: 0, out: "no tests/ directory" }
-  return runNodeTest(dir, "tests/**/*.test.mjs")
+  if (!existsSync(join(dir, "tests"))) return { ok: false, pass: 0, fail: 0, ran: false, out: "no tests/ directory" }
+  return runNodeTest(dir, collectTests(join(dir, "tests")))
 }
 
 // The hidden suite. Copied into <dir>/.grading so relative imports (../src/...)

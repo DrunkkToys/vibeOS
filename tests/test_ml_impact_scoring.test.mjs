@@ -112,6 +112,32 @@ export function createPipeline(sink) {
   })
 })
 
+test("the grader finds tests without relying on node's glob support", () => {
+  // `node --test "tests/**/*.test.mjs"` expands only from Node 22 on. On Node 20 the
+  // pattern matched nothing, the run exited 0 having executed no tests, and the grader
+  // would have called that a pass. Files are enumerated explicitly instead.
+  withTask((dir) => {
+    const before = gradeVisible(dir)
+    assert.equal(before.ran, true, "the visible suite reported a result without running anything")
+    assert.equal(before.pass, 1)
+
+    // Tests the model adds in later turns must count too.
+    writeFileSync(join(dir, "tests", "extra.test.mjs"),
+      'import test from "node:test"\nimport assert from "node:assert/strict"\ntest("extra", () => assert.ok(true))\n')
+    const after = gradeVisible(dir)
+    assert.equal(after.pass, 2, "a test added after setup was not picked up")
+  })
+})
+
+test("a suite that executes no assertions is never scored as a pass", () => {
+  withTask((dir) => {
+    rmSync(join(dir, "tests"), { recursive: true, force: true })
+    const res = gradeVisible(dir)
+    assert.equal(res.ok, false)
+    assert.equal(res.ran, false)
+  })
+})
+
 test("every turn prompt is distinct and the pivot lands mid-session", () => {
   const ids = TURNS.map((t) => t.id)
   assert.equal(new Set(ids).size, ids.length)

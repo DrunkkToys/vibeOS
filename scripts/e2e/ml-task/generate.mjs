@@ -21,7 +21,7 @@ const FILES = {
     name: "evtpipe",
     version: "0.1.0",
     type: "module",
-    scripts: { test: "node --test \"tests/**/*.test.mjs\"" },
+    scripts: { test: "node --test tests/*.test.mjs" },
   }, null, 2) + "\n",
 
   "README.md": `# evtpipe
