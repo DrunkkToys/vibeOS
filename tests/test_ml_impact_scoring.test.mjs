@@ -210,3 +210,65 @@ test("efficiency is normalised against the fastest scored trial, and voids are e
   assert.equal(results[2].qscore, undefined, "a voided trial must never get a qscore")
   assert.ok(results[0].qscore > results[1].qscore)
 })
+
+test("a transient provider failure is retried with backoff", () => {
+  const turn = { status: 1, toolCalls: 0, errorText: 'Streaming response failed: [502] Service temporarily overloaded' }
+  const d0 = score.retryDecision(turn, 0)
+  assert.equal(d0.retry, true)
+  assert.equal(d0.waitMs, score.RETRY_BACKOFF_MS[0])
+  assert.ok(score.retryDecision(turn, 1).waitMs > d0.waitMs, "backoff must grow")
+  assert.equal(score.retryDecision(turn, score.RETRY_BACKOFF_MS.length).retry, false, "retries must be bounded")
+})
+
+test("a turn that already changed the repo is never retried", () => {
+  // Re-sending a prompt after the model edited files would double-apply the edit and
+  // silently corrupt the trial the retry is meant to rescue.
+  const turn = { status: 1, toolCalls: 3, mutatingCalls: 2, errorText: "[503] Service temporarily overloaded" }
+  const d = score.retryDecision(turn, 0)
+  assert.equal(d.retry, false)
+  assert.match(d.reason, /changed the repo/)
+})
+
+test("a genuine failure is not retried away", () => {
+  assert.equal(score.retryDecision({ status: 1, toolCalls: 0, errorText: "SyntaxError: unexpected token" }, 0).retry, false)
+  assert.equal(score.retryDecision({ status: 0, toolCalls: 0, errorText: "" }, 0).retry, false)
+  assert.equal(score.retryDecision({ status: 1, toolCalls: 0, errorText: "Insufficient Balance 402" }, 0).retry, false)
+})
+
+// A 502 from the free tier arrives *after* the model has already read files. Blocking
+// the retry on any tool call blocks it in the exact case the retry exists for; only a
+// tool that can change the repo makes a re-send unsafe.
+test("retryDecision retries a transient failure that only read files", () => {
+  const d = score.retryDecision(
+    { status: 1, toolCalls: 10, mutatingCalls: 0, errorText: "Streaming response failed: [502] Upstream error" },
+    0,
+  )
+  assert.equal(d.retry, true)
+  assert.equal(d.waitMs, score.RETRY_BACKOFF_MS[0])
+})
+
+test("retryDecision refuses to retry once a tool could have changed the repo", () => {
+  const d = score.retryDecision(
+    { status: 1, toolCalls: 4, mutatingCalls: 1, errorText: "Streaming response failed: [502] Upstream error" },
+    0,
+  )
+  assert.equal(d.retry, false)
+  assert.match(d.reason, /edit|chang|mutat/i)
+})
+
+test("mutatingCalls counts only tools that can write", () => {
+  assert.equal(score.countMutating(["read", "grep", "list", "webfetch"]), 0)
+  assert.equal(score.countMutating(["read", "edit", "read"]), 1)
+  assert.equal(score.countMutating(["write", "bash", "notebookedit", "patch"]), 4)
+})
+
+test("toolNameOf reads the name opencode actually emits", async () => {
+  const { toolNameOf } = score
+  const real = JSON.parse(
+    '{"type":"tool_use","timestamp":1,"sessionID":"ses_x","part":{"type":"tool","tool":"edit","callID":"c1","state":{"status":"completed"}}}',
+  )
+  assert.equal(toolNameOf(real), "edit")
+  assert.equal(score.countMutating([toolNameOf(real)]), 1)
+  assert.equal(toolNameOf({ type: "tool_use", part: { tool: "read" } }), "read")
+  assert.equal(toolNameOf({}), "")
+})

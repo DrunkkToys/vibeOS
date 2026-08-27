@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
 import { gradeHidden, gradeVisible } from "./ml-task/grade.mjs"
 import { TURNS } from "./ml-task/prompts.mjs"
-import { ARM_DEFS, applyEfficiency, mean, scoreComponents, stdev, voidReason } from "./ml-task/score.mjs"
+import { ARM_DEFS, applyEfficiency, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -44,7 +44,10 @@ const MODEL = flag("--model", process.env.ML_IMPACT_MODEL || "")
 const K = Number(flag("--k", process.env.ML_IMPACT_K || "1"))
 const OUT = flag("--out", join(ROOT, ".ml-impact-out"))
 const SEED = flag("--seed", process.env.ML_IMPACT_SEED || "ml-impact-1")
-const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TIMEOUT || "300000"))
+// Measured on the free opencode tiers: ~35s per model step, and the diagnose turn
+// takes many steps. 300s cut real turns off mid-work and voided them as timeouts,
+// which loses the trial rather than measuring it.
+const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TIMEOUT || "900000"))
 const MOCK_PORT = Number(flag("--mock-port", process.env.ML_IMPACT_MOCK_PORT || "48123"))
 const BASE_URL = `http://127.0.0.1:${MOCK_PORT}`
 const RESUME = argv.includes("--resume")
@@ -55,9 +58,9 @@ const MAX_TURNS = Number(flag("--turns", TURNS.length))
 // Distinct free tiers on one provider, so the same-provider chat.params override
 // applies and a trial that fails to route is visible instead of masked.
 const TIERS = {
-  cheap: process.env.ML_IMPACT_CHEAP || "opencode/nemotron-3.5-lightning-free",
-  medium: process.env.ML_IMPACT_MEDIUM || "opencode/mimo-v2.5-free",
-  brain: process.env.ML_IMPACT_BRAIN || "opencode/nemotron-3-ultra-free",
+  cheap: process.env.ML_IMPACT_CHEAP || "opencode/muse-spark-1.2-contributor-free",
+  medium: process.env.ML_IMPACT_MEDIUM || "opencode/hy3-free",
+  brain: process.env.ML_IMPACT_BRAIN || "opencode/mimo-v2.5-free",
 }
 
 const ARMS = flag("--arms", "raw,vibeqmax,vibeultrax").split(",").map((s) => s.trim()).filter((a) => ARM_DEFS[a])
@@ -92,8 +95,11 @@ function setupTrial(arm, index) {
   const home = join(OUT, "trials", name, "home")
   const def = ARM_DEFS[arm]
   mkdirSync(proj, { recursive: true })
-  mkdirSync(join(home, "quality-gate"), { recursive: true })
-  mkdirSync(join(home, "session-events"), { recursive: true })
+  mkdirSync(home, { recursive: true })
+  if (def.plugin) {
+    mkdirSync(join(home, "quality-gate"), { recursive: true })
+    mkdirSync(join(home, "session-events"), { recursive: true })
+  }
   generateTask(proj)
 
   const config = { $schema: "https://opencode.ai/config.json" }
@@ -126,6 +132,27 @@ function setupTrial(arm, index) {
 }
 
 // ── one turn ──
+// The free tiers throttle: turns come back with 429/502/503 "Service temporarily
+// overloaded" after a few seconds and no work done. Voiding those loses a session
+// that is already several minutes in, so a transient failure is retried.
+//
+// A turn is only retried when it did NO work. Once the model has called a tool it
+// may have edited files, and re-sending the prompt would double-apply the edit and
+// silently corrupt the trial it is meant to rescue.
+function runTurnWithRetry(trial, turn, sessionId) {
+  for (let attempt = 0; ; attempt++) {
+    const result = runTurn(trial, turn, sessionId)
+    result.attempts = attempt + 1
+    const decision = retryDecision(result, attempt)
+    if (!decision.retry) {
+      if (result.status !== 0) result.retryBlocked = decision.reason
+      return result
+    }
+    console.log(`    ${turn.id.padEnd(14)} ${decision.reason}, retrying in ${decision.waitMs / 1000}s (attempt ${attempt + 2})`)
+    execSync(`sleep ${decision.waitMs / 1000}`)
+  }
+}
+
 function runTurn(trial, turn, sessionId) {
   const def = ARM_DEFS[trial.arm]
   const env = {
@@ -156,11 +183,16 @@ function runTurn(trial, turn, sessionId) {
 
   let sid = sessionId
   const text = []
+  const errors = []
+  let toolCalls = 0
+  const toolNames = []
   for (const line of stdout.split("\n")) {
     let j = null
     try { j = JSON.parse(line) } catch { continue }
     if (!j) continue
     if (!sid && j.sessionID) sid = j.sessionID
+    if (j.type === "tool_use") { toolCalls++; toolNames.push(toolNameOf(j)) }
+    if (j.type === "error") errors.push(JSON.stringify(j.error || {}))
     if (typeof j.text === "string") text.push(j.text)
     if (j.part && typeof j.part.text === "string") text.push(j.part.text)
   }
@@ -172,6 +204,9 @@ function runTurn(trial, turn, sessionId) {
     sessionId: sid,
     text: text.join("\n"),
     stdoutBytes: stdout.length,
+    toolCalls,
+    mutatingCalls: countMutating(toolNames),
+    errorText: errors.join(" | ") + " " + stderr,
   }
 }
 
@@ -222,10 +257,11 @@ async function main() {
       const turns = []
       let sid = null
       for (const turn of TURNS.slice(0, MAX_TURNS)) {
-        const t = runTurn(trial, turn, sid)
+        const t = runTurnWithRetry(trial, turn, sid)
         sid = t.sessionId || sid
         turns.push(t)
-        console.log(`    ${turn.id.padEnd(14)} status=${t.status} ${Math.round(t.elapsedMs / 1000)}s`)
+        console.log(`    ${turn.id.padEnd(14)} status=${t.status} ${Math.round(t.elapsedMs / 1000)}s` +
+          (t.attempts > 1 ? ` (${t.attempts} attempts)` : "") + (t.retryBlocked ? ` [not retried: ${t.retryBlocked}]` : ""))
         if (t.status !== 0) break
       }
       const ev = collectEvidence(trial)
