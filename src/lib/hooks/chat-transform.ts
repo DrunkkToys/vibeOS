@@ -297,6 +297,19 @@ function normalizeSlot(value: unknown): "brain" | "medium" | "cheap" | null {
   return null
 }
 
+// A classify response only carries a tier verdict if one of its tier fields holds a
+// real slot name. A 200 that carries none -- a degraded backend, a partial rollout, a
+// stand-in mock -- is not an authoritative "stay where you are"; it is no answer at
+// all, and must fall through to the local estimate rather than freeze resolved_tier.
+export function tierFromClassifyResponse(cascadeData: unknown): "brain" | "medium" | "cheap" | null {
+  if (!cascadeData || typeof cascadeData !== "object") return null
+  const data = cascadeData as Record<string, unknown>
+  const explicit = normalizeSlot(data.resolved_tier)
+  if (explicit) return explicit
+  if (data.web_search === true || data.loop_break === true) return "brain"
+  return normalizeSlot(data.tier) || normalizeSlot(data.entry_tier)
+}
+
 function slotFromMode(mode: unknown): "brain" | "medium" | "cheap" | null {
   const normalized = String(mode || "").trim().toLowerCase()
   if (!normalized || normalized === "auto") return null
@@ -1492,43 +1505,41 @@ export const onSystemTransform = async (_input, output) => {
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
     const classifiedRegime = liveBlackboxState?.sub_regime
       || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
+    let resolvedTierThisTurn: "brain" | "medium" | "cheap" | null = null
     if (latestUserIntent && isApiConnected() && !isApiFallback()) {
       try {
         const client = getApiClient()
         if (client) {
           const cascadeData = await client.classify(latestUserIntent, {})
-          if (cascadeData) {
+          // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
+          // signals force brain directly here rather than via a selection-state flag.
+          resolvedTierThisTurn = tierFromClassifyResponse(cascadeData)
+          if (resolvedTierThisTurn) {
             const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
             bb.sessions ??= {}
             const prev = bb.sessions[_OC_SID] || {}
-            // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
-            // signals force brain directly here rather than via a selection-state flag.
-            // When the classify response omits resolved_tier itself, fall back to the same
-            // response's tier/entry_tier fields before giving up on a fresh signal entirely.
-            const resolvedTier = cascadeData.resolved_tier
-              || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : null)
-              || cascadeData.tier
-              || cascadeData.entry_tier
-              || prev.resolved_tier
             bb.sessions[_OC_SID] = {
               ...prev,
-              cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
-              resolved_tier: resolvedTier,
+              cascade_depth: (cascadeData as { cascade_depth?: number } | null)?.cascade_depth || prev.cascade_depth || 0,
+              resolved_tier: resolvedTierThisTurn,
             }
             saveBlackboxStateToCtx(bb)
           } else {
-            console.warn("[vibeOS] cascade classify returned no usable data; resolved_tier not updated this turn")
+            console.warn("[vibeOS] cascade classify returned no usable tier; falling back to the local difficulty estimate")
           }
         }
       } catch (classifyErr) {
         console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
       }
-    } else if (latestUserIntent) {
-      // BE classify is gated off (API disconnected or in fallback cooldown). Without this
-      // branch resolved_tier just freezes at whatever it last was (often never-set/None)
-      // for the entire fallback window, since the block above is the only resolved_tier
-      // writer. Derive a local estimate from the same difficulty scorer tool-execute.ts
-      // uses for cascade routing so blackbox state still gets a tier this turn.
+    }
+    if (latestUserIntent && !resolvedTierThisTurn) {
+      // No tier came back from the BE this turn -- it is disconnected, in fallback
+      // cooldown, erroring, or answering without a verdict. This branch is the only
+      // other resolved_tier writer, so without it the verdict freezes at whatever it
+      // last was (often never-set) and ultraXPrimarySlot, which needs a verdict to move
+      // the primary, pins vibeultrax to its entry slot for the rest of the session.
+      // Derive an estimate from the same difficulty scorer tool-execute.ts uses for
+      // cascade routing so blackbox state still gets a tier this turn.
       try {
         const { suggestedTier } = computeDifficulty(latestUserIntent)
         const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }

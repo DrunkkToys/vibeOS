@@ -34,7 +34,8 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
   })
 
   it("stores cascade_depth in blackbox session state", () => {
-    assert.ok(src.includes("cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0"), "must store cascade_depth in session")
+    assert.ok(/cascade_depth:[^\n]*cascade_depth \|\| prev\.cascade_depth \|\| 0/.test(src),
+      "must store cascade_depth in session, falling back to the previous value then 0")
   })
 
   it("stores resolved_tier as the single BE-authoritative tier signal", () => {
@@ -42,11 +43,17 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
   })
 
   it("falls back to the classify response's tier/entry_tier when resolved_tier itself is missing", () => {
-    const start = src.indexOf("const resolvedTier =")
-    assert.ok(start >= 0, "resolvedTier computation must exist")
-    const body = src.slice(start, start + 400)
-    assert.ok(body.includes("cascadeData.tier"), "must fall back to cascadeData.tier when resolved_tier is absent")
-    assert.ok(body.includes("cascadeData.entry_tier"), "must fall back to cascadeData.entry_tier when tier is also absent")
+    const start = src.indexOf("export function tierFromClassifyResponse(")
+    assert.ok(start >= 0, "tierFromClassifyResponse must exist")
+    const body = src.slice(start, src.indexOf("\n}", start))
+    assert.ok(body.includes("data.resolved_tier"), "must read resolved_tier first")
+    assert.ok(body.includes("data.tier"), "must fall back to tier when resolved_tier is absent")
+    assert.ok(body.includes("data.entry_tier"), "must fall back to entry_tier when tier is also absent")
+    // Every candidate goes through normalizeSlot, so a response whose tier fields are
+    // all absent or unusable yields null rather than an undefined verdict that
+    // serializes away and leaves the cascade pinned to its entry slot.
+    assert.ok(!/return\s+data\.(resolved_tier|tier|entry_tier)\b/.test(body),
+      "a tier field must never be returned unnormalized")
   })
 
   it("logs when a successful classify call returns no usable data (silent no-op guard)", () => {
@@ -75,8 +82,14 @@ describe("cascade-api — chat-transform.ts stores BE-authoritative resolved_tie
     assert.ok(src.includes("computeDifficulty"), "must import/use computeDifficulty for a local resolved_tier estimate")
     const gateStart = src.indexOf("if (latestUserIntent && isApiConnected() && !isApiFallback())")
     assert.ok(gateStart >= 0, "BE classify gate must exist")
-    const afterGate = src.slice(gateStart, gateStart + 2600)
-    assert.ok(/else if\s*\(latestUserIntent\)/.test(afterGate), "must have a fallback branch that still runs when the BE classify path is gated off")
+    const afterGate = src.slice(gateStart, gateStart + 3400)
+    // The branch must key off "no tier was resolved", NOT off "the API is unreachable".
+    // As an `else if` it missed the case that actually broke vibeultrax in the A/B rig:
+    // a connected backend answering 200 with no tier in it.
+    assert.ok(/\n    if \(latestUserIntent && !resolvedTierThisTurn\) \{/.test(afterGate),
+      "fallback branch must run whenever no tier was resolved, not only when the API is gated off")
+    assert.ok(!/else if\s*\(latestUserIntent\)/.test(afterGate),
+      "gating the fallback behind the API being down is the regression this guards")
     assert.ok(afterGate.includes("suggestedTier"), "fallback branch must derive a tier from computeDifficulty's suggestedTier")
     assert.ok(afterGate.includes("resolved_tier:"), "fallback branch must still persist resolved_tier so it never stays frozen at None")
   })
