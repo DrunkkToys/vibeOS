@@ -82,13 +82,26 @@ export function stdev(xs) {
 export const RETRYABLE = /\b(429|502|503|504)\b|temporarily overloaded|rate.?limit|overloaded_error|too many requests|streaming response failed|service unavailable/i
 export const RETRY_BACKOFF_MS = [15000, 45000, 120000]
 
-// A turn is only retried when it did NO work. Once the model has called a tool it may
-// have edited files, and re-sending the prompt would double-apply the edit — silently
-// corrupting the very trial the retry is meant to rescue.
+// opencode reports the tool name at part.tool; reading it from the wrong key makes
+// mutatingCalls silently zero, which would turn the retry guard off instead of narrowing it.
+export function toolNameOf(event) {
+  return String(event?.part?.tool || event?.tool || event?.name || "")
+}
+
+export const MUTATING_TOOLS = new Set(["write", "edit", "patch", "notebookedit", "bash", "multiedit"])
+
+export function countMutating(toolNames) {
+  return (toolNames || []).filter((n) => MUTATING_TOOLS.has(String(n).toLowerCase())).length
+}
+
+// The free tiers drop a turn with a 502 *after* the model has worked for minutes, so
+// blocking the retry on any tool call blocks it in the exact case it exists for. Only a
+// tool that can change the repo makes a re-send unsafe: re-sending the prompt would
+// double-apply the edit, silently corrupting the trial the retry is meant to rescue.
 export function retryDecision(turn, attempt, backoff = RETRY_BACKOFF_MS) {
   if (turn.status === 0) return { retry: false, reason: "succeeded" }
   if (!RETRYABLE.test(turn.errorText || "")) return { retry: false, reason: "not a transient provider failure" }
-  if (turn.toolCalls > 0) return { retry: false, reason: "tool calls already ran" }
+  if ((turn.mutatingCalls || 0) > 0) return { retry: false, reason: "a tool already changed the repo" }
   if (attempt >= backoff.length) return { retry: false, reason: "retries exhausted" }
   return { retry: true, waitMs: backoff[attempt], reason: "transient provider failure" }
 }
