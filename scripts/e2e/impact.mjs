@@ -10,11 +10,13 @@
 // Usage:
 //   node scripts/e2e/impact.mjs --model deepseek/deepseek-chat [--k <n>] [--seed <s>]
 
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, copyFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { prompts } from "./prompts.mjs"
+import { TIER_MODELS } from "./scenarios.mjs"
+import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const BUNDLE = join(ROOT, "dist", "vibeOS.js")
@@ -29,6 +31,9 @@ const K = Number(flag("--k", process.env.E2E_K || "1"))
 const OUT = flag("--out", join(ROOT, ".impact-out"))
 const MOCK_PORT = Number(flag("--mock-port", process.env.E2E_MOCK_PORT || "48099"))
 const BASE_URL = `http://127.0.0.1:${MOCK_PORT}`
+// vibeOS skips every automatic hook unless the session agent is `vibe` or a vibe-*
+// tier subagent (src/lib/agent-gate.ts), so driving `build` measured an inert plugin.
+const AGENT = process.env.E2E_AGENT || "vibe"
 
 if (!MODEL) { console.log("[impact] skipped: no model (set E2E_MODEL or --model)"); process.exit(0) }
 if (!existsSync(OPENCODE)) { console.error(`[impact] FATAL: opencode CLI not found at ${OPENCODE}`); process.exit(1) }
@@ -37,10 +42,20 @@ if (!existsSync(BUNDLE)) { console.error(`[impact] FATAL: bundle not found at ${
 // ── Mock backend ──
 let mockProc = null
 function startMock() {
-  const { stdout } = spawnSync(process.execPath, [join(ROOT, "scripts/e2e/mock.mjs"), OUT, String(MOCK_PORT)], {
-    encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "pipe"],
+  // spawnSync here blocked for the full timeout and then KILLED the mock, and never
+  // assigned mockProc — so stopMock was a permanent no-op and every run pointed
+  // VIBEOS_API_URL at a dead port. Spawn detached and poll /health, as harness.mjs does.
+  mockProc = spawn(process.execPath, [join(ROOT, "scripts", "e2e", "mock.mjs"), OUT, String(MOCK_PORT)], {
+    stdio: ["ignore", "ignore", "inherit"],
   })
-  console.log(stdout.trim().split("\n")[0])
+  let tries = 0
+  while (tries++ < 50) {
+    try {
+      execFileSync("curl", ["-s", `${BASE_URL}/health`], { timeout: 2000, stdio: "ignore" })
+      return
+    } catch { execSync("sleep 0.2") }
+  }
+  throw new Error("[impact] mock failed to start")
 }
 function stopMock() { if (mockProc) { try { mockProc.kill() } catch {} mockProc = null } }
 
@@ -56,10 +71,20 @@ function setupProject(dir, withPlugin = true) {
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "impact-proj", type: "module", scripts: { test: "node --test tests/" } }, null, 2))
   const config = { $schema: "https://opencode.ai/config.json" }
   if (withPlugin) config.plugin = [BUNDLE]
+  // Both arms register the vibe agent so the ONLY difference between them is the
+  // plugin itself. Driving different agents per arm would confound the comparison,
+  // and inheriting the agent from the developer's global config would not survive CI.
+  const trinity = {
+    cheap: { oc: TIER_MODELS.cheap },
+    medium: { oc: TIER_MODELS.medium },
+    brain: { oc: TIER_MODELS.brain },
+  }
+  installVibeTierAgentsInConfig(config, { trinity })
   writeFileSync(join(dir, "opencode.json"), JSON.stringify(config, null, 2))
-  writeFileSync(join(dir, ".claude/model-tiers.json"), JSON.stringify({
-    trinity: { cheap: { oc: "deepseek/deepseek-chat" }, medium: { oc: "deepseek/deepseek-chat" }, brain: { oc: "deepseek/deepseek-chat" } },
-  }, null, 2))
+  // Tiers must land in VIBEOS_HOME (.vibeos), which is what runPrompt exports. They
+  // were written to .claude/ — a directory setupProject never created, so the very
+  // first prompt threw ENOENT and killed the run before any measurement happened.
+  writeFileSync(join(dir, ".vibeos", "model-tiers.json"), JSON.stringify({ trinity }, null, 2))
 }
 
 // ── Run a prompt ──
@@ -69,7 +94,7 @@ function runPrompt(projectDir, prompt, env = {}) {
   let err = ""
   let status = -1
   try {
-    const cmdArgs = ["run", "--dir", projectDir, "--format", "json", "--auto", "-m", MODEL, "--agent", "build"]
+    const cmdArgs = ["run", "--dir", projectDir, "--format", "json", "--auto", "-m", MODEL, "--agent", AGENT]
     cmdArgs.push(prompt)
     const res = spawnSync(OPENCODE, cmdArgs, {
       encoding: "utf8",

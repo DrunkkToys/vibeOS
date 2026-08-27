@@ -15,11 +15,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { allScenarios, TIER_MODELS } from "./scenarios.mjs"
+import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const BUNDLE = join(ROOT, "dist", "vibeOS.js")
 const OPENCODE = process.env.HOME + "/.opencode/bin/opencode"
 const DEFAULT_OUT = join(ROOT, ".e2e-tmp")
+// vibeOS gates every automatic hook on the session agent being `vibe` or a vibe-*
+// tier subagent (src/lib/agent-gate.ts). Driving `build` here registered the plugin
+// and then skipped every hook, so the whole harness asserted against an inert
+// plugin. Confirmed live: `build` produced 0 cascade-audit rows and no footer;
+// `vibe` produced both.
+const AGENT = process.env.E2E_AGENT || "vibe"
 
 const args = process.argv.slice(2)
 const flag = (name, fallback) => {
@@ -104,10 +111,8 @@ function newTrial(name) {
   mkdirSync(join(trial.proj, "tests"), { recursive: true })
   mkdirSync(join(trial.home, "quality-gate"), { recursive: true })
   mkdirSync(join(trial.home, "session-events"), { recursive: true })
-  writeFileSync(join(trial.proj, "opencode.json"), JSON.stringify({
-    $schema: "https://opencode.ai/config.json",
-    plugin: [BUNDLE],
-  }, null, 2))
+  writeFileSync(join(trial.proj, "opencode.json"), JSON.stringify(
+    projectConfig(), null, 2))
   writeFileSync(join(trial.proj, "package.json"), JSON.stringify({ name: "e2e-proj", type: "module", scripts: { test: "node --test tests/" } }, null, 2))
   writeFileSync(join(trial.home, "model-tiers.json"), JSON.stringify({
     trinity: {
@@ -116,6 +121,21 @@ function newTrial(name) {
       brain: { oc: TIER_MODELS.brain },
     },
   }, null, 2))
+}
+
+// The temp project must register the vibe agent itself. Relying on the developer's
+// global ~/.opencode/opencode.json to supply it makes the harness pass on this machine
+// and fail on a clean one.
+function projectConfig() {
+  const config = { $schema: "https://opencode.ai/config.json", plugin: [BUNDLE] }
+  installVibeTierAgentsInConfig(config, {
+    trinity: {
+      cheap: { oc: TIER_MODELS.cheap },
+      medium: { oc: TIER_MODELS.medium },
+      brain: { oc: TIER_MODELS.brain },
+    },
+  })
+  return config
 }
 
 function seedSelection(overrides = {}) {
@@ -140,7 +160,7 @@ function writePluginRepo() {
   mkdirSync(join(trial.proj, "src", "vibeOS-lib"), { recursive: true })
   mkdirSync(join(trial.proj, "dist"), { recursive: true })
   copyFileSync(BUNDLE, join(trial.proj, "dist", "vibeOS.js"))
-  writeFileSync(join(trial.proj, "opencode.json"), JSON.stringify({ $schema: "https://opencode.ai/config.json", plugin: [BUNDLE] }, null, 2))
+  writeFileSync(join(trial.proj, "opencode.json"), JSON.stringify(projectConfig(), null, 2))
   writeFileSync(join(trial.proj, "package.json"), JSON.stringify({ name: "vibeostheog", version: "0.0.0" }, null, 2))
   writeFileSync(join(trial.proj, "src", "vibeOS-lib", "core.ts"), "export const CORE = true\n")
 }
@@ -299,7 +319,7 @@ const ctx = {
     let errText = ""
     let status = 0
     try {
-      const cmdArgs = ["run", "--dir", trial.proj, "--format", "json", "--auto", "-m", MODEL, "--agent", "build"]
+      const cmdArgs = ["run", "--dir", trial.proj, "--format", "json", "--auto", "-m", MODEL, "--agent", AGENT]
       if (isContinue && trial.sessionId) cmdArgs.push("-s", trial.sessionId)
       cmdArgs.push(prompt)
       const res = spawnSync(OPENCODE, cmdArgs, { encoding: "utf8", timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, env })
