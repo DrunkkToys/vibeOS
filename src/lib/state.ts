@@ -520,7 +520,17 @@ function syncVibeOSPathBindings(home = resolveVibeOSHome()): void {
 }
 
 export function setVibeOSHomeContext(home: string): void {
-  const resolved = String(home || "").trim() || resolveVibeOSHome()
+  // `String(home || "").trim() || resolveVibeOSHome()` accepted the literal
+  // strings "undefined"/"null" — both truthy — and syncVibeOSPathBindings then
+  // rebound every state file to `undefined/...`, relative to the user's project
+  // directory. runtime-paths.ts (envPath) has always rejected them, so the two
+  // resolvers disagreed: getVibeOSHome() returned the real home while the
+  // exported bindings pointed at ./undefined. Observed live as an
+  // `undefined/session-events/` tree written into a repo working tree.
+  const trimmed = String(home || "").trim()
+  const resolved = (!trimmed || trimmed === "undefined" || trimmed === "null")
+    ? resolveVibeOSHome()
+    : trimmed
   try {
     process.env.VIBEOS_HOME = resolved
   } catch {}
