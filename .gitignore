@@ -89,3 +89,4 @@ vibeOS.cjs
 
 # Local debug logs (not for version control)
 .codex-logs/
+.ml-impact-out/
