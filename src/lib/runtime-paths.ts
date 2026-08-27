@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { existsSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 
 export const USER_HOME = (() => {
   try {
@@ -21,7 +21,17 @@ type RuntimeHomeContext = { home?: string }
 // fallback chain applies. See tests/cascade_audit_path_safety.test.mjs.
 function envPath(value: string | undefined): string | undefined {
   const trimmed = String(value ?? "").trim()
-  if (!trimmed || trimmed === "undefined" || trimmed === "null") return undefined
+  if (!trimmed) return undefined
+  // Every relative value is rejected, not just the two literals. A relative home is
+  // resolved against whatever cwd each writer happens to have, so one string names as
+  // many directories as there are working directories in the process tree, and the
+  // state tree splits across them. "undefined" and "null" were only the two members of
+  // that class we had seen; they are relative paths themselves, so this subsumes them.
+  // Observed live 2026-08-27: VIBEOS_HOME=.ml-run2/trials/vibeqmax-0/home was seeded by
+  // a harness running at the repo root and read by a plugin running in the trial
+  // project dir, which found no model-tiers.json and silently ran the arm in budget
+  // mode on the cheap model.
+  if (!isAbsolute(trimmed)) return undefined
   return trimmed
 }
 
