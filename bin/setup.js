@@ -162,7 +162,7 @@ import { homedir as homedir5 } from "node:os";
 
 // src/lib/state.ts
 import { readFileSync as readFileSync5, writeFileSync as writeFileSync5, appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, statSync as statSync3, readdirSync as readdirSync2, openSync, readSync, closeSync, rmSync as rmSync2, copyFileSync as copyFileSync2, renameSync as renameSync5 } from "node:fs";
-import { join as join6, dirname as dirname3, basename as basename2 } from "node:path";
+import { join as join6, dirname as dirname3, basename as basename2, isAbsolute as isAbsolute2 } from "node:path";
 import { createHash as createHash3 } from "node:crypto";
 
 // src/lib/selection-manager.ts
@@ -252,7 +252,7 @@ function getOcSessionId() {
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync as existsSync5 } from "node:fs";
 import { homedir as homedir4, tmpdir as tmpdir2 } from "node:os";
-import { join as join4 } from "node:path";
+import { isAbsolute, join as join4 } from "node:path";
 var USER_HOME = (() => {
   try {
     return homedir4();
@@ -262,7 +262,8 @@ var USER_HOME = (() => {
 })();
 function envPath(value) {
   const trimmed = String(value ?? "").trim();
-  if (!trimmed || trimmed === "undefined" || trimmed === "null") return void 0;
+  if (!trimmed) return void 0;
+  if (!isAbsolute(trimmed)) return void 0;
   return trimmed;
 }
 var RUNTIME_HOME_CONTEXT = new AsyncLocalStorage();

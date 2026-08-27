@@ -23,7 +23,7 @@
 
 import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
 import { gradeHidden, gradeVisible } from "./ml-task/grade.mjs"
@@ -42,7 +42,11 @@ const flag = (name, fallback) => {
 }
 const MODEL = flag("--model", process.env.ML_IMPACT_MODEL || "")
 const K = Number(flag("--k", process.env.ML_IMPACT_K || "1"))
-const OUT = flag("--out", join(ROOT, ".ml-impact-out"))
+// Absolute, always: OUT becomes trial.home, which is exported to the trial as
+// VIBEOS_HOME. The plugin runs with cwd = the trial project dir and the harness with
+// cwd = the repo root, so a relative value names two different directories and the
+// state tree lands where collectEvidence does not look.
+const OUT = resolve(ROOT, flag("--out", join(ROOT, ".ml-impact-out")))
 const SEED = flag("--seed", process.env.ML_IMPACT_SEED || "ml-impact-1")
 // Measured on the free opencode tiers: ~35s per model step, and the diagnose turn
 // takes many steps. 300s cut real turns off mid-work and voided them as timeouts,
@@ -222,9 +226,17 @@ function collectEvidence(trial) {
   const slots = [...new Set(chatParams.map((r) => r.slot).filter(Boolean))]
   const modes = [...new Set(chatParams.map((r) => r.optimizationMode).filter(Boolean))]
   const overrides = chatParams.filter((r) => r.overridden).length
-  const models = [...new Set(ledger.map((r) => r?.finalized?.finalVisibleModel).filter(Boolean))]
+  // turn-ledger only opens a row on the Task-delegation path (recordTurnRoute is called
+  // from the worker bridge), so a turn the model handles itself never reaches finalize
+  // and finalVisibleModel stays empty. The chat-params rows are the per-turn record of
+  // which model actually ran; the ledger is kept as a delegation-leg cross-check.
+  const finalModels = [...new Set(ledger.map((r) => r?.finalized?.finalVisibleModel).filter(Boolean))]
+  const ranModels = [...new Set(chatParams.map((r) => r.intendedModel || r.inputModel).filter(Boolean))]
   const homeFiles = existsSync(trial.home) ? readdirSync(trial.home) : []
-  return { auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides, finalModels: models, homeFiles }
+  return {
+    auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides,
+    ranModels, finalModels, ledgerRows: ledger.length, homeFiles,
+  }
 }
 
 // ── scoring ──

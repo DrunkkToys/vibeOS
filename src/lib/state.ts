@@ -1,7 +1,7 @@
 // @ts-nocheck
 // DOC: Flattened from state/global-learning.ts, state/todos.ts, state/project-memory.ts
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, statSync, readdirSync, openSync, readSync, closeSync, rmSync, copyFileSync, renameSync } from "node:fs"
-import { join, dirname, basename } from "node:path"
+import { join, dirname, basename, isAbsolute } from "node:path"
 import { createHash } from "node:crypto"
 import { loadSelection, writeSelection, DFLT_SEL } from "./selection-manager.js"
 import { reconcileStickyLoopState } from "./loop-state.js"
@@ -520,7 +520,18 @@ function syncVibeOSPathBindings(home = resolveVibeOSHome()): void {
 }
 
 export function setVibeOSHomeContext(home: string): void {
-  const resolved = String(home || "").trim() || resolveVibeOSHome()
+  // `String(home || "").trim() || resolveVibeOSHome()` accepted the literal
+  // strings "undefined"/"null" — both truthy — and syncVibeOSPathBindings then
+  // rebound every state file to `undefined/...`, relative to the user's project
+  // directory. runtime-paths.ts (envPath) has always rejected them, so the two
+  // resolvers disagreed: getVibeOSHome() returned the real home while the
+  // exported bindings pointed at ./undefined. Observed live as an
+  // `undefined/session-events/` tree written into a repo working tree.
+  // Widened from the two literals to every relative path: both are resolved against
+  // whichever cwd the writer has, so they split the state tree the same way. See
+  // runtime-paths.ts envPath and tests/test_vibeos_home_relative_guard.test.mjs.
+  const trimmed = String(home || "").trim()
+  const resolved = (!trimmed || !isAbsolute(trimmed)) ? resolveVibeOSHome() : trimmed
   try {
     process.env.VIBEOS_HOME = resolved
   } catch {}
