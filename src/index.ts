@@ -35,6 +35,7 @@ import { onSessionCompacting } from "./lib/hooks/session-compact.js"
 import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
+import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
 import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
@@ -1109,6 +1110,14 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   // `vibe uninstall` look like it only half-worked. Register zero hooks instead.
   if (isVibeOSUninstalled()) {
     console.error("[vibeOS] uninstalled — plugin inert until reinstall (npx vibeostheog setup)")
+    return {}
+  }
+  // A second physical copy of the bundle in this process (a stale project-level
+  // plugin[] entry merged over the global one) would register a duplicate hook set:
+  // two footers per turn, savings counted twice, duplicate audit rows. Register zero
+  // hooks instead of corrupting the state the first copy owns.
+  if (!claimInstance(import.meta.url)) {
+    console.error(`[vibeOS] duplicate instance ignored — already loaded from ${getInstanceOwner()}`)
     return {}
   }
   console.error(`[vibeOS] LOADED cwd=${directory}`)
