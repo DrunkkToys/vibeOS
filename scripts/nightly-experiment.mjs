@@ -21,8 +21,9 @@ import { fileURLToPath } from "node:url"
 const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCENARIOS_PATH = resolve(__dirname, "..", "src", "vibeOS-lib", "tests", "experiment-scenarios.json")
-const RESULTS_PATH = join(HOME, ".claude/experiment-results.jsonl")
-const RESULTS_SUMMARY = join(HOME, ".claude/experiment-results-summary.json")
+const VIBEOS_HOME = process.env.VIBEOS_HOME?.trim() || join(HOME, ".vibeos")
+const RESULTS_PATH = join(VIBEOS_HOME, "experiment-results.jsonl")
+const RESULTS_SUMMARY = join(VIBEOS_HOME, "experiment-results-summary.json")
 
 function ts() { return new Date().toISOString() }
 function log(msg) { console.log(`[${ts()}] ${msg}`) }

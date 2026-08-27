@@ -10,18 +10,18 @@
 set -euo pipefail
 
 USER_HOME="${HOME:?}"
-CLAUDE_DIR="$USER_HOME/.claude"
-DELEGATION_STATE="$CLAUDE_DIR/delegation-state.json"
-BLACKBOX_STATE="$CLAUDE_DIR/blackbox-state.json"
-PROJECT_STATE="$CLAUDE_DIR/project-states.json"
-MODEL_TIERS="$CLAUDE_DIR/model-tiers.json"
-GLOBAL_LEARNING="$CLAUDE_DIR/global-learning.json"
-PRICING_CACHE="$CLAUDE_DIR/model-pricing-cache.json"
-REPORTS_DIR="$CLAUDE_DIR/reports"
-LEDGER="$CLAUDE_DIR/savings-ledger.jsonl"
+VIBEOS_DIR="${VIBEOS_HOME:-$USER_HOME/.vibeos}"
+DELEGATION_STATE="$VIBEOS_DIR/delegation-state.json"
+BLACKBOX_STATE="$VIBEOS_DIR/blackbox-state.json"
+PROJECT_STATE="$VIBEOS_DIR/project-states.json"
+MODEL_TIERS="$VIBEOS_DIR/model-tiers.json"
+GLOBAL_LEARNING="$VIBEOS_DIR/global-learning.json"
+PRICING_CACHE="$VIBEOS_DIR/model-pricing-cache.json"
+REPORTS_DIR="$VIBEOS_DIR/reports"
+LEDGER="$VIBEOS_DIR/savings-ledger.jsonl"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT="$REPORTS_DIR/mode-calibration-$TIMESTAMP.json"
-SNAPSHOT_DIR="$CLAUDE_DIR/bench-snapshots"
+SNAPSHOT_DIR="$VIBEOS_DIR/bench-snapshots"
 
 BOLD='\033[1m'; DIM='\033[2m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; CYAN='\033[36m'; RESET='\033[0m'
 HEADER() { printf "\n${BOLD}${CYAN}%s${RESET}\n" "$*"; }
@@ -75,13 +75,13 @@ LIVE
 
   # Save pre-snapshot
   node -e "
-    var fs=require('fs'),h=require('os').homedir();
+    var fs=require('fs'),vh='$VIBEOS_DIR';
     var state={};
-    try{state=JSON.parse(fs.readFileSync(h+'/.claude/delegation-state.json','utf-8'))}catch(e){}
+    try{state=JSON.parse(fs.readFileSync(vh+'/delegation-state.json','utf-8'))}catch(e){}
     var bb={};
-    try{bb=JSON.parse(fs.readFileSync(h+'/.claude/blackbox-state.json','utf-8'))}catch(e){}
+    try{bb=JSON.parse(fs.readFileSync(vh+'/blackbox-state.json','utf-8'))}catch(e){}
     var pricing={};
-    try{pricing=JSON.parse(fs.readFileSync(h+'/.claude/model-pricing-cache.json','utf-8'))}catch(e){}
+    try{pricing=JSON.parse(fs.readFileSync(vh+'/model-pricing-cache.json','utf-8'))}catch(e){}
     fs.mkdirSync('$SNAPSHOT_DIR',{recursive:true});
     fs.writeFileSync('$PRE_SNAP',JSON.stringify({
       ts:Date.now(),
@@ -110,11 +110,11 @@ LIVE
 
   # Save post-snapshot
   node -e "
-    var fs=require('fs'),h=require('os').homedir();
+    var fs=require('fs'),vh='$VIBEOS_DIR';
     var state={};
-    try{state=JSON.parse(fs.readFileSync(h+'/.claude/delegation-state.json','utf-8'))}catch(e){}
+    try{state=JSON.parse(fs.readFileSync(vh+'/delegation-state.json','utf-8'))}catch(e){}
     var bb={};
-    try{bb=JSON.parse(fs.readFileSync(h+'/.claude/blackbox-state.json','utf-8'))}catch(e){}
+    try{bb=JSON.parse(fs.readFileSync(vh+'/blackbox-state.json','utf-8'))}catch(e){}
     fs.writeFileSync('$POST_SNAP',JSON.stringify({
       ts:Date.now(),
       ts_iso:new Date().toISOString(),
@@ -586,7 +586,7 @@ cat <<SUMMARY
      bash scripts/benchmark-modes.sh --live longrun task1
      bash scripts/benchmark-modes.sh --live auto    task1
 
-  2. Results logged to: ~/.claude/bench-snapshots/results.log
+  2. Results logged to: $VIBEOS_DIR/bench-snapshots/results.log
 
   3. Metrics needing live capture (not in state files):
      - TTFT (time-to-first-token)

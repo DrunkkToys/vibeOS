@@ -6,6 +6,7 @@
 // Each scenario: known correct output, git worktree isolation, full KPI tracking.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync, rmSync } from "node:fs"
+import { execSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join, resolve, dirname } from "node:path"
 import { homedir } from "node:os"
@@ -15,7 +16,8 @@ const HOME = homedir()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, "..")
 const SCENARIOS_PATH = join(REPO_ROOT, "src", "vibeOS-lib", "tests", "experiment-scenarios-progressive.json")
-const RESULTS_PATH = join(HOME, ".claude/experiment-benchmark.jsonl")
+const VIBEOS_HOME = process.env.VIBEOS_HOME?.trim() || join(HOME, ".vibeos")
+const RESULTS_PATH = join(VIBEOS_HOME, "experiment-benchmark.jsonl")
 const MODELS = {
   brain: { id: "deepseek/deepseek-v4-pro",    label: "BRAIN" },
   cheap: { id: "deepseek/deepseek-chat",       label: "CHEAP" },
@@ -44,7 +46,6 @@ function createWorktree() {
   log(`  Creating worktree: ${dir}`)
   
   try {
-    const { execSync } = require("node:child_process")
     // Create a lightweight clone instead of worktree (more reliable across states)
     execSync(`git clone "${REPO_ROOT}" "${dir}" --depth=1 2>/dev/null`, { stdio: "pipe" })
     // Ensure clean state — discard any working tree changes
@@ -54,23 +55,14 @@ function createWorktree() {
     execSync(`cd "${dir}" && npm install --silent 2>/dev/null || true`, { stdio: "pipe" })
     return dir
   } catch (err) {
-    log(`  Worktree failed: ${err.message}. Using in-place with git stash.`)
-    const { execSync } = require("node:child_process")
-    execSync(`git -C "${REPO_ROOT}" stash --include-untracked 2>/dev/null || true`, { stdio: "pipe" })
-    execSync(`git -C "${REPO_ROOT}" checkout -- . 2>/dev/null || true`, { stdio: "pipe" })
-    return REPO_ROOT
+    // Never fall back to REPO_ROOT: the benchmark mutates the tree it is handed, and
+    // the old fallback stashed and reset the repository under test to make room.
+    throw new Error(`benchmark needs an isolated clone and could not make one: ${err.message}`)
   }
 }
 
 function cleanupWorktree(dir) {
-  if (dir === REPO_ROOT) {
-    // Restore stashed changes
-    try {
-      const { execSync } = require("node:child_process")
-      execSync(`git -C "${REPO_ROOT}" stash pop 2>/dev/null || true`, { stdio: "pipe" })
-    } catch {}
-    return
-  }
+  if (!dir || dir === REPO_ROOT) return
   try { rmSync(dir, { recursive: true, force: true }) } catch {}
 }
 
@@ -100,7 +92,6 @@ IMPORTANT: Do not modify files outside the required files list. Only make the sp
 
     // For now, execute via child_process write to a temp task file
     // In production, this would use the task subagent infrastructure
-    const { execSync } = require("node:child_process")
     
     // Run the verification command before changes
     let beforeResult = ""

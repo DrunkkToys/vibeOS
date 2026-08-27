@@ -8,10 +8,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { homedir } from "node:os"
 
-const HOME = homedir()
-const CAL_FILE = join(HOME, ".vibeos", "calibration-data.jsonl")
-const STATE_FILE = join(HOME, ".vibeos", "delegation-state.json")
-const PROJECT_FILE = join(HOME, ".vibeos", "project-states.json")
+const VIBEOS_HOME = process.env.VIBEOS_HOME?.trim() || join(homedir(), ".vibeos")
+const CAL_FILE = join(VIBEOS_HOME, "calibration-data.jsonl")
+const STATE_FILE = join(VIBEOS_HOME, "delegation-state.json")
+const PROJECT_FILE = join(VIBEOS_HOME, "project-states.json")
 
 const DRY_RUN = process.env.DRY_RUN === "true"
 
@@ -105,13 +105,13 @@ function generateMapping(byRegime) {
 
 // ── Write updated weights ────────────────────────────────────────────
 function writeCalibration(mapping) {
-  const file = join(HOME, ".vibeos", "mode-calibration-weights.json")
+  const file = join(VIBEOS_HOME, "mode-calibration-weights.json")
   const data = {
     generated_at: new Date().toISOString(),
     regime_mode_map: mapping,
     version: 1,
   }
-  mkdirSync(join(HOME, ".vibeos"), { recursive: true })
+  mkdirSync(VIBEOS_HOME, { recursive: true })
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
   return file
 }
@@ -126,7 +126,12 @@ function main() {
   console.log(`  Outcome signals: ${outcomeEvents.length}\n`)
 
   if (outcomeEvents.length < 3) {
-    console.log("Not enough outcome data (need ≥3). Keep using the system to collect more.")
+    console.log("Not enough outcome data (need >=3).")
+    if (outcomeEvents.length === 0 && modeEvents.length > 0) {
+      console.log(`\n${modeEvents.length} mode events are present but no outcome events exist.`)
+      console.log("Nothing writes an {event:\"outcome\"} record to calibration-data.jsonl, so this")
+      console.log("loop cannot close by waiting. The outcome signal has to be emitted first.")
+    }
     process.exit(0)
   }
 
