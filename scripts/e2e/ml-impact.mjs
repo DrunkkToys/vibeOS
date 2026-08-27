@@ -44,7 +44,10 @@ const MODEL = flag("--model", process.env.ML_IMPACT_MODEL || "")
 const K = Number(flag("--k", process.env.ML_IMPACT_K || "1"))
 const OUT = flag("--out", join(ROOT, ".ml-impact-out"))
 const SEED = flag("--seed", process.env.ML_IMPACT_SEED || "ml-impact-1")
-const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TIMEOUT || "300000"))
+// Measured on the free opencode tiers: ~35s per model step, and the diagnose turn
+// takes many steps. 300s cut real turns off mid-work and voided them as timeouts,
+// which loses the trial rather than measuring it.
+const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TIMEOUT || "900000"))
 const MOCK_PORT = Number(flag("--mock-port", process.env.ML_IMPACT_MOCK_PORT || "48123"))
 const BASE_URL = `http://127.0.0.1:${MOCK_PORT}`
 const RESUME = argv.includes("--resume")
