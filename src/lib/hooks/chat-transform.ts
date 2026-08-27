@@ -23,7 +23,7 @@ import {
   stableJson, TOOL_NAME_NORMALIZE,
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getVibeOSHome, safeCopyIntoSession,
-  _OC_SID,
+  _OC_SID, ML_CONFIDENCE_THRESHOLD,
 } from "../state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../cascade.js"
 import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
@@ -347,6 +347,49 @@ function isVibeUltraXMode(mode: unknown): boolean {
 function rootSlotForControlVector(cv: unknown, durablePipeline: string[]): string | null {
   if (isVibeUltraXMode(cv?.optimization_mode)) return durablePipeline[0] || "cheap"
   return normalizeSlot(cv?.tier_bias) || normalizeSlot(cv?.selected_slot) || null
+}
+
+// Where the vibeultrax PRIMARY turn should run this turn, or null to leave
+// active_slot alone.
+//
+// rootSlotForControlVector pins vibeultrax to the envelope floor on every turn,
+// and the only code that ever moved a slot afterwards is the Task-delegation
+// branch in tool-execute.ts (`if (t === "task" && ...)`). A session where the
+// model does the work itself instead of delegating therefore never left the
+// cheap entry: the live A/B rig recorded slots=["cheap"] across all 11
+// chat-params rows of a 5-turn vibeultrax session, which is that rig's own
+// "cascade did not cascade" void condition. The per-turn difficulty verdict was
+// already being computed and persisted as blackbox `resolved_tier`; nothing
+// applied it to the primary. This is what applies it.
+//
+// The envelope stays a hard bound and the clamp mirrors tool-execute.ts's
+// clampSlotToEnvelope (duplicated rather than imported: tool-execute.ts already
+// imports this module, and closing that loop would create a cycle).
+export function ultraXPrimarySlot(sel: unknown, resolvedTier: unknown, envelope: string[]): string | null {
+  if (!isVibeUltraXMode(sel?.optimization_mode)) return null
+  // `vibe lock on` freezes the session's model; an explicit `vibe axis tier`
+  // pin is user intent. Both outrank a per-turn difficulty verdict.
+  if (sel?.slot_locked === true) return null
+  const overrides = sel?.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides : {}
+  if (normalizeSlot((overrides as Record<string, unknown>).tier)) return null
+  const verdict = normalizeSlot(resolvedTier)
+  if (!verdict) return null
+  const members = (Array.isArray(envelope) ? envelope : []).map(normalizeSlot).filter(Boolean) as string[]
+  if (members.length === 0) return null
+  const rank = (s: string) => (s === "brain" ? 2 : s === "medium" ? 1 : 0)
+  let target = members.includes(verdict) ? verdict : null
+  if (!target) {
+    let bestDistance = Infinity
+    for (const candidate of members) {
+      const distance = Math.abs(rank(candidate) - rank(verdict))
+      if (distance < bestDistance) {
+        bestDistance = distance
+        target = candidate
+      }
+    }
+  }
+  if (!target) return null
+  return target === normalizeSlot(sel?.active_slot) ? null : target
 }
 
 function normalizeBackendDecision(raw: unknown, fallbackMode: unknown = null): unknown {
@@ -756,7 +799,30 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       }
     }
 
-    const slot = entrySlot
+    // vibeultrax: let this turn's difficulty verdict move the PRIMARY within the
+    // envelope, instead of pinning it to the floor and waiting for a Task
+    // delegation that a cheap model doing the work itself never makes. Gated on
+    // the same confidence/level thresholds tool-execute.ts uses for the Task
+    // path, so a low-confidence or "moderate" read leaves the slot where it is.
+    let ultraTarget: string | null = null
+    if (isUltraX) {
+      try {
+        const verdictSource = normalizeSlot(cv.resolved_tier)
+        let verdict: string | null = verdictSource
+        if (!verdict && latestUserIntent) {
+          const d = computeDifficulty(latestUserIntent)
+          if (d.confidence >= ML_CONFIDENCE_THRESHOLD && d.level !== "moderate") verdict = d.suggestedTier
+        }
+        ultraTarget = ultraXPrimarySlot(
+          { ...currentSel, optimization_mode: cv.optimization_mode || userOptMode },
+          verdict,
+          durablePipeline,
+        )
+      } catch (ultraErr) {
+        console.error("[vibeOS] ultrax primary escalation failed (non-fatal):", ultraErr?.message || ultraErr)
+      }
+    }
+    const slot = ultraTarget || entrySlot
     const slotLocked = currentSel.slot_locked === true
     const SLOT_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
     const userRequestedQuality = currentSel.requested_optimization_mode === "quality"
