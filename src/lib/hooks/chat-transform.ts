@@ -362,6 +362,30 @@ function rootSlotForControlVector(cv: unknown, durablePipeline: string[]): strin
   return normalizeSlot(cv?.tier_bias) || normalizeSlot(cv?.selected_slot) || null
 }
 
+// The envelope is a hard bound on where a turn may run. A per-turn difficulty
+// verdict outside it is clamped to the nearest member, never applied as-is: a
+// trivial prompt scoring "cheap" must not drag a brain-only mode onto the cheap
+// model. An absent, unusable, or unclampable verdict yields null -- the caller
+// then leaves the slot where the mode put it.
+export function clampVerdictToEnvelope(resolvedTier: unknown, envelope: unknown): "brain" | "medium" | "cheap" | null {
+  const verdict = normalizeSlot(resolvedTier)
+  if (!verdict) return null
+  const members = (Array.isArray(envelope) ? envelope : []).map(normalizeSlot).filter(Boolean) as ("brain" | "medium" | "cheap")[]
+  if (members.length === 0) return null
+  if (members.includes(verdict)) return verdict
+  const rank = (s: string) => (s === "brain" ? 2 : s === "medium" ? 1 : 0)
+  let target: "brain" | "medium" | "cheap" | null = null
+  let bestDistance = Infinity
+  for (const candidate of members) {
+    const distance = Math.abs(rank(candidate) - rank(verdict))
+    if (distance < bestDistance) {
+      bestDistance = distance
+      target = candidate
+    }
+  }
+  return target
+}
+
 // Where the vibeultrax PRIMARY turn should run this turn, or null to leave
 // active_slot alone.
 //
@@ -385,22 +409,7 @@ export function ultraXPrimarySlot(sel: unknown, resolvedTier: unknown, envelope:
   if (sel?.slot_locked === true) return null
   const overrides = sel?.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides : {}
   if (normalizeSlot((overrides as Record<string, unknown>).tier)) return null
-  const verdict = normalizeSlot(resolvedTier)
-  if (!verdict) return null
-  const members = (Array.isArray(envelope) ? envelope : []).map(normalizeSlot).filter(Boolean) as string[]
-  if (members.length === 0) return null
-  const rank = (s: string) => (s === "brain" ? 2 : s === "medium" ? 1 : 0)
-  let target = members.includes(verdict) ? verdict : null
-  if (!target) {
-    let bestDistance = Infinity
-    for (const candidate of members) {
-      const distance = Math.abs(rank(candidate) - rank(verdict))
-      if (distance < bestDistance) {
-        bestDistance = distance
-        target = candidate
-      }
-    }
-  }
+  const target = clampVerdictToEnvelope(resolvedTier, envelope)
   if (!target) return null
   return target === normalizeSlot(sel?.active_slot) ? null : target
 }
@@ -1635,7 +1644,16 @@ export const onSystemTransform = async (_input, output) => {
     // posture — a local/estimate resolved_tier must not yank the session out of
     // the pinned cheap slot the same turn the pin was applied.
     const _fallbackPinning = typeof isApiFallback === "function" && isApiFallback()
-    const _resolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
+    const _rawResolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
+    // Clamped, never raw: the mode's envelope outranks the turn's verdict. Applying
+    // it unclamped put a brain-only mode on the cheap model the moment a verdict
+    // started arriving at all.
+    const _envelope = (Array.isArray(_controlVector?.pipeline_root) && _controlVector.pipeline_root.length
+      ? _controlVector.pipeline_root
+      : Array.isArray(_controlVector?.cascade_root) && _controlVector.cascade_root.length
+        ? _controlVector.cascade_root
+        : loadSelection()?.active_pipeline) as unknown
+    const _resolvedTier = clampVerdictToEnvelope(_rawResolvedTier, _envelope)
     if (_resolvedTier && _controlVector && !(_fallbackPinning && _controlVector.optimization_mode === "vibelitex")) {
       _controlVector = { ..._controlVector, selected_slot: _resolvedTier, tier_bias: _resolvedTier }
     }
