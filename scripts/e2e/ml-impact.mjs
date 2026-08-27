@@ -48,6 +48,9 @@ const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TI
 const MOCK_PORT = Number(flag("--mock-port", process.env.ML_IMPACT_MOCK_PORT || "48123"))
 const BASE_URL = `http://127.0.0.1:${MOCK_PORT}`
 const RESUME = argv.includes("--resume")
+// Smoke the wiring on one turn before committing ~45 minutes of model time to a
+// full calibration run. Scores from a truncated run are not comparable.
+const MAX_TURNS = Number(flag("--turns", TURNS.length))
 
 // Distinct free tiers on one provider, so the same-provider chat.params override
 // applies and a trial that fails to route is visible instead of masked.
@@ -193,7 +196,7 @@ function collectEvidence(trial) {
 function scoreTrial(trial, turns) {
   const visible = gradeVisible(trial.proj)
   const hidden = gradeHidden(trial.proj)
-  const components = scoreComponents({ hidden, visible, turns, turnCount: TURNS.length })
+  const components = scoreComponents({ hidden, visible, turns, turnCount: MAX_TURNS })
   return {
     ...components,
     hidden: {
@@ -218,7 +221,7 @@ async function main() {
       console.log(`\n>>> ${trial.name}`)
       const turns = []
       let sid = null
-      for (const turn of TURNS) {
+      for (const turn of TURNS.slice(0, MAX_TURNS)) {
         const t = runTurn(trial, turn, sid)
         sid = t.sessionId || sid
         turns.push(t)
