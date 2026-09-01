@@ -677,6 +677,22 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
+    // loadSelection() DERIVES a missing entry_slot from active_slot
+    // (selection-manager.ts: `entry_slot || active_slot`), so writeIf sees no
+    // difference and the key is never materialised on disk. It then silently
+    // tracks active_slot: the moment the slot escalates, the entry the turn
+    // actually started from reads as the escalated tier. chat-params.ts gates
+    // cheap-first on `state.entry_slot === "cheap"`, so the phantom disables
+    // that path exactly when a cascade begins. Force the key into existence by
+    // comparing against what is really persisted, not the derived view.
+    const writeIfRaw = (key: string, val: unknown) => {
+      let raw: unknown
+      try { raw = safeJsonParse(readFileSync(TIERS_FILE, "utf8"), {}) } catch { raw = {} }
+      const persisted = raw?.selection && Object.prototype.hasOwnProperty.call(raw.selection, key)
+        ? raw.selection[key]
+        : undefined
+      if (persisted !== val) writeSelection(key, val)
+    }
 
     if (durablePipeline.length > 0) {
       const currentPipeline = currentSel.active_pipeline
@@ -730,7 +746,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // moment the mode left vibeultrax all six froze at their last vibeultrax
     // value and every subagent route in every other mode ran off stale state.
     // They are per-turn state, not a vibeultrax feature.
-    writeIf("entry_slot", entrySlot || (isUltraX ? "cheap" : null))
+    writeIfRaw("entry_slot", entrySlot || (isUltraX ? "cheap" : null))
     writeIf("worker_slot", workerSlot || null)
     writeIf("selected_slot", workerSlot || null)
     writeIf("worker_model", workerModel || null)
