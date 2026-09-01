@@ -55,6 +55,23 @@ function runNodeTest(dir, target) {
   return { ok, pass, fail, ran: pass + fail > 0, out }
 }
 
+// A group whose file crashed on import reports pass=0 fail=0. Counted as raw
+// assertions it disappears from the denominator, so destroying a whole group
+// RAISES the score. Each group is scored on its own and a group that never ran
+// scores 0, so the denominator is the group count and cannot be shrunk by damage.
+export function correctnessFromGroups(per) {
+  const names = Object.keys(per || {})
+  if (!names.length) return 0
+  const total = names.reduce((a, n) => {
+    const g = per[n] || {}
+    const ran = g.ran ?? (g.pass + g.fail > 0)
+    if (!ran) return a
+    const denom = g.pass + g.fail
+    return a + (denom ? g.pass / denom : 0)
+  }, 0)
+  return total / names.length
+}
+
 // The visible suite the model can see. Used for the no-regression component.
 export function gradeVisible(dir) {
   if (!existsSync(join(dir, "tests"))) return { ok: false, pass: 0, fail: 0, ran: false, out: "no tests/ directory" }
@@ -83,6 +100,8 @@ export function gradeHidden(dir) {
     assertions: totalPass + totalFail,
     assertionsPassed: totalPass,
     assertionRate: totalPass + totalFail ? totalPass / (totalPass + totalFail) : 0,
+    correctness: correctnessFromGroups(per),
+    deadGroups: names.filter((n) => !per[n].ran),
     per,
   }
 }
