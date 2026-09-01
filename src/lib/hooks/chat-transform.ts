@@ -999,10 +999,85 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
   }
 }
 
+// Prompt-cache split.
+//
+// `system` is the prefix of every request, so a single per-turn byte in it
+// invalidates the whole cached prefix. Measured on the ml-impact rig, raw vs
+// plugin, same task and model (first-step input tokens / cache reads):
+//
+//   turn          raw            vibeqmax       vibeultrax
+//   diagnose      7,562 / 1,792  9,654 / 1,792  9,763 / 1,792
+//   fix-batching  1,039 / 25,280 12,638 /10,240 15,627 /10,752
+//   fix-rest        249 / 27,520 14,057 /10,240 HANG
+//
+// Raw's request shrinks turn over turn as its cache warms; both plugin arms
+// grow while cache reads flatline at 10,240 -- 56x the input on fix-rest, and
+// by turn three large enough to stall the provider outright. Both plugin arms
+// voided on that turn; raw finished it in 300s.
+//
+// So: constant directives stay in `system` (they are part of the stable prefix
+// and cache for free). Per-turn directives go to a buffer that
+// injectVolatileDirectives() lands as a trailing synthetic message, after the
+// cached prefix, where changing them costs only their own tokens.
+//
+// Off by default: moving a directive out of `system` changes where the model
+// sees it, and CLAUDE.md section 2 lists stress inoculation, context7 injection
+// and the blackbox directives as claimed behaviour. VIBEOS_STABLE_PREFIX=1 opts
+// in. The directive text and ordering are byte-identical either way.
+const VOLATILE_MARKER = "[vibeos:turn-state]"
+let _volatileBuffer: string[] = []
+// OpenCode does not document whether system.transform or messages.transform
+// runs first, and it has changed between builds. Stamping the buffer makes the
+// drain correct under either order: whichever hook runs second injects, and a
+// buffer left over from a previous turn is discarded instead of injected late.
+let _volatileTurn = 0
+let _volatileStamp = -1
+
+export function stablePrefixEnabled(): boolean {
+  return process.env.VIBEOS_STABLE_PREFIX === "1"
+}
+
+export function resetVolatileBuffer(): void {
+  _volatileBuffer = []
+  _volatileTurn += 1
+  _volatileStamp = _volatileTurn
+}
+
+export function takeVolatileDirectives(): string[] {
+  if (_volatileStamp !== _volatileTurn) { _volatileBuffer = []; return [] }
+  const out = _volatileBuffer
+  _volatileBuffer = []
+  return out
+}
+
 function pushSystem(output: unknown, text: string | null): void {
   if (text && Array.isArray(output?.system)) {
     output.system.push(text)
   }
+}
+
+// Per-turn directive: cache-poisoning if it lands in `system`.
+function pushTurnState(output: unknown, text: string | null): void {
+  if (!text) return
+  if (!stablePrefixEnabled()) { pushSystem(output, text); return }
+  _volatileStamp = _volatileTurn
+  _volatileBuffer.push(text)
+}
+
+// Lands the turn's volatile directives as the final user-visible text, i.e.
+// after every cached message, so the prefix above them stays byte-stable.
+export function injectVolatileDirectives(messages: unknown[]): void {
+  if (!stablePrefixEnabled()) return
+  const pending = takeVolatileDirectives()
+  if (pending.length === 0 || !Array.isArray(messages) || messages.length === 0) return
+  const last = messages[messages.length - 1]
+  if (!last || !Array.isArray(last.parts)) return
+  if (last.parts.some(p => p?.type === "text" && typeof p?.text === "string" && p.text.includes(VOLATILE_MARKER))) return
+  last.parts.push({
+    type: "text",
+    text: VOLATILE_MARKER + "\n" + pending.join("\n"),
+    synthetic: true,
+  })
 }
 
 function oneShot(key: string): boolean {
@@ -1267,6 +1342,7 @@ export const onMessagesTransform = async (_input, output) => {
     }
 
     injectWBP(messages)
+    injectVolatileDirectives(messages)
     applyDecadence()
     await trackBlackbox(messages)
 
@@ -1495,6 +1571,7 @@ function contextBudgetDirective(_input: unknown, output: unknown): string | null
 export const onSystemTransform = async (_input, output) => {
   resetChatTransformStateForHome()
   nextTurn()
+  resetVolatileBuffer()
   if (!loadSelection().enabled) return
   try {
     // Ensure the live blackbox snapshot is fresh (guard against cross-session module cache leak)
@@ -1852,7 +1929,7 @@ export const onSystemTransform = async (_input, output) => {
           })
         }
         if (pivotResult?.pivot?.injection) {
-          pushSystem(output, pivotResult.pivot.injection)
+          pushTurnState(output, pivotResult.pivot.injection)
           // Warm smart cache with workflow tool outputs
           const pivotWorkflowId = pivotResult.pivot.workflowId || pivotResult.pivot.matchedId
           if (pivotWorkflowId && pivotResult.pivot.toolOutputs?.length > 0) {
@@ -1880,7 +1957,7 @@ export const onSystemTransform = async (_input, output) => {
         : null
 
     if (stressMitigationDirective) {
-      pushSystem(output, stressMitigationDirective)
+      pushTurnState(output, stressMitigationDirective)
     }
 
     // ── Template resolution ──
@@ -1904,11 +1981,11 @@ export const onSystemTransform = async (_input, output) => {
       if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
         fused += " Stay close to existing code conventions and project patterns."
       }
-      pushSystem(output, fused)
+      pushTurnState(output, fused)
     }
 
     // ── Cost policy (every turn — lightweight) ──
-    pushSystem(output, context7Directive(_controlVector))
+    pushTurnState(output, context7Directive(_controlVector))
 
     // ── Thinking directive — the local manual pin and the control-vector's
     // [thinking mode] directive must never both appear in one prompt (they
@@ -1917,7 +1994,7 @@ export const onSystemTransform = async (_input, output) => {
       typeof d === "string" && /^\[thinking mode/i.test(String(d).trim())
     const manualThinking = sel.thinking_level && sel.thinking_level !== "full"
     if (manualThinking) {
-      pushSystem(output, thinkingDirective(sel.thinking_level))
+      pushTurnState(output, thinkingDirective(sel.thinking_level))
     }
 
     // ── Remote control-vector directives ──
@@ -1931,7 +2008,7 @@ export const onSystemTransform = async (_input, output) => {
           if (cvLoopPreventionPushed) continue
           cvLoopPreventionPushed = true
         }
-        pushSystem(output, directive)
+        pushTurnState(output, directive)
       }
     }
 
@@ -1959,18 +2036,18 @@ export const onSystemTransform = async (_input, output) => {
       if (currentRegime !== prevRegime) {
         _prevBlackboxRegime = currentRegime
         if (!suppressNotice) {
-          pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
+          pushTurnState(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
             "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "↗ positive" : (res.momentum || 0) < 0 ? "↘ negative" : "→ steady") + ".")
           if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
             const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
               : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
             if (!cvLoopPreventionPushed) {
-              pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
+              pushTurnState(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
                 "(level: " + res.loop_intervention_level + ")")
             }
           }
           if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
-            pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
+            pushTurnState(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
           }
         }
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none" && loopNoticeSignature) {
@@ -2007,7 +2084,7 @@ export const onSystemTransform = async (_input, output) => {
     // ── Job focus ──
     const projectJob2 = (onSystemTransform as unknown)._activeJob || getActiveJobForProject(fp)
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
-      pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
+      pushTurnState(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
         "The latest user request appears off-topic relative to this running job. " +
         "Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.")
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
@@ -2016,7 +2093,7 @@ export const onSystemTransform = async (_input, output) => {
     // ── Flow todos ──
     if (sel.flow_enabled && sel.flow_enforce) {
       const todoDirective = flowTodosDirective()
-      if (todoDirective) pushSystem(output, todoDirective)
+      if (todoDirective) pushTurnState(output, todoDirective)
     }
 
     // ── Project guard (every 5 turns instead of every turn) ──
@@ -2031,11 +2108,11 @@ export const onSystemTransform = async (_input, output) => {
     pushSystem(output, EMPIRICAL_ANSWER_DIRECTIVE)
     pushSystem(output, ANTI_LOOP_DIRECTIVE)
     const realityDirective = realityCheckDirective()
-    if (realityDirective) pushSystem(output, realityDirective)
+    if (realityDirective) pushTurnState(output, realityDirective)
 
     // ── Context budget ──
     const budgetDirective = contextBudgetDirective(_input, output)
-    if (budgetDirective) pushSystem(output, budgetDirective)
+    if (budgetDirective) pushTurnState(output, budgetDirective)
 
     // ── One-shots ──
     if (!oneShot("vibeos_project_memory_" + fp)) {
@@ -2086,10 +2163,10 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output, regimeAwareToolStyleDirective(liveBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
+      pushTurnState(output, regimeAwareToolStyleDirective(liveBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
     }
     if (_pendingOrchestratorDirective) {
-      pushSystem(output, _pendingOrchestratorDirective)
+      pushTurnState(output, _pendingOrchestratorDirective)
       _pendingOrchestratorDirective = ""
     }
 
@@ -2113,6 +2190,10 @@ export const onSystemTransform = async (_input, output) => {
       }
     } catch {}
   }
+  // Second drain point. If this hook runs AFTER messages.transform on this
+  // build, that hook drained an empty buffer and the directives are still here;
+  // land them on the last message so they are not silently dropped.
+  try { injectVolatileDirectives(_input?.messages || output?.messages) } catch {}
 }
 
 export { latestUserIntent, injectWBP, context7Directive, C7_URGENCY }
