@@ -686,8 +686,11 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // that path exactly when a cascade begins. Force the key into existence by
     // comparing against what is really persisted, not the derived view.
     const writeIfRaw = (key: string, val: unknown) => {
+      // Resolve the path at call time. TIERS_FILE is a module-level binding and
+      // can still point at a previous VIBEOS_HOME, which would make this read a
+      // different machine's (or a previous test's) file and skip the write.
       let raw: unknown
-      try { raw = safeJsonParse(readFileSync(TIERS_FILE, "utf8"), {}) } catch { raw = {} }
+      try { raw = safeJsonParse(readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf8"), {}) } catch { raw = {} }
       const persisted = raw?.selection && Object.prototype.hasOwnProperty.call(raw.selection, key)
         ? raw.selection[key]
         : undefined

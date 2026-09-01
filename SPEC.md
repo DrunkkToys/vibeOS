@@ -43,9 +43,10 @@
 - **Module**: `src/lib/hooks/tool-execute.ts` / `src/lib/state.ts`
 
 ### 1.6 VibeUltraX Pipeline Routes Correctly
-- **Contract**: VibeUltraX optimization mode selects brain tier for complex prompts without moving the root slot.
-- **Test**: `tests/cascade_route_contract.test.mjs` — "vibeultrax complex route selects brain without moving the root slot"
-- **Module**: `src/lib/mode-router.ts`
+- **Contract**: VibeUltraX applies the per-turn tier verdict to the PRIMARY, clamped to the mode's envelope. `entry_slot` records the tier the turn started from; `active_slot` records where it ended up. A verdict at or below the entry leaves the primary where it is.
+- **Superseded contract** (until 2026-09-01): "selects brain tier for complex prompts without moving the root slot" — cheap-first, escalating by delegating a Task to a higher tier. Changed because the plugin can route but cannot force the model to delegate: across five live ml-impact runs vibeultrax voided on its first hard turn every time, the model doing the work itself on the cheap slot until the turn timed out (3027s on `diagnose`). The measurements also removed the savings rationale — prompt caching dominates cost (a warm third turn costs 249 input tokens against 14,057 cold), and switching models per turn discards the cache, so a cheaper model on a cold prompt is not cheaper.
+- **Test**: `tests/cascade_route_contract.test.mjs` — "sync moves the vibeultrax primary to the per-turn route's slot, keeping entry_slot as the origin", plus `tests/test_ultrax_primary_escalation.test.mjs` (15 assertions incl. envelope clamp, `vibe lock on`, and `vibe axis tier` precedence)
+- **Module**: `src/lib/mode-router.ts` / `src/lib/hooks/chat-transform.ts` (`ultraXPrimarySlot`)
 
 ### 1.7 Normalizer Keeps active_pipeline Durable
 - **Contract**: When backend routes to cheap, the `active_pipeline` is kept as `["brain"]` (not overwritten).
