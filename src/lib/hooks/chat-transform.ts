@@ -829,8 +829,16 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     let ultraTarget: string | null = null
     if (isUltraX) {
       try {
-        const verdictSource = normalizeSlot(cv.resolved_tier)
-        let verdict: string | null = verdictSource
+        // Verdict sources, strongest first. `resolved_tier` is the explicit tier
+        // call when the backend makes one, but it is not set every turn -- a live
+        // desktop turn on 2026-09-01 carried its decision only as `selected_slot`
+        // + `route_path` and the primary stayed pinned to the floor as a result.
+        // `tier_bias` is deliberately NOT a source: normalizeBackendDecision forces
+        // it to "cheap" for vibeultrax, so reading it would pin the slot forever.
+        let verdict: string | null =
+          normalizeSlot(cv.resolved_tier) ||
+          normalizeSlot(routePath.length > 1 ? routePath[routePath.length - 1] : null) ||
+          normalizeSlot(cv.selected_slot)
         if (!verdict && latestUserIntent) {
           const d = computeDifficulty(latestUserIntent)
           if (d.confidence >= ML_CONFIDENCE_THRESHOLD && d.level !== "moderate") verdict = d.suggestedTier
