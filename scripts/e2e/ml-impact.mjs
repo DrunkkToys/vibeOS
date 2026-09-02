@@ -53,7 +53,19 @@ const SEED = flag("--seed", process.env.ML_IMPACT_SEED || "ml-impact-1")
 // which loses the trial rather than measuring it.
 const TURN_TIMEOUT = Number(flag("--turn-timeout", process.env.ML_IMPACT_TURN_TIMEOUT || "900000"))
 const MOCK_PORT = Number(flag("--mock-port", process.env.ML_IMPACT_MOCK_PORT || "48123"))
-const BASE_URL = `http://127.0.0.1:${MOCK_PORT}`
+// A mock that answers /mode/classify using the plugin's own difficulty scorer is
+// circular: it measures the scorer against itself. `--backend` picks what actually
+// answers the plugin. "none" points at a dead port so the documented local-fallback
+// path runs (real shipped behaviour); "real" uses VIBEOS_API_URL/TOKEN from the env.
+const BACKEND = flag("--backend", process.env.ML_IMPACT_BACKEND || "none")
+const REAL_API = process.env.VIBEOS_API_URL || "https://api.vibetheog.com"
+const BASE_URL =
+  BACKEND === "mock" ? `http://127.0.0.1:${MOCK_PORT}`
+  : BACKEND === "real" ? REAL_API
+  : "http://127.0.0.1:1"
+if (BACKEND === "real" && !process.env.VIBEOS_API_TOKEN) {
+  throw new Error("[ml-impact] --backend real needs VIBEOS_API_TOKEN in the environment")
+}
 const RESUME = argv.includes("--resume")
 // Smoke the wiring on one turn before committing ~45 minutes of model time to a
 // full calibration run. Scores from a truncated run are not comparable.
@@ -63,7 +75,14 @@ const MAX_TURNS = Number(flag("--turns", TURNS.length))
 // applies and a trial that fails to route is visible instead of masked.
 const TIERS = {
   cheap: process.env.ML_IMPACT_CHEAP || "opencode/muse-spark-1.2-contributor-free",
-  medium: process.env.ML_IMPACT_MEDIUM || "opencode/hy3-free",
+  // hy3-free was delisted from the account (`opencode models` no longer returns
+  // it; the zen endpoint answers 401 "Model hy3-free is not supported"). A dead
+  // medium rung silently kills the middle of the cascade: vibeultrax escalates
+  // cheap -> medium, the request 401s, and the arm voids on a routing defect it
+  // does not have. Probed 2026-09-01: big-pickle 47s, ling-3.0-flash-fin 58s,
+  // muse-spark 5s, mimo-v2.5 ok; nemotron-3.5-lightning hangs and
+  // nemotron-3-ultra exits 1 -- neither is usable as a tier.
+  medium: process.env.ML_IMPACT_MEDIUM || "opencode/big-pickle",
   brain: process.env.ML_IMPACT_BRAIN || "opencode/mimo-v2.5-free",
 }
 
@@ -81,6 +100,7 @@ mkdirSync(join(OUT, "trials"), { recursive: true })
 // ── mock backend ──
 let mockProc = null
 function startMock() {
+  if (BACKEND !== "mock") return
   mockProc = spawn(process.execPath, [join(ROOT, "scripts", "e2e", "mock.mjs"), OUT, String(MOCK_PORT)], {
     stdio: ["ignore", "ignore", "inherit"],
   })
@@ -163,7 +183,7 @@ function runTurn(trial, turn, sessionId) {
     ...process.env,
     VIBEOS_HOME: trial.home,
     VIBEOS_API_URL: BASE_URL,
-    VIBEOS_API_TOKEN: "vos_" + "a".repeat(64),
+    VIBEOS_API_TOKEN: BACKEND === "real" ? process.env.VIBEOS_API_TOKEN : "vos_" + "a".repeat(64),
     VIBEOS_MCP_PORT: "0",
     VIBEOS_QUALITY_GATE: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
@@ -249,6 +269,7 @@ function scoreTrial(trial, turns) {
     hidden: {
       groups: hidden.groups, passedGroups: hidden.passedGroups, groupRate: hidden.groupRate,
       assertions: hidden.assertions, assertionsPassed: hidden.assertionsPassed, assertionRate: hidden.assertionRate,
+      correctness: hidden.correctness, deadGroups: hidden.deadGroups,
       per: Object.fromEntries(Object.entries(hidden.per).map(([k, v]) => [k, { ok: v.ok, pass: v.pass, fail: v.fail }])),
     },
     visible: { ok: visible.ok, pass: visible.pass, fail: visible.fail },

@@ -99,7 +99,26 @@ test("normalizer keeps vibeultrax active_pipeline durable when backend route is 
   }
 })
 
-test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", async () => {
+// ── CONTRACT CHANGE (2026-09-01). This test previously asserted that the
+// vibeultrax root slot stays cheap when the per-turn route selects brain --
+// cheap-first, with escalation happening by delegating a Task to a higher tier.
+//
+// That contract is what made the arm unusable. Across five live ml-impact runs
+// vibeultrax voided on its first hard turn every single time, because the model
+// did the work itself instead of delegating, so the turn ran on the cheap slot
+// until it timed out (3027s on `diagnose`). Delegation is not something the
+// plugin can force; it can only route.
+//
+// The measurements also removed the reason to defend cheap-first. Prompt
+// caching, not tier choice, dominates cost: raw's third turn costs 249 input
+// tokens against a warm cache, versus 14,057 when the prefix is invalidated.
+// Switching models per turn throws the cache away, so a cheaper model on a cold
+// prompt is not cheaper. Cheap-first cannot deliver the savings it promised.
+//
+// New contract: the primary follows the backend's tier verdict, clamped to the
+// mode's envelope. entry_slot still records the tier the turn STARTED from, so
+// the cascade's origin stays observable; active_slot is where it ended up.
+test("sync moves the vibeultrax primary to the per-turn route's slot, keeping entry_slot as the origin", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "vibeos-route-root-slot-"))
   const oldHome = process.env.VIBEOS_HOME
   try {
@@ -150,9 +169,10 @@ test("sync keeps vibeultrax root slot cheap when per-turn route selects brain", 
     })
 
     const raw = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), "utf8"))
-    assert.equal(raw.selection.active_slot, "cheap")
+    assert.equal(raw.selection.active_slot, "brain", "the primary must follow the verdict, not stall on the floor")
+    assert.equal(raw.selection.entry_slot, "cheap", "entry_slot must still record where the turn started")
     assert.deepEqual(raw.selection.active_pipeline, ["cheap", "medium", "brain"])
-    assert.equal(result.applied_slot, "cheap")
+    assert.equal(result.applied_slot, "brain")
     assert.equal(result.selected_slot, "brain")
     assert.deepEqual(result.route_path, ["cheap", "medium", "brain"])
   } finally {

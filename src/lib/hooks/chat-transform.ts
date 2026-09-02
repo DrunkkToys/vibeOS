@@ -297,6 +297,19 @@ function normalizeSlot(value: unknown): "brain" | "medium" | "cheap" | null {
   return null
 }
 
+// A classify response only carries a tier verdict if one of its tier fields holds a
+// real slot name. A 200 that carries none -- a degraded backend, a partial rollout, a
+// stand-in mock -- is not an authoritative "stay where you are"; it is no answer at
+// all, and must fall through to the local estimate rather than freeze resolved_tier.
+export function tierFromClassifyResponse(cascadeData: unknown): "brain" | "medium" | "cheap" | null {
+  if (!cascadeData || typeof cascadeData !== "object") return null
+  const data = cascadeData as Record<string, unknown>
+  const explicit = normalizeSlot(data.resolved_tier)
+  if (explicit) return explicit
+  if (data.web_search === true || data.loop_break === true) return "brain"
+  return normalizeSlot(data.tier) || normalizeSlot(data.entry_tier)
+}
+
 function slotFromMode(mode: unknown): "brain" | "medium" | "cheap" | null {
   const normalized = String(mode || "").trim().toLowerCase()
   if (!normalized || normalized === "auto") return null
@@ -349,6 +362,30 @@ function rootSlotForControlVector(cv: unknown, durablePipeline: string[]): strin
   return normalizeSlot(cv?.tier_bias) || normalizeSlot(cv?.selected_slot) || null
 }
 
+// The envelope is a hard bound on where a turn may run. A per-turn difficulty
+// verdict outside it is clamped to the nearest member, never applied as-is: a
+// trivial prompt scoring "cheap" must not drag a brain-only mode onto the cheap
+// model. An absent, unusable, or unclampable verdict yields null -- the caller
+// then leaves the slot where the mode put it.
+export function clampVerdictToEnvelope(resolvedTier: unknown, envelope: unknown): "brain" | "medium" | "cheap" | null {
+  const verdict = normalizeSlot(resolvedTier)
+  if (!verdict) return null
+  const members = (Array.isArray(envelope) ? envelope : []).map(normalizeSlot).filter(Boolean) as ("brain" | "medium" | "cheap")[]
+  if (members.length === 0) return null
+  if (members.includes(verdict)) return verdict
+  const rank = (s: string) => (s === "brain" ? 2 : s === "medium" ? 1 : 0)
+  let target: "brain" | "medium" | "cheap" | null = null
+  let bestDistance = Infinity
+  for (const candidate of members) {
+    const distance = Math.abs(rank(candidate) - rank(verdict))
+    if (distance < bestDistance) {
+      bestDistance = distance
+      target = candidate
+    }
+  }
+  return target
+}
+
 // Where the vibeultrax PRIMARY turn should run this turn, or null to leave
 // active_slot alone.
 //
@@ -372,22 +409,7 @@ export function ultraXPrimarySlot(sel: unknown, resolvedTier: unknown, envelope:
   if (sel?.slot_locked === true) return null
   const overrides = sel?.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides : {}
   if (normalizeSlot((overrides as Record<string, unknown>).tier)) return null
-  const verdict = normalizeSlot(resolvedTier)
-  if (!verdict) return null
-  const members = (Array.isArray(envelope) ? envelope : []).map(normalizeSlot).filter(Boolean) as string[]
-  if (members.length === 0) return null
-  const rank = (s: string) => (s === "brain" ? 2 : s === "medium" ? 1 : 0)
-  let target = members.includes(verdict) ? verdict : null
-  if (!target) {
-    let bestDistance = Infinity
-    for (const candidate of members) {
-      const distance = Math.abs(rank(candidate) - rank(verdict))
-      if (distance < bestDistance) {
-        bestDistance = distance
-        target = candidate
-      }
-    }
-  }
+  const target = clampVerdictToEnvelope(resolvedTier, envelope)
   if (!target) return null
   return target === normalizeSlot(sel?.active_slot) ? null : target
 }
@@ -655,6 +677,25 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
       const sel = loadSelection()
       if (sel[key] !== val) writeSelection(key, val)
     }
+    // loadSelection() DERIVES a missing entry_slot from active_slot
+    // (selection-manager.ts: `entry_slot || active_slot`), so writeIf sees no
+    // difference and the key is never materialised on disk. It then silently
+    // tracks active_slot: the moment the slot escalates, the entry the turn
+    // actually started from reads as the escalated tier. chat-params.ts gates
+    // cheap-first on `state.entry_slot === "cheap"`, so the phantom disables
+    // that path exactly when a cascade begins. Force the key into existence by
+    // comparing against what is really persisted, not the derived view.
+    const writeIfRaw = (key: string, val: unknown) => {
+      // Resolve the path at call time. TIERS_FILE is a module-level binding and
+      // can still point at a previous VIBEOS_HOME, which would make this read a
+      // different machine's (or a previous test's) file and skip the write.
+      let raw: unknown
+      try { raw = safeJsonParse(readFileSync(join(getVibeOSHome(), "model-tiers.json"), "utf8"), {}) } catch { raw = {} }
+      const persisted = raw?.selection && Object.prototype.hasOwnProperty.call(raw.selection, key)
+        ? raw.selection[key]
+        : undefined
+      if (persisted !== val) writeSelection(key, val)
+    }
 
     if (durablePipeline.length > 0) {
       const currentPipeline = currentSel.active_pipeline
@@ -708,7 +749,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // moment the mode left vibeultrax all six froze at their last vibeultrax
     // value and every subagent route in every other mode ran off stale state.
     // They are per-turn state, not a vibeultrax feature.
-    writeIf("entry_slot", entrySlot || (isUltraX ? "cheap" : null))
+    writeIfRaw("entry_slot", entrySlot || (isUltraX ? "cheap" : null))
     writeIf("worker_slot", workerSlot || null)
     writeIf("selected_slot", workerSlot || null)
     writeIf("worker_model", workerModel || null)
@@ -807,8 +848,16 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     let ultraTarget: string | null = null
     if (isUltraX) {
       try {
-        const verdictSource = normalizeSlot(cv.resolved_tier)
-        let verdict: string | null = verdictSource
+        // Verdict sources, strongest first. `resolved_tier` is the explicit tier
+        // call when the backend makes one, but it is not set every turn -- a live
+        // desktop turn on 2026-09-01 carried its decision only as `selected_slot`
+        // + `route_path` and the primary stayed pinned to the floor as a result.
+        // `tier_bias` is deliberately NOT a source: normalizeBackendDecision forces
+        // it to "cheap" for vibeultrax, so reading it would pin the slot forever.
+        let verdict: string | null =
+          normalizeSlot(cv.resolved_tier) ||
+          normalizeSlot(routePath.length > 1 ? routePath[routePath.length - 1] : null) ||
+          normalizeSlot(cv.selected_slot)
         if (!verdict && latestUserIntent) {
           const d = computeDifficulty(latestUserIntent)
           if (d.confidence >= ML_CONFIDENCE_THRESHOLD && d.level !== "moderate") verdict = d.suggestedTier
@@ -969,10 +1018,85 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
   }
 }
 
+// Prompt-cache split.
+//
+// `system` is the prefix of every request, so a single per-turn byte in it
+// invalidates the whole cached prefix. Measured on the ml-impact rig, raw vs
+// plugin, same task and model (first-step input tokens / cache reads):
+//
+//   turn          raw            vibeqmax       vibeultrax
+//   diagnose      7,562 / 1,792  9,654 / 1,792  9,763 / 1,792
+//   fix-batching  1,039 / 25,280 12,638 /10,240 15,627 /10,752
+//   fix-rest        249 / 27,520 14,057 /10,240 HANG
+//
+// Raw's request shrinks turn over turn as its cache warms; both plugin arms
+// grow while cache reads flatline at 10,240 -- 56x the input on fix-rest, and
+// by turn three large enough to stall the provider outright. Both plugin arms
+// voided on that turn; raw finished it in 300s.
+//
+// So: constant directives stay in `system` (they are part of the stable prefix
+// and cache for free). Per-turn directives go to a buffer that
+// injectVolatileDirectives() lands as a trailing synthetic message, after the
+// cached prefix, where changing them costs only their own tokens.
+//
+// Off by default: moving a directive out of `system` changes where the model
+// sees it, and CLAUDE.md section 2 lists stress inoculation, context7 injection
+// and the blackbox directives as claimed behaviour. VIBEOS_STABLE_PREFIX=1 opts
+// in. The directive text and ordering are byte-identical either way.
+const VOLATILE_MARKER = "[vibeos:turn-state]"
+let _volatileBuffer: string[] = []
+// OpenCode does not document whether system.transform or messages.transform
+// runs first, and it has changed between builds. Stamping the buffer makes the
+// drain correct under either order: whichever hook runs second injects, and a
+// buffer left over from a previous turn is discarded instead of injected late.
+let _volatileTurn = 0
+let _volatileStamp = -1
+
+export function stablePrefixEnabled(): boolean {
+  return process.env.VIBEOS_STABLE_PREFIX === "1"
+}
+
+export function resetVolatileBuffer(): void {
+  _volatileBuffer = []
+  _volatileTurn += 1
+  _volatileStamp = _volatileTurn
+}
+
+export function takeVolatileDirectives(): string[] {
+  if (_volatileStamp !== _volatileTurn) { _volatileBuffer = []; return [] }
+  const out = _volatileBuffer
+  _volatileBuffer = []
+  return out
+}
+
 function pushSystem(output: unknown, text: string | null): void {
   if (text && Array.isArray(output?.system)) {
     output.system.push(text)
   }
+}
+
+// Per-turn directive: cache-poisoning if it lands in `system`.
+function pushTurnState(output: unknown, text: string | null): void {
+  if (!text) return
+  if (!stablePrefixEnabled()) { pushSystem(output, text); return }
+  _volatileStamp = _volatileTurn
+  _volatileBuffer.push(text)
+}
+
+// Lands the turn's volatile directives as the final user-visible text, i.e.
+// after every cached message, so the prefix above them stays byte-stable.
+export function injectVolatileDirectives(messages: unknown[]): void {
+  if (!stablePrefixEnabled()) return
+  const pending = takeVolatileDirectives()
+  if (pending.length === 0 || !Array.isArray(messages) || messages.length === 0) return
+  const last = messages[messages.length - 1]
+  if (!last || !Array.isArray(last.parts)) return
+  if (last.parts.some(p => p?.type === "text" && typeof p?.text === "string" && p.text.includes(VOLATILE_MARKER))) return
+  last.parts.push({
+    type: "text",
+    text: VOLATILE_MARKER + "\n" + pending.join("\n"),
+    synthetic: true,
+  })
 }
 
 function oneShot(key: string): boolean {
@@ -1237,6 +1361,7 @@ export const onMessagesTransform = async (_input, output) => {
     }
 
     injectWBP(messages)
+    injectVolatileDirectives(messages)
     applyDecadence()
     await trackBlackbox(messages)
 
@@ -1465,6 +1590,7 @@ function contextBudgetDirective(_input: unknown, output: unknown): string | null
 export const onSystemTransform = async (_input, output) => {
   resetChatTransformStateForHome()
   nextTurn()
+  resetVolatileBuffer()
   if (!loadSelection().enabled) return
   try {
     // Ensure the live blackbox snapshot is fresh (guard against cross-session module cache leak)
@@ -1492,43 +1618,41 @@ export const onSystemTransform = async (_input, output) => {
     const useBackendDecision = backendAutoModes.has(String(requestedOptimizationMode || "").toLowerCase())
     const classifiedRegime = liveBlackboxState?.sub_regime
       || (latestUserIntent && isGreetingLike(latestUserIntent) ? "INIT" : latestUserIntent ? await classifyTurnRemote(latestUserIntent) : "INIT")
+    let resolvedTierThisTurn: "brain" | "medium" | "cheap" | null = null
     if (latestUserIntent && isApiConnected() && !isApiFallback()) {
       try {
         const client = getApiClient()
         if (client) {
           const cascadeData = await client.classify(latestUserIntent, {})
-          if (cascadeData) {
+          // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
+          // signals force brain directly here rather than via a selection-state flag.
+          resolvedTierThisTurn = tierFromClassifyResponse(cascadeData)
+          if (resolvedTierThisTurn) {
             const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
             bb.sessions ??= {}
             const prev = bb.sessions[_OC_SID] || {}
-            // resolved_tier is the single BE-authoritative tier signal: web_search/loop_break
-            // signals force brain directly here rather than via a selection-state flag.
-            // When the classify response omits resolved_tier itself, fall back to the same
-            // response's tier/entry_tier fields before giving up on a fresh signal entirely.
-            const resolvedTier = cascadeData.resolved_tier
-              || ((cascadeData.web_search === true || cascadeData.loop_break === true) ? "brain" : null)
-              || cascadeData.tier
-              || cascadeData.entry_tier
-              || prev.resolved_tier
             bb.sessions[_OC_SID] = {
               ...prev,
-              cascade_depth: cascadeData.cascade_depth || prev.cascade_depth || 0,
-              resolved_tier: resolvedTier,
+              cascade_depth: (cascadeData as { cascade_depth?: number } | null)?.cascade_depth || prev.cascade_depth || 0,
+              resolved_tier: resolvedTierThisTurn,
             }
             saveBlackboxStateToCtx(bb)
           } else {
-            console.warn("[vibeOS] cascade classify returned no usable data; resolved_tier not updated this turn")
+            console.warn("[vibeOS] cascade classify returned no usable tier; falling back to the local difficulty estimate")
           }
         }
       } catch (classifyErr) {
         console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
       }
-    } else if (latestUserIntent) {
-      // BE classify is gated off (API disconnected or in fallback cooldown). Without this
-      // branch resolved_tier just freezes at whatever it last was (often never-set/None)
-      // for the entire fallback window, since the block above is the only resolved_tier
-      // writer. Derive a local estimate from the same difficulty scorer tool-execute.ts
-      // uses for cascade routing so blackbox state still gets a tier this turn.
+    }
+    if (latestUserIntent && !resolvedTierThisTurn) {
+      // No tier came back from the BE this turn -- it is disconnected, in fallback
+      // cooldown, erroring, or answering without a verdict. This branch is the only
+      // other resolved_tier writer, so without it the verdict freezes at whatever it
+      // last was (often never-set) and ultraXPrimarySlot, which needs a verdict to move
+      // the primary, pins vibeultrax to its entry slot for the rest of the session.
+      // Derive an estimate from the same difficulty scorer tool-execute.ts uses for
+      // cascade routing so blackbox state still gets a tier this turn.
       try {
         const { suggestedTier } = computeDifficulty(latestUserIntent)
         const bb = loadBlackboxStateFromCtx() || { sessions: {}, enabled: true }
@@ -1624,7 +1748,16 @@ export const onSystemTransform = async (_input, output) => {
     // posture — a local/estimate resolved_tier must not yank the session out of
     // the pinned cheap slot the same turn the pin was applied.
     const _fallbackPinning = typeof isApiFallback === "function" && isApiFallback()
-    const _resolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
+    const _rawResolvedTier = loadBlackboxStateFromCtx()?.sessions?.[_OC_SID]?.resolved_tier
+    // Clamped, never raw: the mode's envelope outranks the turn's verdict. Applying
+    // it unclamped put a brain-only mode on the cheap model the moment a verdict
+    // started arriving at all.
+    const _envelope = (Array.isArray(_controlVector?.pipeline_root) && _controlVector.pipeline_root.length
+      ? _controlVector.pipeline_root
+      : Array.isArray(_controlVector?.cascade_root) && _controlVector.cascade_root.length
+        ? _controlVector.cascade_root
+        : loadSelection()?.active_pipeline) as unknown
+    const _resolvedTier = clampVerdictToEnvelope(_rawResolvedTier, _envelope)
     if (_resolvedTier && _controlVector && !(_fallbackPinning && _controlVector.optimization_mode === "vibelitex")) {
       _controlVector = { ..._controlVector, selected_slot: _resolvedTier, tier_bias: _resolvedTier }
     }
@@ -1815,7 +1948,7 @@ export const onSystemTransform = async (_input, output) => {
           })
         }
         if (pivotResult?.pivot?.injection) {
-          pushSystem(output, pivotResult.pivot.injection)
+          pushTurnState(output, pivotResult.pivot.injection)
           // Warm smart cache with workflow tool outputs
           const pivotWorkflowId = pivotResult.pivot.workflowId || pivotResult.pivot.matchedId
           if (pivotWorkflowId && pivotResult.pivot.toolOutputs?.length > 0) {
@@ -1843,7 +1976,7 @@ export const onSystemTransform = async (_input, output) => {
         : null
 
     if (stressMitigationDirective) {
-      pushSystem(output, stressMitigationDirective)
+      pushTurnState(output, stressMitigationDirective)
     }
 
     // ── Template resolution ──
@@ -1867,11 +2000,11 @@ export const onSystemTransform = async (_input, output) => {
       if (sel.flow_enabled && _controlVector?.flow_mode !== "audit") {
         fused += " Stay close to existing code conventions and project patterns."
       }
-      pushSystem(output, fused)
+      pushTurnState(output, fused)
     }
 
     // ── Cost policy (every turn — lightweight) ──
-    pushSystem(output, context7Directive(_controlVector))
+    pushTurnState(output, context7Directive(_controlVector))
 
     // ── Thinking directive — the local manual pin and the control-vector's
     // [thinking mode] directive must never both appear in one prompt (they
@@ -1880,7 +2013,7 @@ export const onSystemTransform = async (_input, output) => {
       typeof d === "string" && /^\[thinking mode/i.test(String(d).trim())
     const manualThinking = sel.thinking_level && sel.thinking_level !== "full"
     if (manualThinking) {
-      pushSystem(output, thinkingDirective(sel.thinking_level))
+      pushTurnState(output, thinkingDirective(sel.thinking_level))
     }
 
     // ── Remote control-vector directives ──
@@ -1894,7 +2027,7 @@ export const onSystemTransform = async (_input, output) => {
           if (cvLoopPreventionPushed) continue
           cvLoopPreventionPushed = true
         }
-        pushSystem(output, directive)
+        pushTurnState(output, directive)
       }
     }
 
@@ -1922,18 +2055,18 @@ export const onSystemTransform = async (_input, output) => {
       if (currentRegime !== prevRegime) {
         _prevBlackboxRegime = currentRegime
         if (!suppressNotice) {
-          pushSystem(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
+          pushTurnState(output, "[decision engine] Resolution: " + (res.resolution || "unresolved") + " " +
             "(" + currentRegime + "). Momentum: " + ((res.momentum || 0) > 0 ? "↗ positive" : (res.momentum || 0) < 0 ? "↘ negative" : "→ steady") + ".")
           if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none") {
             const severity = res.loop_intervention_level === "escalated" ? "CRITICAL"
               : res.loop_intervention_level === "assertive" ? "WARNING" : "NOTICE"
             if (!cvLoopPreventionPushed) {
-              pushSystem(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
+              pushTurnState(output, "[loop prevention: " + severity + "] " + (getLatestBlackboxLoopMsg() || "The conversation may be looping — try a different approach.") + " " +
                 "(level: " + res.loop_intervention_level + ")")
             }
           }
           if (res.pivot_detected && getLatestBlackboxPivotMsg()) {
-            pushSystem(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
+            pushTurnState(output, "[context switch: PIVOT] " + getLatestBlackboxPivotMsg())
           }
         }
         if (res.is_looping && res.loop_intervention_level && res.loop_intervention_level !== "none" && loopNoticeSignature) {
@@ -1970,7 +2103,7 @@ export const onSystemTransform = async (_input, output) => {
     // ── Job focus ──
     const projectJob2 = (onSystemTransform as unknown)._activeJob || getActiveJobForProject(fp)
     if (latestUserIntent && projectJob2 && isLikelyOffTopic(latestUserIntent, projectJob2)) {
-      pushSystem(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
+      pushTurnState(output, "[job-focus] Active job context exists: \"" + ((projectJob2.prompt || "").slice(0, 140)) + "...\". " +
         "The latest user request appears off-topic relative to this running job. " +
         "Before taking write/edit/task actions, ask one concise confirmation question to validate switching scope.")
       console.error("[vibeOS] [job-focus] off-topic request detected vs active job context")
@@ -1979,7 +2112,7 @@ export const onSystemTransform = async (_input, output) => {
     // ── Flow todos ──
     if (sel.flow_enabled && sel.flow_enforce) {
       const todoDirective = flowTodosDirective()
-      if (todoDirective) pushSystem(output, todoDirective)
+      if (todoDirective) pushTurnState(output, todoDirective)
     }
 
     // ── Project guard (every 5 turns instead of every turn) ──
@@ -1994,11 +2127,11 @@ export const onSystemTransform = async (_input, output) => {
     pushSystem(output, EMPIRICAL_ANSWER_DIRECTIVE)
     pushSystem(output, ANTI_LOOP_DIRECTIVE)
     const realityDirective = realityCheckDirective()
-    if (realityDirective) pushSystem(output, realityDirective)
+    if (realityDirective) pushTurnState(output, realityDirective)
 
     // ── Context budget ──
     const budgetDirective = contextBudgetDirective(_input, output)
-    if (budgetDirective) pushSystem(output, budgetDirective)
+    if (budgetDirective) pushTurnState(output, budgetDirective)
 
     // ── One-shots ──
     if (!oneShot("vibeos_project_memory_" + fp)) {
@@ -2049,10 +2182,10 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     if (!oneShot("vibeos_dopamine_style_" + fp)) {
-      pushSystem(output, regimeAwareToolStyleDirective(liveBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
+      pushTurnState(output, regimeAwareToolStyleDirective(liveBlackboxState?.sub_regime || classifiedRegime, _currentTemplate, stressScore, _controlVector?.agent_mode))
     }
     if (_pendingOrchestratorDirective) {
-      pushSystem(output, _pendingOrchestratorDirective)
+      pushTurnState(output, _pendingOrchestratorDirective)
       _pendingOrchestratorDirective = ""
     }
 
@@ -2076,6 +2209,10 @@ export const onSystemTransform = async (_input, output) => {
       }
     } catch {}
   }
+  // Second drain point. If this hook runs AFTER messages.transform on this
+  // build, that hook drained an empty buffer and the directives are still here;
+  // land them on the last message so they are not silently dropped.
+  try { injectVolatileDirectives(_input?.messages || output?.messages) } catch {}
 }
 
 export { latestUserIntent, injectWBP, context7Directive, C7_URGENCY }

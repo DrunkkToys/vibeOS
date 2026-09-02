@@ -143,3 +143,48 @@ test("syncControlSettings does not escalate a locked slot", async () => {
   mod.syncControlSettings({ ...CV, resolved_tier: "brain" }, {})
   assert.equal(readSlot(), "cheap", "`vibe lock on` must survive a hard turn")
 })
+
+// ── Live regression, captured 2026-09-01 driving the OpenCode desktop app.
+//
+// The first cut of this fix only accepted a verdict from `cv.resolved_tier`.
+// A real vibeultrax turn carried its tier decision somewhere else entirely:
+//
+//   slot=cheap  entry=cheap  worker=brain  route=['cheap','brain']
+//   chat-params | slot=cheap -> intended=<cheap model> | override=true
+//
+// The backend HAD decided brain and persisted it as `selected_slot` /
+// `route_path`; `resolved_tier` was never set on that turn, so the verdict read
+// as absent and the primary stayed on the envelope floor. normalizeBackendDecision
+// forces `tier_bias` to "cheap" for vibeultrax by design (the entry is meant to be
+// cheap and escalate by delegation) — `selected_slot` is where the real per-turn
+// tier lives, and the route path's terminal slot is where the turn is meant to end.
+// Both are verdicts; neither was being read.
+test("a backend selected_slot with no resolved_tier still moves the primary", async () => {
+  seed({})
+  const mod = await import("../src/lib/hooks/chat-transform.js?ultrax-live=" + Date.now())
+  mod.syncControlSettings(
+    { ...CV, selected_slot: "brain", route_path: ["cheap", "brain"] },
+    { authoritative: true },
+  )
+  assert.equal(readSlot(), "brain", "the backend's own slot decision must reach the primary")
+})
+
+test("a backend cheap decision keeps the primary cheap", async () => {
+  seed({ active_slot: "brain" })
+  const mod = await import("../src/lib/hooks/chat-transform.js?ultrax-live=" + Date.now())
+  mod.syncControlSettings(
+    { ...CV, selected_slot: "cheap", route_path: ["cheap"] },
+    { authoritative: true },
+  )
+  assert.equal(readSlot(), "cheap", "an easy turn must de-escalate, or vibeultrax saves nothing")
+})
+
+test("resolved_tier still outranks the backend slot", async () => {
+  seed({})
+  const mod = await import("../src/lib/hooks/chat-transform.js?ultrax-live=" + Date.now())
+  mod.syncControlSettings(
+    { ...CV, resolved_tier: "medium", selected_slot: "brain" },
+    { authoritative: true },
+  )
+  assert.equal(readSlot(), "medium", "the explicit tier verdict is the stronger signal")
+})
