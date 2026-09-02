@@ -19,6 +19,16 @@ const BOOTSTRAP_EXCHANGE_PATH = "/api/v1/auth/bootstrap/exchange"
 const BOOTSTRAP_RETRY_COOLDOWN_MS = 60_000
 const FALLBACK_COOLDOWN_MS = String(process.env.VIBEOS_FAST_CI || "").trim() === "1" ? 5_000 : 60_000
 
+// A refused endpoint costs a full retry ladder (4 attempts + 1+2+4s backoff =
+// 7s measured). The plugin makes several remote calls per turn, so without a
+// breaker that is ~49s of dead time in front of every model step. Resolved per
+// call so tests and operators can shorten it.
+function fallbackCooldownMs(): number {
+  const raw = Number(process.env.VIBEOS_API_FALLBACK_COOLDOWN_MS)
+  if (Number.isFinite(raw) && raw >= 0) return raw
+  return FALLBACK_COOLDOWN_MS
+}
+
 // ── Credential-file safety ───────────────────────────────────────────
 // Token files must be written atomically (tmp+rename) and tightened to 0600 so
 // the bootstrap credential isn't left world-readable or torn by a crash.
@@ -662,6 +672,7 @@ export function setApiToken(newToken) {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
+    _apiFallbackSince = 0
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
     console.error("[vibeOS] API token updated via setApiToken")
   } catch(e) {
@@ -678,6 +689,7 @@ export function invalidateApiToken() {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: "" }
     _apiFallbackMode = false
+    _apiFallbackSince = 0
     persistBootstrapToken("")
     persistPrimaryApiEnvState({ token: "" })
     console.error("[vibeOS] API token invalidated and remote API disabled")
@@ -718,6 +730,7 @@ export function setApiBootstrapToken(newToken) {
 let _apiClientHolder: { client: VibeOSApiClient | null; gen: number; tokenSnapshot: string } = { client: null, gen: 0, tokenSnapshot: "" }
 let _apiClientGen = 0
 let _apiFallbackMode = false
+let _apiFallbackSince = 0
 let _bootstrapExchangeInFlight: Promise<boolean> | null = null
 let _bootstrapExchangeFailedAt = 0
 let _backendVersion = ""
@@ -780,11 +793,13 @@ export function syncApiTokenFromDisk(): void {
     _apiClientGen++
     _apiClientHolder = { client: null, gen: _apiClientGen, tokenSnapshot: VIBEOS_API_TOKEN }
     _apiFallbackMode = false
+    _apiFallbackSince = 0
     console.error("[vibeOS] API token synced from disk (disk is newer)")
   } else if (diskBootstrapToken && diskBootstrapToken !== VIBEOS_API_BOOTSTRAP_TOKEN) {
     VIBEOS_API_BOOTSTRAP_TOKEN = diskBootstrapToken
     syncApiEnabledState(!!VIBEOS_API_TOKEN || !!VIBEOS_API_BOOTSTRAP_TOKEN)
     _apiFallbackMode = false
+    _apiFallbackSince = 0
     console.error("[vibeOS] Alpha bootstrap token synced from disk (disk is newer)")
   } else if (!diskToken && VIBEOS_API_TOKEN) {
     persistPrimaryApiEnvState({ token: VIBEOS_API_TOKEN })
@@ -864,11 +879,19 @@ export async function remoteCall(method, args, fallbackFn) {
     if (fallbackFn) return fallbackFn()
     return null
   }
+  if (_apiFallbackSince && Date.now() - _apiFallbackSince < fallbackCooldownMs()) {
+    // Keep the flag true as well, so the footer stays honest about being offline
+    // for the whole cooldown rather than only for the turn that failed.
+    _apiFallbackMode = true
+    if (fallbackFn) return fallbackFn()
+    return null
+  }
   try {
     const client = getApiClient()
     if (!client) {
       if (!VIBEOS_API_TOKEN && VIBEOS_API_BOOTSTRAP_TOKEN) {
         _apiFallbackMode = true
+        _apiFallbackSince = Date.now()
         console.error(`[vibeOS] API fallback activated (${method}): no client available`)
       }
       if (fallbackFn) return fallbackFn()
@@ -879,6 +902,7 @@ export async function remoteCall(method, args, fallbackFn) {
       return h
     }
     const result = await client[method](...args)
+    _apiFallbackSince = 0
     if (_apiFallbackMode) {
       _apiFallbackMode = false
     }
@@ -887,6 +911,7 @@ export async function remoteCall(method, args, fallbackFn) {
   } catch (err) {
     const status = err?.statusCode || err?.status || 0
     const detail = status ? `status=${status}` : `message=${err?.message || err}`
+    _apiFallbackSince = Date.now()
     if (!_apiFallbackMode) {
       _apiFallbackMode = true
       console.error(`[vibeOS] API fallback activated (${method}): ${detail}`)
