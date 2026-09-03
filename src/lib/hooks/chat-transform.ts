@@ -1386,23 +1386,65 @@ function _writeTurnVoteAudit(row: Record<string, unknown>): void {
 }
 
 export async function applyTurnConsensus(messages: unknown[], client: unknown): Promise<string> {
-  if (!turnVoteEnabled()) return "disabled"
-  if (!Array.isArray(messages) || messages.length === 0 || Object.isFrozen(messages)) return "no messages"
+  // Skips are audited alongside votes. Auditing only the vote leaves every
+  // reason it did not happen invisible, which is how the Task-branch vote sat
+  // dead through five trials looking like a vote that ran and did not help.
+  const t0 = Date.now()
+  const outcome = await _turnConsensus(messages, client)
+  _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
+  return outcome.reason
+}
+
+interface ConsensusOutcome { reason: string; voted: boolean; audit: Record<string, unknown> }
+const _skip = (reason: string, audit: Record<string, unknown> = {}): ConsensusOutcome => ({ reason, voted: false, audit })
+
+async function _turnConsensus(messages: unknown[], client: unknown): Promise<ConsensusOutcome> {
+  if (!turnVoteEnabled()) return _skip("disabled")
+  if (!Array.isArray(messages) || messages.length === 0 || Object.isFrozen(messages)) return _skip("no messages")
   const last = messages[messages.length - 1] as { parts?: unknown[] }
-  if (!last || !Array.isArray(last.parts)) return "no injectable turn"
+  if (!last || !Array.isArray(last.parts)) return _skip("no injectable turn")
   if (last.parts.some((p) => p?.type === "text" && typeof p?.text === "string" && p.text.includes(CONSENSUS_MARKER))) {
-    return "already carries a verdict"
+    return _skip("already carries a verdict")
   }
+  return _voteOn(latestUserPrompt(messages), client, (note) => {
+    last.parts.push({ type: "text", text: note, synthetic: true })
+  })
+}
 
+// experimental.chat.messages.transform does not fire on every OpenCode version --
+// run 13 recorded fourteen control-sync rows from system.transform and not one
+// message-transform vote. The vote therefore runs from whichever hook the host
+// actually calls, sharing one dedup key so a host that fires both still pays for
+// exactly one vote.
+export async function applyTurnConsensusToSystem(input: unknown, output: unknown, client: unknown): Promise<string> {
+  const t0 = Date.now()
+  const system = (output as { system?: unknown })?.system
+  const outcome = !Array.isArray(system)
+    ? _skip("no system array to inject into")
+    : system.some((t) => typeof t === "string" && t.includes(CONSENSUS_MARKER))
+      ? _skip("already carries a verdict")
+      : await _voteOn(String(extractLastUserText(input) || extractLastUserText(output) || ""), client,
+        (note) => { system.push(note) }, "system")
+  _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
+  return outcome.reason
+}
+
+async function _voteOn(
+  prompt: string,
+  client: unknown,
+  inject: (note: string) => void,
+  host = "messages",
+): Promise<ConsensusOutcome> {
+  if (!turnVoteEnabled()) return _skip("disabled")
   const selection = loadSelection()
-  if (selection?.optimization_mode !== "vibeultrax") return `mode ${selection?.optimization_mode} does not vote`
+  if (selection?.optimization_mode !== "vibeultrax") return _skip(`mode ${selection?.optimization_mode} does not vote`)
 
-  const prompt = latestUserPrompt(messages)
   const plan = planTurnConsensus(prompt, selection?.active_pipeline)
-  if (!plan.wantsVote) return plan.reason
+  const base = { host, promptChars: prompt.length, pipeline: selection?.active_pipeline, plan: plan.reason }
+  if (!plan.wantsVote) return _skip(plan.reason, base)
 
   const key = _turnVoteKey(String(getCurrentSessionId() || ""), prompt)
-  if (_votedTurns.has(key)) return "already voted this turn"
+  if (_votedTurns.has(key)) return _skip("already voted this turn", base)
 
   // TRINITY_* are mutable module bindings, empty until something loads them.
   // Left unloaded the pool silently shrinks to whatever vote_pool holds and
@@ -1410,8 +1452,9 @@ export async function applyTurnConsensus(messages: unknown[], client: unknown): 
   // the bug it is.
   loadTrinitySlotsFromTiersFile()
   const pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
-  if (pool.length < MIN_VOTERS) return `pool of ${pool.length} cannot form a majority`
-  if (!client) return "no client to poll models with"
+  const withPool = { ...base, pool }
+  if (pool.length < MIN_VOTERS) return _skip(`pool of ${pool.length} cannot form a majority`, withPool)
+  if (!client) return _skip("no client to poll models with", withPool)
 
   _votedTurns.add(key)
   const vote = await runModelVote(client, {
@@ -1420,26 +1463,27 @@ export async function applyTurnConsensus(messages: unknown[], client: unknown): 
     directory: (onMessagesTransform as unknown)._directory || "",
     timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
   })
-  _writeTurnVoteAudit({
-    pool,
-    samples: vote.samples,
-    ran: vote.ran,
-    agreed: vote.agreed,
-    agreement: vote.agreement,
-    elapsedMs: vote.elapsedMs,
-    plan: plan.reason,
-    promptChars: prompt.length,
-  })
-  if (!vote.ran || vote.samples < MIN_VOTERS) return `only ${vote.samples} of ${pool.length} models answered`
+  const audit = {
+    ...withPool,
+    samples: vote.samples, ran: vote.ran, agreed: vote.agreed,
+    agreement: vote.agreement, elapsedMs: vote.elapsedMs,
+  }
+  if (!vote.ran || vote.samples < MIN_VOTERS) {
+    return { reason: `only ${vote.samples} of ${pool.length} models answered`, voted: false, audit }
+  }
 
   const note = vote.agreed
     ? buildConsensusNote(vote.answer, vote.samples, vote.agreement)
     : buildContestedNote(vote.samples, vote.agreement)
-  if (!note) return "agreed answer was empty"
-  last.parts.push({ type: "text", text: note, synthetic: true })
-  return vote.agreed
-    ? `${vote.samples} models agreed (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`
-    : `${vote.samples} models split (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`
+  if (!note) return { reason: "agreed answer was empty", voted: false, audit }
+  inject(note)
+  return {
+    reason: vote.agreed
+      ? `${vote.samples} models agreed (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`
+      : `${vote.samples} models split (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`,
+    voted: true,
+    audit,
+  }
 }
 
 export const onMessagesTransform = async (_input, output) => {
@@ -1720,6 +1764,13 @@ export const onSystemTransform = async (_input, output) => {
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
     else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
+
+    try {
+      const consensus = await applyTurnConsensusToSystem(_input, output, (onSystemTransform as unknown)._client)
+      console.error(`[vibeOS] turn vote: ${consensus}`)
+    } catch (err) {
+      console.error("[vibeOS] turn vote failed (non-fatal):", err?.message || err)
+    }
 
     const selectionMode = String(loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode || "").trim().toLowerCase()
     const requestedOptimizationMode = selectionMode || loadOptimizationMode()

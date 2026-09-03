@@ -225,3 +225,75 @@ test("every vote leaves an audit line, so a dead vote is visible as dead", async
     ctx.cleanup()
   }
 })
+
+test("a skipped vote is audited with the reason it was skipped", async () => {
+  const ctx = sandbox("vibeos-turnvote-skipaudit-", [])
+  try {
+    const chat = await load("j" + Date.now())
+    await chat.applyTurnConsensus(turn(), voter({}))
+    const { readFileSync } = await import("node:fs")
+    const { join: j } = await import("node:path")
+    const rows = readFileSync(j(process.env.VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl"), "utf8")
+      .trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.source === "turn-vote")
+    assert.equal(rows.length, 1, "a vote that never ran must still leave a line")
+    assert.equal(rows[0].voted, false)
+    assert.match(rows[0].reason, /majority/)
+    assert.deepEqual(rows[0].pool, ["opencode-go/mimo-v2.5", "opencode-go/deepseek-v4-flash"],
+      "the audited pool is what shows a pool too thin to vote")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("the vote also runs from the system hook, which is the one that fires", async () => {
+  const ctx = sandbox("vibeos-turnvote-system-")
+  try {
+    const chat = await load("k" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "the tail buffer is skipped",
+      "opencode-go/deepseek-v4-flash": "the tail buffer is skipped",
+      "opencode-go/glm-5.1": "the tail buffer is skipped",
+      "opencode-go/qwen3.8-flash": "something else",
+    })
+    const output = { system: ["base prompt"] }
+    const reason = await chat.applyTurnConsensusToSystem({ messages: turn() }, output, c)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(output.system.length, 2, "the verdict must reach the system prompt")
+    assert.match(output.system[1], /tail buffer is skipped/)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("both hooks firing costs exactly one vote", async () => {
+  const ctx = sandbox("vibeos-turnvote-bothhooks-")
+  try {
+    const chat = await load("l" + Date.now())
+    const same = {
+      "opencode-go/mimo-v2.5": "one cause", "opencode-go/deepseek-v4-flash": "one cause",
+      "opencode-go/glm-5.1": "one cause", "opencode-go/qwen3.8-flash": "one cause",
+    }
+    const c = voter(same)
+    const messages = turn()
+    await chat.applyTurnConsensusToSystem({ messages }, { system: ["base"] }, c)
+    const afterSystem = c.asked.length
+    assert.equal(afterSystem, 4)
+    await chat.applyTurnConsensus(messages, c)
+    assert.equal(c.asked.length, afterSystem, "a host firing both hooks must not pay twice")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a system hook with no system array votes on nothing", async () => {
+  const ctx = sandbox("vibeos-turnvote-nosys-")
+  try {
+    const chat = await load("m" + Date.now())
+    const c = voter({})
+    const reason = await chat.applyTurnConsensusToSystem({ messages: turn() }, {}, c)
+    assert.match(reason, /no system array/, reason)
+    assert.equal(c.asked.length, 0)
+  } finally {
+    ctx.cleanup()
+  }
+})

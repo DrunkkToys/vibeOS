@@ -1511,6 +1511,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       onSystemTransform._directory = directory
+      onSystemTransform._client = client
       onSystemTransform._activeJob = activeJob
       onSystemTransform._briefedProjects = systemBriefedProjects
       return onSystemTransform(_input, output)
