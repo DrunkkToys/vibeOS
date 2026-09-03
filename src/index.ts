@@ -43,7 +43,7 @@ import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime
 import { flushDashboardMutationQueue, primeDashboardBridgeCache, queueDashboardProjectionRefresh } from "./lib/dashboard-bridge.js"
 import { getSessionDelegationSavings } from "./lib/session-savings.js"
 import { getLatestTurnTruth } from "./lib/turn-ledger.js"
-import { runQualityGate, computeTddEnabled, formatGateReport, readGateEvents, readGateVerdicts, recordGateVerdict, dedupeGateReportKey, QUALITY_GATE_MARKER } from "./vibeOS-lib/quality-gate.js"
+import { runQualityGate, gateEscalationTarget, computeTddEnabled, formatGateReport, readGateEvents, readGateVerdicts, recordGateVerdict, dedupeGateReportKey, QUALITY_GATE_MARKER } from "./vibeOS-lib/quality-gate.js"
 function ensureDeferredBootstrap() {
   if (_deferredBootstrapDone || _modelLocked)
     return
@@ -216,6 +216,22 @@ function _extractOutputText(output) {
 // Deterministic quality gate — vibeOS v2. Runs on every completion. Silent when
 // the model's claims are backed by real tool evidence; on failure appends one
 // concise, deduped report listing the exact missing evidence. Never blocks.
+function _escalateOnGateFailure(verdict, selection) {
+  try {
+    const sel = selection || loadSelection()
+    const from = sel?.active_slot || null
+    const target = gateEscalationTarget({
+      verdict,
+      activeSlot: from,
+      pipeline: sel?.active_pipeline,
+      locked: sel?.slot_locked === true,
+    })
+    if (!target) return
+    writeSelection("active_slot", target)
+    console.error(`[vibeOS] quality gate failed on ${from} — escalating to ${target} for the next turn`)
+  } catch {}
+}
+
 function _runQualityGate(output) {
   try {
     if (process.env.VIBEOS_QUALITY_GATE === "0") return
@@ -251,6 +267,7 @@ function _runQualityGate(output) {
       } catch {}
     }
     if (verdict.passed) return
+    if (!priorReported) _escalateOnGateFailure(verdict, _tddSelection)
     if (priorReported) return
     if (text.includes(QUALITY_GATE_MARKER)) return
     if (_gateNoteBySession.get(sessionId) === key) return

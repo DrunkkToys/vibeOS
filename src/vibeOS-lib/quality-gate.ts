@@ -350,3 +350,33 @@ export function readLatestGateVerdict(home: string, sessionId: string): GateVerd
     return null
   }
 }
+
+// Evidence-based escalation. The cascade's own escalation is pre-hoc: it scores
+// the prompt with computeDifficulty() before any model has answered, so it
+// cannot tell a good cheap answer from a bad one. The gate verdict is the
+// missing signal -- it is computed AFTER the answer, from claims the session's
+// tool evidence does not back. Returns the next rung of the mode's envelope
+// when the answer failed on this rung, or null when there is nothing to do.
+//
+// Deliberately a pure function of (verdict, slot, pipeline, locked) so the
+// decision is testable without touching disk or the routing hooks.
+export function gateEscalationTarget(input: {
+  verdict: GateVerdict | null | undefined
+  activeSlot: string | null | undefined
+  pipeline: string[] | null | undefined
+  locked?: boolean
+}): string | null {
+  const { verdict, activeSlot, pipeline, locked } = input || {}
+  if (!verdict || verdict.passed) return null
+  // `vibe lock on` is a promise to the user that the model will not change.
+  if (locked) return null
+  // "none" means the gate found no claim worth judging, so a failure here is
+  // not evidence about the model's answer.
+  if (verdict.flow === "none") return null
+  if (!Array.isArray(pipeline) || pipeline.length < 2) return null
+  if (!activeSlot) return null
+  const idx = pipeline.indexOf(activeSlot)
+  if (idx < 0) return null
+  if (idx >= pipeline.length - 1) return null
+  return pipeline[idx + 1]
+}
