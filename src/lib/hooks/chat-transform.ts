@@ -64,7 +64,8 @@ import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCO
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 import { installVibeTierAgents } from "../runtime-config.js"
-import { runModelVote, voteModelPool, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
+import { voteModelPool, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
+import { runDirectVote } from "../../vibeOS-lib/direct-vote.js"
 import {
   latestUserPrompt,
   planTurnConsensus,
@@ -1353,10 +1354,6 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
 // so the vote has to run here, on the primary turn. The Task-delegation vote in
 // tool-execute.ts covers a path live turns measured in the A/B rig never take:
 // they call read, bash, edit and write, never task.
-function voteAsync(): boolean {
-  return String(process.env.VIBEOS_VOTE_ASYNC || "").trim().toLowerCase() === "on"
-}
-
 function turnVoteEnabled(): boolean {
   return String(process.env.VIBEOS_TURN_VOTE || "").trim().toLowerCase() !== "off"
 }
@@ -1389,12 +1386,12 @@ function _writeTurnVoteAudit(row: Record<string, unknown>): void {
   } catch {}
 }
 
-export async function applyTurnConsensus(messages: unknown[], client: unknown): Promise<string> {
+export async function applyTurnConsensus(messages: unknown[], client: unknown, fetchImpl?: typeof fetch): Promise<string> {
   // Skips are audited alongside votes. Auditing only the vote leaves every
   // reason it did not happen invisible, which is how the Task-branch vote sat
   // dead through five trials looking like a vote that ran and did not help.
   const t0 = Date.now()
-  const outcome = await _turnConsensus(messages, client)
+  const outcome = await _turnConsensus(messages, client, fetchImpl)
   _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
   return outcome.reason
 }
@@ -1402,7 +1399,7 @@ export async function applyTurnConsensus(messages: unknown[], client: unknown): 
 interface ConsensusOutcome { reason: string; voted: boolean; audit: Record<string, unknown> }
 const _skip = (reason: string, audit: Record<string, unknown> = {}): ConsensusOutcome => ({ reason, voted: false, audit })
 
-async function _turnConsensus(messages: unknown[], client: unknown): Promise<ConsensusOutcome> {
+async function _turnConsensus(messages: unknown[], client: unknown, fetchImpl?: typeof fetch): Promise<ConsensusOutcome> {
   if (!turnVoteEnabled()) return _skip("disabled")
   if (!Array.isArray(messages) || messages.length === 0 || Object.isFrozen(messages)) return _skip("no messages")
   const last = messages[messages.length - 1] as { parts?: unknown[] }
@@ -1412,7 +1409,7 @@ async function _turnConsensus(messages: unknown[], client: unknown): Promise<Con
   }
   return _voteOn(latestUserPrompt(messages), client, (note) => {
     last.parts.push({ type: "text", text: note, synthetic: true })
-  })
+  }, "messages", fetchImpl)
 }
 
 // experimental.chat.messages.transform does not fire on every OpenCode version --
@@ -1420,7 +1417,7 @@ async function _turnConsensus(messages: unknown[], client: unknown): Promise<Con
 // message-transform vote. The vote therefore runs from whichever hook the host
 // actually calls, sharing one dedup key so a host that fires both still pays for
 // exactly one vote.
-export async function applyTurnConsensusToSystem(input: unknown, output: unknown, client: unknown): Promise<string> {
+export async function applyTurnConsensusToSystem(input: unknown, output: unknown, client: unknown, fetchImpl?: typeof fetch): Promise<string> {
   const t0 = Date.now()
   const system = (output as { system?: unknown })?.system
   const outcome = !Array.isArray(system)
@@ -1428,7 +1425,7 @@ export async function applyTurnConsensusToSystem(input: unknown, output: unknown
     : system.some((t) => typeof t === "string" && t.includes(CONSENSUS_MARKER))
       ? _skip("already carries a verdict")
       : await _voteOn(String(extractLastUserText(input) || extractLastUserText(output) || ""), client,
-        (note) => { system.push(note) }, "system")
+        (note) => { system.push(note) }, "system", fetchImpl)
   _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
   return outcome.reason
 }
@@ -1438,6 +1435,7 @@ async function _voteOn(
   client: unknown,
   inject: (note: string) => void,
   host = "messages",
+  fetchImpl?: typeof fetch,
 ): Promise<ConsensusOutcome> {
   if (!turnVoteEnabled()) return _skip("disabled")
   const selection = loadSelection()
@@ -1465,35 +1463,19 @@ async function _voteOn(
   const pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
   const withPool = { ...base, pool }
   if (pool.length < MIN_VOTERS) return _skip(`pool of ${pool.length} cannot form a majority`, withPool)
-  if (!client) return _skip("no client to poll models with", withPool)
 
   _votedTurns.add(key)
-  // Awaiting a nested session prompt from inside a hook deadlocks: the turn is
-  // blocked here, so the server never services the child prompts and every
-  // voter times out. Measured at both a 60s and a 240s deadline -- 658 votes,
-  // 0 of 4 answered, no errors, every one burning the full deadline. Dispatching
-  // without awaiting lets the hook return so the child prompts can run.
-  if (voteAsync()) {
-    void runModelVote(client, {
-      models: pool,
-      prompt,
-      directory: (onMessagesTransform as unknown)._directory || "",
-      timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
-    }).then((v) => {
-      _writeTurnVoteAudit({
-        ...withPool, dispatched: true, samples: v.samples, ran: v.ran, agreed: v.agreed,
-        agreement: v.agreement, elapsedMs: v.elapsedMs, errors: v.errors?.slice(0, 4) || [],
-        reason: v.ran ? `async ${v.samples} of ${pool.length} answered` : "async vote did not run",
-        voted: false,
-      })
-    }).catch(() => {})
-    return _skip("vote dispatched without blocking the turn", withPool)
-  }
-  const vote = await runModelVote(client, {
+  // The SDK client cannot deliver a vote: a session.prompt issued from inside a
+  // hook never settles. Measured three ways -- blocking at 60s, blocking at
+  // 240s, and dispatched without awaiting at 120s -- roughly 1900 attempts
+  // returned zero answers and zero errors, each burning its full deadline. The
+  // voters are polled directly over HTTP instead, which is an outbound call and
+  // so cannot wait on the turn that is awaiting it.
+  const vote = await runDirectVote({
     models: pool,
     prompt,
-    directory: (onMessagesTransform as unknown)._directory || "",
     timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
+    fetchImpl,
   })
   const audit = {
     ...withPool,
