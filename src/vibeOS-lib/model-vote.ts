@@ -154,3 +154,23 @@ export async function runModelVote(
     elapsedMs: Date.now() - started,
   }
 }
+
+export function voteModelPool(selection: unknown, cheapModel: string, mediumModel: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (raw: unknown) => {
+    const id = String(raw || "").trim()
+    if (!id || !id.includes("/") || seen.has(id)) return
+    seen.add(id)
+    out.push(id)
+  }
+  add(cheapModel)
+  add(mediumModel)
+  const extra = (selection as { vote_pool?: unknown } | null | undefined)?.vote_pool
+  if (Array.isArray(extra)) for (const id of extra) add(id)
+  // A bare trinity fields only two non-brain models, one short of a majority.
+  // The env var is how a machine with no configured pool still gets a vote.
+  const fromEnv = String(process.env.VIBEOS_VOTE_POOL || "").split(",")
+  for (const id of fromEnv) add(id)
+  return out
+}

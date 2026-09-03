@@ -53,7 +53,7 @@ import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
 import { planForDifficulty, buildVotePrompt } from "../../vibeOS-lib/adaptive-router.js"
-import { runModelVote, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
+import { runModelVote, MIN_VOTERS, voteModelPool } from "../../vibeOS-lib/model-vote.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -93,6 +93,8 @@ const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
+
+export { voteModelPool }
 // On by default: the adaptive plan is the routing strategy the benchmark says
 // beats the raw brain baseline, so it is the product, not an experiment. The
 // switch exists so an operator can fall back to the old single-pick cascade.
@@ -581,25 +583,6 @@ export function _isProtectedToolPathForTest(projectDir, pathValue) {
 // models the operator listed. Brain is excluded on purpose: a vote is only
 // worth running when N of its calls still cost less than one call at the tier
 // it might save you from.
-export function voteModelPool(selection: unknown, cheapModel: string, mediumModel: string): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-  const add = (raw: unknown) => {
-    const id = String(raw || "").trim()
-    if (!id || !id.includes("/") || seen.has(id)) return
-    seen.add(id)
-    out.push(id)
-  }
-  add(cheapModel)
-  add(mediumModel)
-  const extra = selection?.vote_pool
-  if (Array.isArray(extra)) for (const id of extra) add(id)
-  // A bare trinity fields only two non-brain models, one short of a majority.
-  // The env var is how a machine with no configured pool still gets a vote.
-  const fromEnv = String(process.env.VIBEOS_VOTE_POOL || "").split(",")
-  for (const id of fromEnv) add(id)
-  return out
-}
 
 // A vote runs in front of real work, so its deadline is a latency budget, not a
 // correctness knob: past it the turn proceeds on the tier it already had.

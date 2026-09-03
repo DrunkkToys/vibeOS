@@ -1492,6 +1492,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       ensureDeferredBootstrap()
+      onMessagesTransform._directory = directory
+      onMessagesTransform._client = client
       return onMessagesTransform(_input, output)
     },
     "experimental.session.compacting": async (_input, output) => {
