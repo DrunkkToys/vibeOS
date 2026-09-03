@@ -1367,6 +1367,24 @@ function _turnVoteKey(sessionId: string, prompt: string): string {
   return `${sessionId}::${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`
 }
 
+// A vote that runs but leaves no trace is indistinguishable from one that never
+// ran -- the Task-branch vote sat dead through five trials for exactly that
+// reason. Same file chat-params.ts audits routing to, so both live in one place.
+function _writeTurnVoteAudit(row: Record<string, unknown>): void {
+  try {
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const dir = join(vibeHome, "cascade-audit")
+    mkdirSync(dir, { recursive: true })
+    appendJsonlWithRotation(join(dir, "cascade-audit.jsonl"), JSON.stringify({
+      _ts: new Date().toISOString(),
+      sessionId: String(getCurrentSessionId() || ""),
+      source: "turn-vote",
+      ...row,
+    }) + "\n")
+  } catch {}
+}
+
 export async function applyTurnConsensus(messages: unknown[], client: unknown): Promise<string> {
   if (!turnVoteEnabled()) return "disabled"
   if (!Array.isArray(messages) || messages.length === 0 || Object.isFrozen(messages)) return "no messages"
@@ -1401,6 +1419,16 @@ export async function applyTurnConsensus(messages: unknown[], client: unknown): 
     prompt,
     directory: (onMessagesTransform as unknown)._directory || "",
     timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
+  })
+  _writeTurnVoteAudit({
+    pool,
+    samples: vote.samples,
+    ran: vote.ran,
+    agreed: vote.agreed,
+    agreement: vote.agreement,
+    elapsedMs: vote.elapsedMs,
+    plan: plan.reason,
+    promptChars: prompt.length,
   })
   if (!vote.ran || vote.samples < MIN_VOTERS) return `only ${vote.samples} of ${pool.length} models answered`
 

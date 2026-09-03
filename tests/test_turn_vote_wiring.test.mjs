@@ -201,3 +201,27 @@ test("a turn already carrying a verdict is not voted on again", async () => {
     ctx.cleanup()
   }
 })
+
+test("every vote leaves an audit line, so a dead vote is visible as dead", async () => {
+  const ctx = sandbox("vibeos-turnvote-audit-")
+  try {
+    const chat = await load("i" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "other",
+    })
+    await chat.applyTurnConsensus(turn(), c)
+    const { readFileSync } = await import("node:fs")
+    const { join: j } = await import("node:path")
+    const lines = readFileSync(j(process.env.VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl"), "utf8")
+      .trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.source === "turn-vote")
+    assert.equal(lines.length, 1, "one user turn is one audit line")
+    assert.equal(lines[0].ran, true)
+    assert.equal(lines[0].agreed, true)
+    assert.equal(lines[0].samples, 4)
+    assert.deepEqual(lines[0].pool.length, 4)
+    assert.ok(typeof lines[0].elapsedMs === "number")
+  } finally {
+    ctx.cleanup()
+  }
+})
