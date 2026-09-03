@@ -180,3 +180,73 @@ test("VIBEOS_ADAPTIVE_ROUTING=off restores the plain single-call cascade", async
     ctx.cleanup()
   }
 })
+
+function voteClient(answers) {
+  let n = 0
+  return {
+    session: {
+      create: async () => ({ data: { id: "s" + ++n } }),
+      delete: async () => {},
+      prompt: async ({ body }) => ({
+        data: { parts: [{ type: "text", text: answers[`${body.model.providerID}/${body.model.modelID}`] ?? "" }] },
+      }),
+    },
+  }
+}
+
+async function routeWithClient(ctx, client, prompt, stamp) {
+  const mod = await import("../src/index.js?" + stamp)
+  const hooks = await mod.DelegationEnforcer({ client, directory: ctx.sandbox })
+  const chat = await import("../src/lib/hooks/chat-transform.js?sync-" + stamp)
+  chat.syncControlSettings({
+    optimization_mode: "vibeultrax",
+    tier_bias: "cheap",
+    selected_slot: "cheap",
+    selected_model: "opencode/big-pickle",
+    selected_subagent: "vibe-cheap",
+    route_path: ["cheap"],
+    cascade_root: ["cheap", "medium", "brain"],
+    enforcement_mode: "strict",
+    flow_mode: "strict",
+    tdd_mode: "quality",
+    thinking_mode: "off",
+  }, { authoritative: true })
+  const args = { description: "d", prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
+  await hooks["tool.execute.before"]({ tool: "task" }, { args })
+  return args
+}
+
+test("when independent models agree, the cheap tier keeps the work", async () => {
+  const ctx = withSandbox("vibeos-live-vote-agree-")
+  try {
+    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "42" })
+    const args = await routeWithClient(ctx, client, "list the files", "vote-agree=" + Date.now())
+    assert.equal(args.model, "opencode/big-pickle")
+    assert.equal(args.prompt.includes(VOTE_MARKER), false, "a real vote replaces the single-model imitation")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("when independent models disagree, the turn escalates a tier", async () => {
+  const ctx = withSandbox("vibeos-live-vote-split-")
+  try {
+    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "7" })
+    const args = await routeWithClient(ctx, client, "list the files", "vote-split=" + Date.now())
+    assert.notEqual(args.model, "opencode/big-pickle", "a split vote must not stay on cheap")
+    assert.equal(args.model, "opencode-go/mimo-v2.5")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a client that cannot prompt leaves routing exactly as it was", async () => {
+  const ctx = withSandbox("vibeos-live-vote-noclient-")
+  try {
+    const args = await routeWithClient(ctx, {}, "list the files", "vote-noclient=" + Date.now())
+    assert.equal(args.model, "opencode/big-pickle")
+    assert.ok(args.prompt.includes(VOTE_MARKER), "with no live vote, the single-model fallback still applies")
+  } finally {
+    ctx.cleanup()
+  }
+})

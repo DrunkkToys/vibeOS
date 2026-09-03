@@ -53,6 +53,7 @@ import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
 import { planForDifficulty, buildVotePrompt } from "../../vibeOS-lib/adaptive-router.js"
+import { runModelVote } from "../../vibeOS-lib/model-vote.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -575,6 +576,35 @@ export function _isProtectedToolPathForTest(projectDir, pathValue) {
   }
 }
 
+
+// Every distinct model the trinity offers below the brain, plus any extra
+// models the operator listed. Brain is excluded on purpose: a vote is only
+// worth running when N of its calls still cost less than one call at the tier
+// it might save you from.
+export function voteModelPool(selection: unknown, cheapModel: string, mediumModel: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (raw: unknown) => {
+    const id = String(raw || "").trim()
+    if (!id || !id.includes("/") || seen.has(id)) return
+    seen.add(id)
+    out.push(id)
+  }
+  add(cheapModel)
+  add(mediumModel)
+  const extra = selection?.vote_pool
+  if (Array.isArray(extra)) for (const id of extra) add(id)
+  return out
+}
+
+// A vote runs in front of real work, so its deadline is a latency budget, not a
+// correctness knob: past it the turn proceeds on the tier it already had.
+function voteDeadlineMs(): number {
+  const raw = Number(process.env.VIBEOS_VOTE_DEADLINE_MS)
+  if (Number.isFinite(raw) && raw >= 0) return raw
+  return 25_000
+}
+
 export const onToolExecuteBefore = async (input, output) => {
   if (!loadSelection().enabled) return
   _refreshModel(projectDirectory)
@@ -767,9 +797,58 @@ export const onToolExecuteBefore = async (input, output) => {
     // stronger tier when those samples disagree. Plan the strategy here; the
     // sampling itself rides on the delegated prompt below.
     let _voteSamples = 0
+    let _voteAgreedAnswer: string | null = null
     if (input?.mlEnabled !== false && _prompt.length > 0 && adaptiveRoutingEnabled()) {
       try {
         const _plan = planForDifficulty(computeDifficulty(_prompt).score, _cascadeRoot)
+        if (_plan.kind === "vote") {
+          // The benchmark's voteN asks several DIFFERENT models, and the
+          // decorrelation between them is where the accuracy comes from. The
+          // trinity holds one model per tier, so the pool is every distinct
+          // non-brain slot plus whatever else the operator configured. Voting
+          // needs at least two genuinely different models; below that there is
+          // nothing to disagree.
+          const _pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
+          const _client = onToolExecuteBefore._client
+          if (_pool.length >= 2 && _client) {
+            try {
+              const _vote = await runModelVote(_client, {
+                models: _pool,
+                prompt: String(targetArgs?.prompt || _prompt),
+                directory: onToolExecuteBefore._directory,
+                timeoutMs: voteDeadlineMs(),
+              })
+              if (_vote.ran && _vote.samples >= 2) {
+                if (_vote.agreed) {
+                  // Stage 1 of fullPipeline cleared: independent models landed
+                  // on the same answer, so the cheap tier is not out of its
+                  // depth and there is nothing to escalate to.
+                  _routeReason = `${_routeReason}; vote ${_vote.samples}/${_vote.samples} agreed`
+                  _voteAgreedAnswer = _vote.answer
+                } else {
+                  // They disagreed. That is evidence about this query, not a
+                  // guess about it, and it is exactly what the pipeline
+                  // escalates on.
+                  // Step by position in the envelope, not by tier rank: an
+                  // envelope that skips a tier would otherwise jump two rungs
+                  // and bill the brain for a disagreement the medium could
+                  // have settled.
+                  const _at = _cascadeRoot.indexOf(_slot)
+                  const _up = _at >= 0 && _at < _cascadeRoot.length - 1 ? _cascadeRoot[_at + 1] : null
+                  const _upSlot = _up && clampSlotToEnvelope(_up, _cascadeRoot)
+                  if (_upSlot && _slotRank(_upSlot) > _slotRank(_slot)) {
+                    _slot = _upSlot
+                    _routeSource = "vote"
+                    _routeReason = `vote split (${_vote.agreement.toFixed(2)} agreement across ${_vote.samples}) -> ${_upSlot}`
+                  }
+                }
+              }
+            } catch (voteErr) {
+              if (DEBUG_INTERNALS) console.error(`[vibeOS] model vote error: ${voteErr.message}`)
+            }
+          }
+        }
+
         // The plan never moves the tier. worker_slot stays the single source of
         // truth for which model answers, and escalation stays with the quality
         // gate, which has seen an actual answer. What the plan contributes is
@@ -829,7 +908,7 @@ export const onToolExecuteBefore = async (input, output) => {
         obj.modelID = _target
         obj.modelId = _target
         if (routeDecision?.selectedSubagent) obj.subagent_type = routeDecision.selectedSubagent
-        if (_voteSamples >= 2 && typeof obj.prompt === "string" && !obj._vibe_voted) {
+        if (_voteSamples >= 2 && !_voteAgreedAnswer && typeof obj.prompt === "string" && !obj._vibe_voted) {
           obj.prompt = buildVotePrompt(obj.prompt, _voteSamples)
           obj._vibe_voted = true
         }

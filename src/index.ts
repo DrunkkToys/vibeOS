@@ -1455,6 +1455,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         catch { }
       }
       onToolExecuteBefore._directory = directory
+      onToolExecuteBefore._client = client
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
