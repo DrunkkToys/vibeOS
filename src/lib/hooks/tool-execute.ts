@@ -52,6 +52,7 @@ import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
+import { planForDifficulty, buildVotePrompt } from "../../vibeOS-lib/adaptive-router.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -91,6 +92,15 @@ const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
+// On by default: the adaptive plan is the routing strategy the benchmark says
+// beats the raw brain baseline, so it is the product, not an experiment. The
+// switch exists so an operator can fall back to the old single-pick cascade.
+// Resolved per call rather than at import: the module is loaded once per
+// process, so a const would freeze whatever the environment said at load time
+// and leave the switch unusable for anyone toggling it afterwards.
+function adaptiveRoutingEnabled(): boolean {
+  return String(process.env.VIBEOS_ADAPTIVE_ROUTING || "").trim().toLowerCase() !== "off"
+}
 const _IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 
 let _activeJob = null
@@ -750,6 +760,33 @@ export const onToolExecuteBefore = async (input, output) => {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] ML per-turn route adjustment error: ${mlErr.message}`)
       }
     }
+    // The chain experiment measured cascade(weak->strong) at 83.8% of brain and
+    // adaptive(easy=vote, hard=pipeline) at 107.9%. The difference is that a
+    // cascade commits to one model chosen before any answer exists, while the
+    // adaptive plan samples the cheap tier several times and only spends a
+    // stronger tier when those samples disagree. Plan the strategy here; the
+    // sampling itself rides on the delegated prompt below.
+    let _voteSamples = 0
+    if (input?.mlEnabled !== false && _prompt.length > 0 && adaptiveRoutingEnabled()) {
+      try {
+        const _plan = planForDifficulty(computeDifficulty(_prompt).score, _cascadeRoot)
+        // The plan never moves the tier. worker_slot stays the single source of
+        // truth for which model answers, and escalation stays with the quality
+        // gate, which has seen an actual answer. What the plan contributes is
+        // the sampling width at whatever tier was already chosen: a cascade
+        // spends one cheap call and lives with it, while the strategy the
+        // benchmark measured spends several and escalates when they disagree.
+        // Sampling is confined to the tier the plan itself names, so a brain
+        // turn is never billed N times.
+        const _stage = _plan.stages.find((st) => st.slot === _slot)
+        if (_stage && _stage.samples >= 2 && _slot !== "brain") {
+          _voteSamples = _stage.samples
+          _routeReason = `${_routeReason}; ${_stage.kind} x${_stage.samples} (${_plan.kind})`
+        }
+      } catch (planErr) {
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] adaptive plan error: ${planErr.message}`)
+      }
+    }
     const _routePath = normalizeRoutePath(_cascadeRoot, _slot)
     const routeDecision = {
       selectedModel: _modelForSlot(_slot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN),
@@ -792,6 +829,10 @@ export const onToolExecuteBefore = async (input, output) => {
         obj.modelID = _target
         obj.modelId = _target
         if (routeDecision?.selectedSubagent) obj.subagent_type = routeDecision.selectedSubagent
+        if (_voteSamples >= 2 && typeof obj.prompt === "string" && !obj._vibe_voted) {
+          obj.prompt = buildVotePrompt(obj.prompt, _voteSamples)
+          obj._vibe_voted = true
+        }
         obj._vibe_turn_id = turnId
       }
       const enrichedRouteDecision = {
