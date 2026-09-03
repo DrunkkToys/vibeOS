@@ -18,6 +18,9 @@ export interface ModelVoteResult extends VoteResult {
   elapsedMs: number
 }
 
+// A majority needs a third opinion to break a tie; see runModelVote.
+export const MIN_VOTERS = 3
+
 const NO_VOTE: ModelVoteResult = {
   ran: false, agreed: false, answer: null, agreement: 0, samples: 0, answers: [], elapsedMs: 0,
 }
@@ -112,9 +115,12 @@ export async function runModelVote(
     seen.add(key)
     models.push(parsed)
   }
-  // One model answering twice is self-consistency, not a vote; the whole point
-  // is that the voters fail on different inputs.
-  if (models.length < 2) return NO_VOTE
+  // Three is the floor. With two voters a majority is arithmetically impossible:
+  // they either agree unanimously or tie, and a tie carries no verdict, so the
+  // "vote" collapses into unanimity-or-escalate and cannot outvote a single
+  // wrong model. One model answering twice is not a vote at all -- the whole
+  // point is that the voters fail on different inputs.
+  if (models.length < MIN_VOTERS) return NO_VOTE
 
   const timeoutMs = Number.isFinite(opts?.timeoutMs as number) ? Number(opts?.timeoutMs) : 30_000
   let cutoff: NodeJS.Timeout | null = null

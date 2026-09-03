@@ -211,6 +211,12 @@ async function routeWithClient(ctx, client, prompt, stamp) {
     tdd_mode: "quality",
     thinking_mode: "off",
   }, { authoritative: true })
+  // A majority needs three opinions, and the bare trinity offers two below the
+  // brain, so the third voter comes from vote_pool the way an operator's would.
+  const tiersPath = join(process.env.VIBEOS_HOME, "model-tiers.json")
+  const tiers = JSON.parse(readFileSync(tiersPath, "utf8"))
+  tiers.selection = { ...(tiers.selection || {}), vote_pool: ["opencode-go/glm-5.1"] }
+  writeFileSync(tiersPath, JSON.stringify(tiers, null, 2))
   const args = { description: "d", prompt, subagent_type: "general", model: null, modelID: null, modelId: null }
   await hooks["tool.execute.before"]({ tool: "task" }, { args })
   return args
@@ -219,7 +225,7 @@ async function routeWithClient(ctx, client, prompt, stamp) {
 test("when independent models agree, the cheap tier keeps the work", async () => {
   const ctx = withSandbox("vibeos-live-vote-agree-")
   try {
-    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "42" })
+    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "42", "opencode-go/glm-5.1": "7" })
     const args = await routeWithClient(ctx, client, "list the files", "vote-agree=" + Date.now())
     assert.equal(args.model, "opencode/big-pickle")
     assert.equal(args.prompt.includes(VOTE_MARKER), false, "a real vote replaces the single-model imitation")
@@ -231,7 +237,7 @@ test("when independent models agree, the cheap tier keeps the work", async () =>
 test("when independent models disagree, the turn escalates a tier", async () => {
   const ctx = withSandbox("vibeos-live-vote-split-")
   try {
-    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "7" })
+    const client = voteClient({ "opencode/big-pickle": "42", "opencode-go/mimo-v2.5": "7", "opencode-go/glm-5.1": "99" })
     const args = await routeWithClient(ctx, client, "list the files", "vote-split=" + Date.now())
     assert.notEqual(args.model, "opencode/big-pickle", "a split vote must not stay on cheap")
     assert.equal(args.model, "opencode-go/mimo-v2.5")

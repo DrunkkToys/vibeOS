@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { runModelVote, parseModelIdentifier } from "../src/vibeOS-lib/model-vote.js"
+import { runModelVote, parseModelIdentifier, MIN_VOTERS } from "../src/vibeOS-lib/model-vote.js"
 
 function fakeClient(answers, opts = {}) {
   const calls = []
@@ -113,11 +113,21 @@ test("scratch sessions are cleaned up so a vote leaves no history", async () => 
   assert.equal(c.calls.filter((x) => x.deleted).length, 3)
 })
 
-test("fewer than two distinct models is not a vote", async () => {
-  const c = fakeClient({ "p/a": "x" })
-  const r = await runModelVote(c, { models: ["p/a", "p/a"], prompt: "q" })
+test("fewer than three distinct models is not a vote", async () => {
+  const c = fakeClient({ "p/a": "x", "p/b": "x" })
+  for (const models of [["p/a"], ["p/a", "p/a"], ["p/a", "p/b"]]) {
+    const r = await runModelVote(c, { models, prompt: "q" })
+    assert.equal(r.ran, false, `${models.length} voters must not vote`)
+    assert.equal(r.agreed, false)
+  }
+})
+
+test("two voters cannot form a majority, so two is not enough", async () => {
+  // They disagree. With only two opinions there is no third to break the tie,
+  // and a tie is not a verdict -- so this must not run as a vote at all.
+  const c = fakeClient({ "p/a": "42", "p/b": "7" })
+  const r = await runModelVote(c, { models: ["p/a", "p/b"], prompt: "q" })
   assert.equal(r.ran, false)
-  assert.equal(r.agreed, false)
 })
 
 test("a missing client is not an error, just no vote", async () => {
@@ -138,6 +148,25 @@ import { voteModelPool } from "../src/lib/hooks/tool-execute.js"
 test("the vote pool is the distinct non-brain models, brain excluded", () => {
   const pool = voteModelPool({}, "p/cheap", "p/medium")
   assert.deepEqual(pool, ["p/cheap", "p/medium"])
+})
+
+test("a bare trinity cannot field the three voters a majority needs", async () => {
+  // Two tiers below brain is two models, and two cannot outvote one. Until the
+  // operator names a third in vote_pool there is no vote to run.
+  const pool = voteModelPool({}, "p/cheap", "p/medium")
+  assert.ok(pool.length < MIN_VOTERS)
+  const r = await runModelVote(fakeClient({}), { models: pool, prompt: "q" })
+  assert.equal(r.ran, false)
+})
+
+test("a third model from vote_pool is what makes the vote possible", async () => {
+  const pool = voteModelPool({ vote_pool: ["p/third"] }, "p/cheap", "p/medium")
+  assert.equal(pool.length, MIN_VOTERS)
+  const c = fakeClient({ "p/cheap": "42", "p/medium": "42", "p/third": "7" })
+  const r = await runModelVote(c, { models: pool, prompt: "q" })
+  assert.equal(r.ran, true)
+  assert.equal(r.agreed, true, "2 of 3 is a majority")
+  assert.equal(r.answer, "42")
 })
 
 test("a trinity with one model everywhere cannot field a vote", () => {

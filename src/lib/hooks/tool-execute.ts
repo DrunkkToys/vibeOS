@@ -53,7 +53,7 @@ import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
 import { planForDifficulty, buildVotePrompt } from "../../vibeOS-lib/adaptive-router.js"
-import { runModelVote } from "../../vibeOS-lib/model-vote.js"
+import { runModelVote, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -594,6 +594,10 @@ export function voteModelPool(selection: unknown, cheapModel: string, mediumMode
   add(mediumModel)
   const extra = selection?.vote_pool
   if (Array.isArray(extra)) for (const id of extra) add(id)
+  // A bare trinity fields only two non-brain models, one short of a majority.
+  // The env var is how a machine with no configured pool still gets a vote.
+  const fromEnv = String(process.env.VIBEOS_VOTE_POOL || "").split(",")
+  for (const id of fromEnv) add(id)
   return out
 }
 
@@ -801,16 +805,23 @@ export const onToolExecuteBefore = async (input, output) => {
     if (input?.mlEnabled !== false && _prompt.length > 0 && adaptiveRoutingEnabled()) {
       try {
         const _plan = planForDifficulty(computeDifficulty(_prompt).score, _cascadeRoot)
-        if (_plan.kind === "vote") {
+        // The stage decides, not the plan's headline. A hard prompt gets a
+        // pipeline whose FIRST stage is itself a vote, so gating on the plan
+        // kind would skip exactly the stage the benchmark's fullPipeline opens
+        // with.
+        const _stage = _plan.stages.find((st) => st.slot === _slot)
+        const _wantsVote = Boolean(_stage) && _stage.kind !== "single" && _slot !== "brain"
+
+        if (_wantsVote) {
           // The benchmark's voteN asks several DIFFERENT models, and the
           // decorrelation between them is where the accuracy comes from. The
           // trinity holds one model per tier, so the pool is every distinct
-          // non-brain slot plus whatever else the operator configured. Voting
-          // needs at least two genuinely different models; below that there is
-          // nothing to disagree.
+          // non-brain slot plus whatever else the operator configured. A
+          // majority needs three: two voters can only agree or tie, and a tie
+          // cannot outvote one wrong model.
           const _pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
           const _client = onToolExecuteBefore._client
-          if (_pool.length >= 2 && _client) {
+                  if (_pool.length >= MIN_VOTERS && _client) {
             try {
               const _vote = await runModelVote(_client, {
                 models: _pool,
@@ -818,28 +829,26 @@ export const onToolExecuteBefore = async (input, output) => {
                 directory: onToolExecuteBefore._directory,
                 timeoutMs: voteDeadlineMs(),
               })
-              if (_vote.ran && _vote.samples >= 2) {
+              if (_vote.ran && _vote.samples >= MIN_VOTERS) {
                 if (_vote.agreed) {
-                  // Stage 1 of fullPipeline cleared: independent models landed
-                  // on the same answer, so the cheap tier is not out of its
-                  // depth and there is nothing to escalate to.
-                  _routeReason = `${_routeReason}; vote ${_vote.samples}/${_vote.samples} agreed`
+                  // Stage cleared: independent models landed on the same answer,
+                  // so this tier is not out of its depth and there is nothing to
+                  // escalate to.
+                  _routeReason = `${_routeReason}; vote ${_vote.samples} models agreed (${_vote.agreement.toFixed(2)})`
                   _voteAgreedAnswer = _vote.answer
                 } else {
                   // They disagreed. That is evidence about this query, not a
-                  // guess about it, and it is exactly what the pipeline
-                  // escalates on.
+                  // guess about it, and it is what the pipeline escalates on.
                   // Step by position in the envelope, not by tier rank: an
                   // envelope that skips a tier would otherwise jump two rungs
-                  // and bill the brain for a disagreement the medium could
-                  // have settled.
+                  // and bill the brain for what the medium could settle.
                   const _at = _cascadeRoot.indexOf(_slot)
                   const _up = _at >= 0 && _at < _cascadeRoot.length - 1 ? _cascadeRoot[_at + 1] : null
                   const _upSlot = _up && clampSlotToEnvelope(_up, _cascadeRoot)
                   if (_upSlot && _slotRank(_upSlot) > _slotRank(_slot)) {
                     _slot = _upSlot
                     _routeSource = "vote"
-                    _routeReason = `vote split (${_vote.agreement.toFixed(2)} agreement across ${_vote.samples}) -> ${_upSlot}`
+                    _routeReason = `vote split (${_vote.agreement.toFixed(2)} across ${_vote.samples}) -> ${_upSlot}`
                   }
                 }
               }
@@ -849,16 +858,11 @@ export const onToolExecuteBefore = async (input, output) => {
           }
         }
 
-        // The plan never moves the tier. worker_slot stays the single source of
-        // truth for which model answers, and escalation stays with the quality
-        // gate, which has seen an actual answer. What the plan contributes is
-        // the sampling width at whatever tier was already chosen: a cascade
-        // spends one cheap call and lives with it, while the strategy the
-        // benchmark measured spends several and escalates when they disagree.
-        // Sampling is confined to the tier the plan itself names, so a brain
-        // turn is never billed N times.
-        const _stage = _plan.stages.find((st) => st.slot === _slot)
-        if (_stage && _stage.samples >= 2 && _slot !== "brain") {
+        // Fallback when no live vote could run -- too few distinct models, or
+        // no client to prompt them with. Asking one model for several
+        // independent attempts is weaker, because its mistakes repeat where
+        // different models' do not, but it is strictly better than one shot.
+        if (_wantsVote && !_voteAgreedAnswer && _routeSource !== "vote") {
           _voteSamples = _stage.samples
           _routeReason = `${_routeReason}; ${_stage.kind} x${_stage.samples} (${_plan.kind})`
         }
