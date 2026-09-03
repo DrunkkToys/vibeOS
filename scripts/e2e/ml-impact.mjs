@@ -196,7 +196,7 @@ function runTurn(trial, turn, sessionId) {
   const started = Date.now()
   let res
   try {
-    res = spawnSync(OPENCODE, args, { encoding: "utf8", timeout: TURN_TIMEOUT, maxBuffer: 128 * 1024 * 1024, env })
+    res = spawnSync(OPENCODE, args, { encoding: "utf8", timeout: TURN_TIMEOUT, killSignal: "SIGKILL", maxBuffer: 128 * 1024 * 1024, env })
   } catch (e) {
     res = { stdout: e.stdout || "", stderr: e.stderr || "", status: e.status ?? -1 }
   }
