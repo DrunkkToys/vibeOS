@@ -297,3 +297,26 @@ test("a system hook with no system array votes on nothing", async () => {
     ctx.cleanup()
   }
 })
+
+test("a live-shaped transcript votes end to end", async () => {
+  const ctx = sandbox("vibeos-turnvote-liveshape-")
+  try {
+    const chat = await load("n" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "the tail buffer is dropped",
+      "opencode-go/deepseek-v4-flash": "the tail buffer is dropped",
+      "opencode-go/glm-5.1": "the tail buffer is dropped",
+      "opencode-go/qwen3.8-flash": "unrelated",
+    })
+    // The exact shape captured from a live run: { info: { role, ... }, parts }.
+    const messages = [
+      { info: { role: "user", id: "m1", sessionID: "s" }, parts: [{ type: "text", text: PROMPT }] },
+    ]
+    const reason = await chat.applyTurnConsensus(messages, c)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked[0].prompt, PROMPT, "the voters must get the user's real question")
+    assert.ok(messages[0].parts.some((p) => p.text?.includes(CONSENSUS_MARKER)))
+  } finally {
+    ctx.cleanup()
+  }
+})

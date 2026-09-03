@@ -92,3 +92,21 @@ test("agreement outside 0..1 is clamped rather than printed raw", () => {
   assert.ok(buildConsensusNote("a", 3, -1).includes("0%"))
   assert.ok(buildContestedNote(3, NaN).includes("0%"))
 })
+
+test("OpenCode's own message shape is read, not just the flat one", () => {
+  // Captured live: messages.transform rows are { info: { role, ... }, parts }.
+  const messages = [
+    { info: { role: "user", id: "m1", sessionID: "s" }, parts: [{ type: "text", text: "the real question" }] },
+    { info: { role: "assistant", id: "m2" }, parts: [{ type: "text", text: "an answer" }] },
+  ]
+  assert.equal(latestUserPrompt(messages), "the real question",
+    "reading m.role on this shape finds undefined and silently scores every prompt as empty")
+})
+
+test("the flat shape still works alongside it", () => {
+  assert.equal(latestUserPrompt([{ role: "user", parts: [{ type: "text", text: "flat question" }] }]), "flat question")
+})
+
+test("an assistant-only nested transcript yields no prompt", () => {
+  assert.equal(latestUserPrompt([{ info: { role: "assistant" }, parts: [{ type: "text", text: "hi" }] }]), "")
+})

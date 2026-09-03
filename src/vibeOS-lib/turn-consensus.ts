@@ -16,11 +16,18 @@ import { computeDifficulty } from "./ml-router.js"
 
 export const CONSENSUS_MARKER = "[vibe-consensus]"
 
+// OpenCode hands messages.transform rows shaped { info: { role, ... }, parts },
+// not { role, parts }. Reading m.role found undefined on every row, so every
+// turn scored a zero-length prompt and skipped the vote as "too short". Both
+// shapes are accepted: the flat one is what the plugin's own tests and older
+// hosts produce.
 export function latestUserPrompt(messages: unknown): string {
   if (!Array.isArray(messages)) return ""
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i] as { role?: unknown; parts?: unknown }
-    if (!m || typeof m !== "object" || m.role !== "user") continue
+    const m = messages[i] as { role?: unknown; info?: { role?: unknown }; parts?: unknown }
+    if (!m || typeof m !== "object") continue
+    const role = m.info && typeof m.info === "object" ? m.info.role : m.role
+    if (role !== "user") continue
     if (!Array.isArray(m.parts)) continue
     const text = m.parts
       .filter((p) => p && typeof p === "object" && (p as { type?: unknown }).type === "text"
