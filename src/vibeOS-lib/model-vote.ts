@@ -16,13 +16,14 @@ export interface ModelVoteResult extends VoteResult {
   ran: boolean
   answers: string[]
   elapsedMs: number
+  errors: string[]
 }
 
 // A majority needs a third opinion to break a tie; see runModelVote.
 export const MIN_VOTERS = 3
 
 const NO_VOTE: ModelVoteResult = {
-  ran: false, agreed: false, answer: null, agreement: 0, samples: 0, answers: [], elapsedMs: 0,
+  ran: false, agreed: false, answer: null, agreement: 0, samples: 0, answers: [], errors: [], elapsedMs: 0,
 }
 
 export function parseModelIdentifier(id: unknown): { providerID: string; modelID: string } | null {
@@ -131,10 +132,17 @@ export async function runModelVote(
     cutoff = setTimeout(() => resolve(""), timeoutMs)
   })
 
+  // A voter that fails silently is indistinguishable from one that answered
+  // nothing, and "0 of 4 answered" gives no way to tell a bad model id from a
+  // rejected request. The reason is kept and audited.
+  const errors: string[] = []
   const answers = await Promise.all(
     models.map((model) =>
       Promise.race([
-        askOne(client as VoteClient, model, prompt, opts?.directory, opts?.system).catch(() => ""),
+        askOne(client as VoteClient, model, prompt, opts?.directory, opts?.system).catch((err) => {
+          errors.push(`${model.providerID}/${model.modelID}: ${String(err?.message || err).slice(0, 200)}`)
+          return ""
+        }),
         deadline,
       ]),
     ),
@@ -151,6 +159,7 @@ export async function runModelVote(
     agreement: verdict.agreement,
     samples: verdict.samples,
     answers: kept,
+    errors,
     elapsedMs: Date.now() - started,
   }
 }

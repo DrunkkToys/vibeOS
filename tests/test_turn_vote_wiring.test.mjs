@@ -161,13 +161,13 @@ test("VIBEOS_TURN_VOTE=off restores the unvoted turn", async () => {
   }
 })
 
-test("a mode other than vibeultrax pays no vote latency", async () => {
-  const ctx = sandbox("vibeos-turnvote-mode-", ["opencode-go/glm-5.1"], "vibemax")
+test("raw mode pays no vote latency", async () => {
+  const ctx = sandbox("vibeos-turnvote-mode-", ["opencode-go/glm-5.1"], "raw")
   try {
     const chat = await load("f" + Date.now())
     const c = voter({})
     const reason = await chat.applyTurnConsensus(turn(), c)
-    assert.match(reason, /does not vote/, reason)
+    assert.match(reason, /raw mode does not vote/, reason)
     assert.equal(c.asked.length, 0)
   } finally {
     ctx.cleanup()
@@ -319,4 +319,40 @@ test("a live-shaped transcript votes end to end", async () => {
   } finally {
     ctx.cleanup()
   }
+})
+
+test("a mode the control vector picked mid-run still votes", async () => {
+  // A run launched in vibeultrax spends most turns in whatever regime the
+  // blackbox chose; gating on one mode name meant the vote almost never ran.
+  const ctx = sandbox("vibeos-turnvote-audit-mode-", ["opencode-go/glm-5.1", "opencode-go/qwen3.8-flash"], "audit")
+  try {
+    const chat = await load("o" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "same",
+    })
+    const reason = await chat.applyTurnConsensus(turn(), c)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked.length, 4)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a voter's failure reason is kept, not flattened into silence", async () => {
+  const { runModelVote } = await import("../src/vibeOS-lib/model-vote.js")
+  const c = {
+    session: {
+      create: async () => ({ data: { id: "s1" } }),
+      delete: async () => {},
+      prompt: async ({ body }) => {
+        if (body.model.modelID === "b") throw new Error("model not authorized")
+        return { data: { parts: [{ type: "text", text: "ok" }] } }
+      },
+    },
+  }
+  const r = await runModelVote(c, { models: ["p/a", "p/b", "p/c"], prompt: "q" })
+  assert.equal(r.errors.length, 1)
+  assert.match(r.errors[0], /p\/b: model not authorized/,
+    "0 of N answered gives no way to tell a bad model id from a rejected request")
 })

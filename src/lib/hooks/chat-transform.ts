@@ -1353,6 +1353,10 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
 // so the vote has to run here, on the primary turn. The Task-delegation vote in
 // tool-execute.ts covers a path live turns measured in the A/B rig never take:
 // they call read, bash, edit and write, never task.
+function voteAsync(): boolean {
+  return String(process.env.VIBEOS_VOTE_ASYNC || "").trim().toLowerCase() === "on"
+}
+
 function turnVoteEnabled(): boolean {
   return String(process.env.VIBEOS_TURN_VOTE || "").trim().toLowerCase() !== "off"
 }
@@ -1437,7 +1441,14 @@ async function _voteOn(
 ): Promise<ConsensusOutcome> {
   if (!turnVoteEnabled()) return _skip("disabled")
   const selection = loadSelection()
-  if (selection?.optimization_mode !== "vibeultrax") return _skip(`mode ${selection?.optimization_mode} does not vote`)
+  // The mode is not static: the control vector moves it every turn, so a run
+  // launched in vibeultrax spends most of its turns in whatever regime the
+  // blackbox picked (run probe-2 spent 2360 of 2523 turns in "audit"). Gating on
+  // one mode name meant the vote almost never ran. Raw is the only mode that
+  // opts out of orchestration entirely; every other mode votes when the
+  // envelope gives it somewhere to escalate.
+  const mode = String(selection?.optimization_mode || "").trim().toLowerCase()
+  if (mode === "raw") return _skip("raw mode does not vote")
 
   const plan = planTurnConsensus(prompt, selection?.active_pipeline)
   const base = { host, promptChars: prompt.length, pipeline: selection?.active_pipeline, plan: plan.reason }
@@ -1457,6 +1468,27 @@ async function _voteOn(
   if (!client) return _skip("no client to poll models with", withPool)
 
   _votedTurns.add(key)
+  // Awaiting a nested session prompt from inside a hook deadlocks: the turn is
+  // blocked here, so the server never services the child prompts and every
+  // voter times out. Measured at both a 60s and a 240s deadline -- 658 votes,
+  // 0 of 4 answered, no errors, every one burning the full deadline. Dispatching
+  // without awaiting lets the hook return so the child prompts can run.
+  if (voteAsync()) {
+    void runModelVote(client, {
+      models: pool,
+      prompt,
+      directory: (onMessagesTransform as unknown)._directory || "",
+      timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
+    }).then((v) => {
+      _writeTurnVoteAudit({
+        ...withPool, dispatched: true, samples: v.samples, ran: v.ran, agreed: v.agreed,
+        agreement: v.agreement, elapsedMs: v.elapsedMs, errors: v.errors?.slice(0, 4) || [],
+        reason: v.ran ? `async ${v.samples} of ${pool.length} answered` : "async vote did not run",
+        voted: false,
+      })
+    }).catch(() => {})
+    return _skip("vote dispatched without blocking the turn", withPool)
+  }
   const vote = await runModelVote(client, {
     models: pool,
     prompt,
@@ -1467,6 +1499,7 @@ async function _voteOn(
     ...withPool,
     samples: vote.samples, ran: vote.ran, agreed: vote.agreed,
     agreement: vote.agreement, elapsedMs: vote.elapsedMs,
+    errors: vote.errors?.slice(0, 4) || [],
   }
   if (!vote.ran || vote.samples < MIN_VOTERS) {
     return { reason: `only ${vote.samples} of ${pool.length} models answered`, voted: false, audit }
