@@ -9,6 +9,8 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { spawnSync } from "node:child_process"
 
+import { TURN_IDS } from "./prompts.mjs"
+
 const HIDDEN = fileURLToPath(new URL("./hidden", import.meta.url))
 
 export function hiddenTestNames() {
@@ -55,12 +57,34 @@ function runNodeTest(dir, target) {
   return { ok, pass, fail, ran: pass + fail > 0, out }
 }
 
+// Each hidden group is only reachable once the turn that asks for it has run.
+// Turn 1 is diagnosis-only ("Do NOT edit any file"), so nothing is reachable after
+// it. Scoring an unreachable group is what froze correctness at 0.4667 across all
+// forty trials of runs 12-15: the denominator was always five, whatever was asked.
+export const GROUP_ENABLING_TURN = {
+  "g1-batcher.test.mjs": "fix-batching",
+  "g2-enricher.test.mjs": "fix-rest",
+  "g3-flusher.test.mjs": "fix-rest",
+  "g4-config.test.mjs": "fix-rest",
+  "g5-pivot.test.mjs": "pivot",
+}
+
+export function reachableGroups(turnsRun = TURN_IDS.length) {
+  return Object.entries(GROUP_ENABLING_TURN)
+    .filter(([, turnId]) => {
+      const idx = TURN_IDS.indexOf(turnId)
+      return idx >= 0 && idx < turnsRun
+    })
+    .map(([group]) => group)
+}
+
 // A group whose file crashed on import reports pass=0 fail=0. Counted as raw
 // assertions it disappears from the denominator, so destroying a whole group
 // RAISES the score. Each group is scored on its own and a group that never ran
-// scores 0, so the denominator is the group count and cannot be shrunk by damage.
-export function correctnessFromGroups(per) {
-  const names = Object.keys(per || {})
+// scores 0, so the denominator is the reachable group count and cannot be shrunk
+// by damage — only by not having been asked for in the first place.
+export function correctnessFromGroups(per, { reachable } = {}) {
+  const names = (reachable || Object.keys(per || {})).filter((n) => n in (per || {}))
   if (!names.length) return 0
   const total = names.reduce((a, n) => {
     const g = per[n] || {}
@@ -80,28 +104,33 @@ export function gradeVisible(dir) {
 
 // The hidden suite. Copied into <dir>/.grading so relative imports (../src/...)
 // resolve exactly as the visible tests do.
-export function gradeHidden(dir) {
+export function gradeHidden(dir, { turnsRun = TURN_IDS.length } = {}) {
   const target = join(dir, ".grading")
   mkdirSync(target, { recursive: true })
+  // Every group is still RUN, so an unreachable group that somehow passes is
+  // visible in `per`. It is excluded from the score, not from the record.
   const names = hiddenTestNames()
+  const reachable = reachableGroups(turnsRun).filter((n) => names.includes(n))
   const per = {}
   for (const name of names) {
     copyFileSync(join(HIDDEN, name), join(target, name))
     per[name] = runNodeTest(dir, join(".grading", name))
   }
-  const groups = names.length
-  const passedGroups = names.filter((n) => per[n].ok).length
-  const totalPass = names.reduce((a, n) => a + per[n].pass, 0)
-  const totalFail = names.reduce((a, n) => a + per[n].fail, 0)
+  const groups = reachable.length
+  const passedGroups = reachable.filter((n) => per[n].ok).length
+  const totalPass = reachable.reduce((a, n) => a + per[n].pass, 0)
+  const totalFail = reachable.reduce((a, n) => a + per[n].fail, 0)
   return {
     groups,
+    reachable,
+    unreachable: names.filter((n) => !reachable.includes(n)),
     passedGroups,
     groupRate: groups ? passedGroups / groups : 0,
     assertions: totalPass + totalFail,
     assertionsPassed: totalPass,
     assertionRate: totalPass + totalFail ? totalPass / (totalPass + totalFail) : 0,
-    correctness: correctnessFromGroups(per),
-    deadGroups: names.filter((n) => !per[n].ran),
+    correctness: correctnessFromGroups(per, { reachable }),
+    deadGroups: reachable.filter((n) => !per[n].ran),
     per,
   }
 }

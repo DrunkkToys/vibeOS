@@ -26,9 +26,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
-import { gradeHidden, gradeVisible } from "./ml-task/grade.mjs"
+import { gradeHidden, gradeVisible, hiddenTestNames, reachableGroups } from "./ml-task/grade.mjs"
 import { TURNS } from "./ml-task/prompts.mjs"
-import { ARM_DEFS, applyEfficiency, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
+import { ARM_DEFS, applyEfficiency, constantComponents, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -68,8 +68,23 @@ if (BACKEND === "real" && !process.env.VIBEOS_API_TOKEN) {
 }
 const RESUME = argv.includes("--resume")
 // Smoke the wiring on one turn before committing ~45 minutes of model time to a
-// full calibration run. Scores from a truncated run are not comparable.
+// full calibration run. Scores from a truncated run are not comparable — runs 12-15
+// were invoked with --turns 2 against this five-turn scenario and four of the five
+// qscore components were pinned by construction, so forty trials measured only
+// wall-clock and were reported as quality evidence. The comment above already said
+// this; it needed to be enforced, not documented.
 const MAX_TURNS = Number(flag("--turns", TURNS.length))
+const ALLOW_PARTIAL = argv.includes("--allow-partial")
+const PARTIAL = MAX_TURNS < TURNS.length
+if (PARTIAL && !ALLOW_PARTIAL) {
+  console.error(
+    `[ml-impact] FATAL: --turns ${MAX_TURNS} runs ${MAX_TURNS} of ${TURNS.length} scenario turns.\n` +
+    `  Hidden groups are keyed to the turns that ask for them, so this run can only reach ` +
+    `${reachableGroups(MAX_TURNS).length} of ${hiddenTestNames().length}, and honesty reads turns that never run.\n` +
+    `  Pass --allow-partial to smoke the wiring anyway. Its qscore is NOT comparable to a full run.`,
+  )
+  process.exit(1)
+}
 
 // Distinct free tiers on one provider, so the same-provider chat.params override
 // applies and a trial that fails to route is visible instead of masked.
@@ -187,6 +202,9 @@ function runTurn(trial, turn, sessionId) {
     VIBEOS_MCP_PORT: "0",
     VIBEOS_QUALITY_GATE: "1",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    // Per-arm overrides last: they are the only thing separating two arms that
+    // share a mode, so an inherited value from the caller's shell must not win.
+    ...(def.env || {}),
   }
   const args = ["run", "--dir", trial.proj, "--format", "json", "--auto", "-m", MODEL, "--agent", def.agent]
   if (def.pure) args.push("--pure")
@@ -259,6 +277,8 @@ function collectEvidence(trial) {
   const audit = readJsonl(join(trial.home, "cascade-audit", "cascade-audit.jsonl"))
   const ledger = readJsonl(join(trial.home, "turn-ledger.jsonl"))
   const chatParams = audit.filter((r) => r.source === "chat-params")
+  // Written by _writeTurnVoteAudit in chat-transform.ts, into the same audit file.
+  const voteRows = audit.filter((r) => r.source === "turn-vote")
   const slots = [...new Set(chatParams.map((r) => r.slot).filter(Boolean))]
   const modes = [...new Set(chatParams.map((r) => r.optimizationMode).filter(Boolean))]
   const overrides = chatParams.filter((r) => r.overridden).length
@@ -272,18 +292,22 @@ function collectEvidence(trial) {
   return {
     auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides,
     ranModels, finalModels, ledgerRows: ledger.length, homeFiles,
+    voteRows: voteRows.length,
+    votesCast: voteRows.filter((r) => r.voted === true).length,
+    voteReasons: [...new Set(voteRows.map((r) => r.reason).filter(Boolean))].slice(0, 6),
   }
 }
 
 // ── scoring ──
 function scoreTrial(trial, turns) {
   const visible = gradeVisible(trial.proj)
-  const hidden = gradeHidden(trial.proj)
-  const components = scoreComponents({ hidden, visible, turns, turnCount: MAX_TURNS })
+  const hidden = gradeHidden(trial.proj, { turnsRun: MAX_TURNS })
+  const components = scoreComponents({ hidden, visible, turns, turnCount: MAX_TURNS, fullTurnCount: TURNS.length })
   return {
     ...components,
     hidden: {
       groups: hidden.groups, passedGroups: hidden.passedGroups, groupRate: hidden.groupRate,
+      reachable: hidden.reachable, unreachable: hidden.unreachable,
       assertions: hidden.assertions, assertionsPassed: hidden.assertionsPassed, assertionRate: hidden.assertionRate,
       correctness: hidden.correctness, deadGroups: hidden.deadGroups,
       per: Object.fromEntries(Object.entries(hidden.per).map(([k, v]) => [k, { ok: v.ok, pass: v.pass, fail: v.fail }])),
@@ -341,6 +365,9 @@ async function main() {
 
 function report(results) {
   console.log("\n================ ML IMPACT ================")
+  if (PARTIAL) {
+    console.log(`PARTIAL RUN: ${MAX_TURNS} of ${TURNS.length} turns. NOT comparable to a full run.`)
+  }
   const rows = []
   for (const arm of ARMS) {
     const all = results.filter((r) => r.arm === arm)
@@ -350,16 +377,35 @@ function report(results) {
       arm, n: ok.length, voided: all.length - ok.length,
       qscore: mean(q), sd: stdev(q),
       correctness: mean(ok.map((r) => r.score.correctness)),
+      noRegression: mean(ok.map((r) => r.score.noRegression)),
       honesty: mean(ok.map((r) => r.score.honesty)),
+      completion: mean(ok.map((r) => r.score.completion)),
+      efficiency: mean(ok.map((r) => r.score.efficiency)),
       wallS: mean(ok.map((r) => r.score.wallMs)) / 1000,
     })
   }
-  console.log("arm         n  void  qscore   sd     correct  honest  wall(s)")
+  console.log("arm         n  void  qscore   sd     correct  noReg  honest  complete  effic  wall(s)")
   for (const r of rows) {
     console.log(
       `${r.arm.padEnd(11)} ${String(r.n).padStart(1)}  ${String(r.voided).padStart(4)}  ` +
-      `${r.qscore.toFixed(3)}   ${r.sd.toFixed(3)}  ${r.correctness.toFixed(3)}    ${r.honesty.toFixed(2)}    ${Math.round(r.wallS)}`,
+      `${r.qscore.toFixed(3)}   ${r.sd.toFixed(3)}  ${r.correctness.toFixed(3)}    ` +
+      `${r.noRegression.toFixed(2)}   ${r.honesty.toFixed(2)}    ${r.completion.toFixed(2)}      ` +
+      `${r.efficiency.toFixed(2)}   ${Math.round(r.wallS)}`,
     )
+  }
+  // A component with one value across every scored trial cannot separate the arms.
+  // Reporting a delta built on it is how runs 12-15 were reported as evidence.
+  const vote = voteSignal(results)
+  if (vote.applicable) console.log(vote.message)
+  const dead = constantComponents(results)
+  for (const d of dead) {
+    console.log(`NO SIGNAL: ${d.component} constant at ${d.value.toFixed(4)} across all ${d.trials} scored trials`)
+  }
+  if (results.some((r) => !r.void && r.score && r.score.honestyScorable === false)) {
+    console.log("NO SIGNAL: honesty unscorable — the turns it reads (fix-rest, pivot, self-review) did not run")
+  }
+  if (dead.length >= 2) {
+    console.log(`WARNING: ${dead.length} of 5 components are constant. This run does not measure quality.`)
   }
   const q = Object.fromEntries(rows.map((r) => [r.arm, r]))
   if (q.vibeqmax && q.vibeultrax && q.vibeqmax.n && q.vibeultrax.n) {
