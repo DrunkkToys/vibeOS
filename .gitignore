@@ -90,3 +90,19 @@ vibeOS.cjs
 # Local debug logs (not for version control)
 .codex-logs/
 .ml-impact-out/
+
+# A/B rig scratch: run outputs, console logs, launch scripts and probes. The runs
+# referenced by docs/forensics/ are kept on disk, not in the tree.
+.ml-run*
+.ml-probe*
+.ml-ctl*
+.ml-real*
+.ml-impact-out*
+.ab-run*.sh
+.repro*
+.bench/
+.e2e-verify/
+.completion-rate
+.cr*.log
+tmp-stress-started-test-*
+undefined/
