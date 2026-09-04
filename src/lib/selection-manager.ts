@@ -65,6 +65,7 @@ function loadSelectionImpl(): any {
       requires_delegation: j?.selection?.requires_delegation === true,
       cheap_first_degraded: j?.selection?.cheap_first_degraded === true,
       cheap_first_reason: j?.selection?.cheap_first_reason || null,
+      vote_pool: Array.isArray(j?.selection?.vote_pool) ? j.selection.vote_pool : null,
       axis_overrides: j?.selection?.axis_overrides && typeof j.selection.axis_overrides === "object" ? j.selection.axis_overrides : {},
     }
   } catch { _handleStateCorruption(TIERS_FILE); return DFLT_SEL }

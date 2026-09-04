@@ -1455,6 +1455,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         catch { }
       }
       onToolExecuteBefore._directory = directory
+      onToolExecuteBefore._client = client
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
@@ -1491,6 +1492,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       ensureDeferredBootstrap()
+      onMessagesTransform._directory = directory
+      onMessagesTransform._client = client
       return onMessagesTransform(_input, output)
     },
     "experimental.session.compacting": async (_input, output) => {
@@ -1508,6 +1511,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       }
       ensureDeferredBootstrap()
       onSystemTransform._directory = directory
+      onSystemTransform._client = client
       onSystemTransform._activeJob = activeJob
       onSystemTransform._briefedProjects = systemBriefedProjects
       return onSystemTransform(_input, output)

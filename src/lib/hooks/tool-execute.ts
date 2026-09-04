@@ -52,6 +52,8 @@ import { remoteCall, isApiConnected } from "../api-client.js"
 import { getCostAnomalyDetector } from "../cost-anomaly.js"
 import { checkFlowRules, recordFlowTodo } from "../../vibeOS-lib/flow-enforcer.js"
 import { computeDifficulty, hashQuery } from "../../vibeOS-lib/ml-router.js"
+import { planForDifficulty, buildVotePrompt } from "../../vibeOS-lib/adaptive-router.js"
+import { runModelVote, MIN_VOTERS, voteModelPool } from "../../vibeOS-lib/model-vote.js"
 import { addCacheEntry, recordCacheStats, predictCacheHit } from "../../vibeOS-lib/smart-cache.js"
 import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
@@ -91,6 +93,17 @@ const MAX_WARNS_PER_TOOL = 5
 
 const BYTES_PER_TOKEN = 4
 const DEBUG_INTERNALS = process.env.VIBEOS_DEBUG_INTERNALS === "1"
+
+export { voteModelPool }
+// On by default: the adaptive plan is the routing strategy the benchmark says
+// beats the raw brain baseline, so it is the product, not an experiment. The
+// switch exists so an operator can fall back to the old single-pick cascade.
+// Resolved per call rather than at import: the module is loaded once per
+// process, so a const would freeze whatever the environment said at load time
+// and leave the switch unusable for anyone toggling it afterwards.
+function adaptiveRoutingEnabled(): boolean {
+  return String(process.env.VIBEOS_ADAPTIVE_ROUTING || "").trim().toLowerCase() !== "off"
+}
 const _IS_CLI_RUNTIME = Boolean(process.stdout?.isTTY || process.stderr?.isTTY || process.stdin?.isTTY)
 
 let _activeJob = null
@@ -565,6 +578,20 @@ export function _isProtectedToolPathForTest(projectDir, pathValue) {
   }
 }
 
+
+// Every distinct model the trinity offers below the brain, plus any extra
+// models the operator listed. Brain is excluded on purpose: a vote is only
+// worth running when N of its calls still cost less than one call at the tier
+// it might save you from.
+
+// A vote runs in front of real work, so its deadline is a latency budget, not a
+// correctness knob: past it the turn proceeds on the tier it already had.
+function voteDeadlineMs(): number {
+  const raw = Number(process.env.VIBEOS_VOTE_DEADLINE_MS)
+  if (Number.isFinite(raw) && raw >= 0) return raw
+  return 25_000
+}
+
 export const onToolExecuteBefore = async (input, output) => {
   if (!loadSelection().enabled) return
   _refreshModel(projectDirectory)
@@ -750,6 +777,82 @@ export const onToolExecuteBefore = async (input, output) => {
         if (DEBUG_INTERNALS) console.error(`[vibeOS] ML per-turn route adjustment error: ${mlErr.message}`)
       }
     }
+    // The chain experiment measured cascade(weak->strong) at 83.8% of brain and
+    // adaptive(easy=vote, hard=pipeline) at 107.9%. The difference is that a
+    // cascade commits to one model chosen before any answer exists, while the
+    // adaptive plan samples the cheap tier several times and only spends a
+    // stronger tier when those samples disagree. Plan the strategy here; the
+    // sampling itself rides on the delegated prompt below.
+    let _voteSamples = 0
+    let _voteAgreedAnswer: string | null = null
+    if (input?.mlEnabled !== false && _prompt.length > 0 && adaptiveRoutingEnabled()) {
+      try {
+        const _plan = planForDifficulty(computeDifficulty(_prompt).score, _cascadeRoot)
+        // The stage decides, not the plan's headline. A hard prompt gets a
+        // pipeline whose FIRST stage is itself a vote, so gating on the plan
+        // kind would skip exactly the stage the benchmark's fullPipeline opens
+        // with.
+        const _stage = _plan.stages.find((st) => st.slot === _slot)
+        const _wantsVote = Boolean(_stage) && _stage.kind !== "single" && _slot !== "brain"
+
+        if (_wantsVote) {
+          // The benchmark's voteN asks several DIFFERENT models, and the
+          // decorrelation between them is where the accuracy comes from. The
+          // trinity holds one model per tier, so the pool is every distinct
+          // non-brain slot plus whatever else the operator configured. A
+          // majority needs three: two voters can only agree or tie, and a tie
+          // cannot outvote one wrong model.
+          const _pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
+          const _client = onToolExecuteBefore._client
+                  if (_pool.length >= MIN_VOTERS && _client) {
+            try {
+              const _vote = await runModelVote(_client, {
+                models: _pool,
+                prompt: String(targetArgs?.prompt || _prompt),
+                directory: onToolExecuteBefore._directory,
+                timeoutMs: voteDeadlineMs(),
+              })
+              if (_vote.ran && _vote.samples >= MIN_VOTERS) {
+                if (_vote.agreed) {
+                  // Stage cleared: independent models landed on the same answer,
+                  // so this tier is not out of its depth and there is nothing to
+                  // escalate to.
+                  _routeReason = `${_routeReason}; vote ${_vote.samples} models agreed (${_vote.agreement.toFixed(2)})`
+                  _voteAgreedAnswer = _vote.answer
+                } else {
+                  // They disagreed. That is evidence about this query, not a
+                  // guess about it, and it is what the pipeline escalates on.
+                  // Step by position in the envelope, not by tier rank: an
+                  // envelope that skips a tier would otherwise jump two rungs
+                  // and bill the brain for what the medium could settle.
+                  const _at = _cascadeRoot.indexOf(_slot)
+                  const _up = _at >= 0 && _at < _cascadeRoot.length - 1 ? _cascadeRoot[_at + 1] : null
+                  const _upSlot = _up && clampSlotToEnvelope(_up, _cascadeRoot)
+                  if (_upSlot && _slotRank(_upSlot) > _slotRank(_slot)) {
+                    _slot = _upSlot
+                    _routeSource = "vote"
+                    _routeReason = `vote split (${_vote.agreement.toFixed(2)} across ${_vote.samples}) -> ${_upSlot}`
+                  }
+                }
+              }
+            } catch (voteErr) {
+              if (DEBUG_INTERNALS) console.error(`[vibeOS] model vote error: ${voteErr.message}`)
+            }
+          }
+        }
+
+        // Fallback when no live vote could run -- too few distinct models, or
+        // no client to prompt them with. Asking one model for several
+        // independent attempts is weaker, because its mistakes repeat where
+        // different models' do not, but it is strictly better than one shot.
+        if (_wantsVote && !_voteAgreedAnswer && _routeSource !== "vote") {
+          _voteSamples = _stage.samples
+          _routeReason = `${_routeReason}; ${_stage.kind} x${_stage.samples} (${_plan.kind})`
+        }
+      } catch (planErr) {
+        if (DEBUG_INTERNALS) console.error(`[vibeOS] adaptive plan error: ${planErr.message}`)
+      }
+    }
     const _routePath = normalizeRoutePath(_cascadeRoot, _slot)
     const routeDecision = {
       selectedModel: _modelForSlot(_slot, TRINITY_CHEAP, TRINITY_MEDIUM, TRINITY_BRAIN),
@@ -792,6 +895,10 @@ export const onToolExecuteBefore = async (input, output) => {
         obj.modelID = _target
         obj.modelId = _target
         if (routeDecision?.selectedSubagent) obj.subagent_type = routeDecision.selectedSubagent
+        if (_voteSamples >= 2 && !_voteAgreedAnswer && typeof obj.prompt === "string" && !obj._vibe_voted) {
+          obj.prompt = buildVotePrompt(obj.prompt, _voteSamples)
+          obj._vibe_voted = true
+        }
         obj._vibe_turn_id = turnId
       }
       const enrichedRouteDecision = {

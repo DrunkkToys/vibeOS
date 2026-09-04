@@ -1,0 +1,366 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 vibeOS <https://github.com/DrunkkToys/vibeOS>
+//
+// The Task-delegation vote is unreachable on the workload the A/B rig measures:
+// every turn it recorded calls read, bash, edit and write and never task. These
+// tests pin the vote to the primary turn, where the chain experiment measures it.
+import test from "node:test"
+import assert from "node:assert/strict"
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { CONSENSUS_MARKER } from "../src/vibeOS-lib/turn-consensus.js"
+
+const PROMPT = "diagnose why the batching helper drops the final chunk when the queue flushes early"
+
+function sandbox(name, votePool = ["opencode-go/glm-5.1", "opencode-go/qwen3.8-flash"], mode = "vibeultrax") {
+  const dir = mkdtempSync(join(tmpdir(), name))
+  const old = { HOME: process.env.HOME, VIBEOS_HOME: process.env.VIBEOS_HOME, TURN: process.env.VIBEOS_TURN_VOTE }
+  process.env.HOME = dir
+  process.env.VIBEOS_HOME = join(dir, ".claude")
+  delete process.env.VIBEOS_TURN_VOTE
+  mkdirSync(process.env.VIBEOS_HOME, { recursive: true })
+  old.DATA = process.env.OPENCODE_DATA_DIR
+  old.CACHE = process.env.OPENCODE_CACHE_DIR
+  process.env.OPENCODE_DATA_DIR = join(dir, "ocdata")
+  process.env.OPENCODE_CACHE_DIR = join(dir, "occache")
+  mkdirSync(process.env.OPENCODE_DATA_DIR, { recursive: true })
+  mkdirSync(process.env.OPENCODE_CACHE_DIR, { recursive: true })
+  writeFileSync(join(process.env.OPENCODE_CACHE_DIR, "models.json"),
+    JSON.stringify({ "opencode-go": { id: "opencode-go", api: "https://opencode.ai/zen/go/v1" } }))
+  writeFileSync(join(process.env.OPENCODE_DATA_DIR, "auth.json"),
+    JSON.stringify({ "opencode-go": { type: "api", key: "sk-test" } }))
+  writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
+    selection: {
+      enabled: true,
+      active_slot: "cheap",
+      optimization_mode: mode,
+      active_pipeline: ["cheap", "medium", "brain"],
+      vote_pool: votePool,
+    },
+    trinity: {
+      cheap: { oc: "opencode-go/mimo-v2.5" },
+      medium: { oc: "opencode-go/deepseek-v4-flash" },
+      brain: { oc: "opencode-go/glm-5.3-flash" },
+    },
+  }, null, 2))
+  return {
+    dir,
+    cleanup() {
+      for (const [k, v] of Object.entries({ HOME: old.HOME, VIBEOS_HOME: old.VIBEOS_HOME, VIBEOS_TURN_VOTE: old.TURN, OPENCODE_DATA_DIR: old.DATA, OPENCODE_CACHE_DIR: old.CACHE })) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      rmSync(dir, { recursive: true, force: true })
+    },
+  }
+}
+
+// The voters are polled over HTTP now, not through the SDK client.
+function voter(answers) {
+  const asked = []
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body)
+    asked.push({ model: `opencode-go/${body.model}`, prompt: body.messages[0].content })
+    return { ok: true, json: async () => ({ choices: [{ message: { content: answers[`opencode-go/${body.model}`] ?? "unknown" } }] }) }
+  }
+  return { asked, fetchImpl }
+}
+
+const turn = () => [{ role: "user", parts: [{ type: "text", text: PROMPT }] }]
+
+async function load(stamp) {
+  return await import("../src/lib/hooks/chat-transform.js?turnvote-" + stamp)
+}
+
+test("a primary turn with no task call still gets a real vote", async () => {
+  const ctx = sandbox("vibeos-turnvote-")
+  try {
+    const chat = await load("a" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "the flush path skips the tail buffer",
+      "opencode-go/deepseek-v4-flash": "the flush path skips the tail buffer",
+      "opencode-go/glm-5.1": "the flush path skips the tail buffer",
+      "opencode-go/qwen3.8-flash": "an off-by-one in the index",
+    })
+    const messages = turn()
+    const reason = await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked.length, 4, "four configured models means four voters")
+    assert.ok(c.asked.every((a) => a.prompt === PROMPT), "every voter answers the user's own question")
+    const injected = messages[0].parts.find((p) => p.text?.includes(CONSENSUS_MARKER))
+    assert.ok(injected, "the verdict must reach the turn the model actually reads")
+    assert.ok(injected.synthetic, "an injected part must be marked synthetic")
+    assert.match(injected.text, /flush path skips the tail buffer/)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a split vote is injected as a split, not as an answer", async () => {
+  const ctx = sandbox("vibeos-turnvote-split-")
+  try {
+    const chat = await load("b" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "cause one",
+      "opencode-go/deepseek-v4-flash": "cause two",
+      "opencode-go/glm-5.1": "cause three",
+      "opencode-go/qwen3.8-flash": "cause four",
+    })
+    const messages = turn()
+    const reason = await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.match(reason, /split/, reason)
+    const injected = messages[0].parts.find((p) => p.text?.includes(CONSENSUS_MARKER))
+    assert.match(injected.text, /did not agree/)
+    assert.ok(!injected.text.includes("cause one"), "no single losing answer may be passed off as the verdict")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("the models are polled once per turn, not once per tool round-trip", async () => {
+  const ctx = sandbox("vibeos-turnvote-once-")
+  try {
+    const chat = await load("c" + Date.now())
+    const answers = {
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "same",
+    }
+    const c = voter(answers)
+    const messages = turn()
+    await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    const afterFirst = c.asked.length
+    const second = await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.equal(c.asked.length, afterFirst, `re-polling would multiply cost by tool calls: ${second}`)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a pool one short of a majority does not vote at all", async () => {
+  const ctx = sandbox("vibeos-turnvote-thin-", [])
+  try {
+    const chat = await load("d" + Date.now())
+    const c = voter({})
+    const reason = await chat.applyTurnConsensus(turn(), c, c.fetchImpl)
+    assert.match(reason, /majority/, reason)
+    assert.equal(c.asked.length, 0, "two voters can only agree or tie, so polling them is wasted latency")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("VIBEOS_TURN_VOTE=off restores the unvoted turn", async () => {
+  const ctx = sandbox("vibeos-turnvote-off-")
+  try {
+    process.env.VIBEOS_TURN_VOTE = "off"
+    const chat = await load("e" + Date.now())
+    const c = voter({})
+    const messages = turn()
+    assert.equal(await chat.applyTurnConsensus(messages, c, c.fetchImpl), "disabled")
+    assert.equal(c.asked.length, 0)
+    assert.equal(messages[0].parts.length, 1, "an off switch must leave the turn untouched")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("raw mode pays no vote latency", async () => {
+  const ctx = sandbox("vibeos-turnvote-mode-", ["opencode-go/glm-5.1"], "raw")
+  try {
+    const chat = await load("f" + Date.now())
+    const c = voter({})
+    const reason = await chat.applyTurnConsensus(turn(), c, c.fetchImpl)
+    assert.match(reason, /raw mode does not vote/, reason)
+    assert.equal(c.asked.length, 0)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("the vote no longer needs an SDK client, because that client could not deliver one", async () => {
+  const ctx = sandbox("vibeos-turnvote-noclient-")
+  try {
+    const chat = await load("g" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "same",
+    })
+    const messages = turn()
+    const reason = await chat.applyTurnConsensus(messages, null, c.fetchImpl)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked.length, 4)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a turn already carrying a verdict is not voted on again", async () => {
+  const ctx = sandbox("vibeos-turnvote-dup-")
+  try {
+    const chat = await load("h" + Date.now())
+    const c = voter({})
+    const messages = turn()
+    messages[0].parts.push({ type: "text", text: CONSENSUS_MARKER + "\nprior verdict", synthetic: true })
+    const reason = await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.match(reason, /already carries/, reason)
+    assert.equal(c.asked.length, 0)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("every vote leaves an audit line, so a dead vote is visible as dead", async () => {
+  const ctx = sandbox("vibeos-turnvote-audit-")
+  try {
+    const chat = await load("i" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "other",
+    })
+    await chat.applyTurnConsensus(turn(), c, c.fetchImpl)
+    const { readFileSync } = await import("node:fs")
+    const { join: j } = await import("node:path")
+    const lines = readFileSync(j(process.env.VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl"), "utf8")
+      .trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.source === "turn-vote")
+    assert.equal(lines.length, 1, "one user turn is one audit line")
+    assert.equal(lines[0].ran, true)
+    assert.equal(lines[0].agreed, true)
+    assert.equal(lines[0].samples, 4)
+    assert.deepEqual(lines[0].pool.length, 4)
+    assert.ok(typeof lines[0].elapsedMs === "number")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a skipped vote is audited with the reason it was skipped", async () => {
+  const ctx = sandbox("vibeos-turnvote-skipaudit-", [])
+  try {
+    const chat = await load("j" + Date.now())
+    await chat.applyTurnConsensus(turn(), voter({}))
+    const { readFileSync } = await import("node:fs")
+    const { join: j } = await import("node:path")
+    const rows = readFileSync(j(process.env.VIBEOS_HOME, "cascade-audit", "cascade-audit.jsonl"), "utf8")
+      .trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.source === "turn-vote")
+    assert.equal(rows.length, 1, "a vote that never ran must still leave a line")
+    assert.equal(rows[0].voted, false)
+    assert.match(rows[0].reason, /majority/)
+    assert.deepEqual(rows[0].pool, ["opencode-go/mimo-v2.5", "opencode-go/deepseek-v4-flash"],
+      "the audited pool is what shows a pool too thin to vote")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("the vote also runs from the system hook, which is the one that fires", async () => {
+  const ctx = sandbox("vibeos-turnvote-system-")
+  try {
+    const chat = await load("k" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "the tail buffer is skipped",
+      "opencode-go/deepseek-v4-flash": "the tail buffer is skipped",
+      "opencode-go/glm-5.1": "the tail buffer is skipped",
+      "opencode-go/qwen3.8-flash": "something else",
+    })
+    const output = { system: ["base prompt"] }
+    const reason = await chat.applyTurnConsensusToSystem({ messages: turn() }, output, c, c.fetchImpl)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(output.system.length, 2, "the verdict must reach the system prompt")
+    assert.match(output.system[1], /tail buffer is skipped/)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("both hooks firing costs exactly one vote", async () => {
+  const ctx = sandbox("vibeos-turnvote-bothhooks-")
+  try {
+    const chat = await load("l" + Date.now())
+    const same = {
+      "opencode-go/mimo-v2.5": "one cause", "opencode-go/deepseek-v4-flash": "one cause",
+      "opencode-go/glm-5.1": "one cause", "opencode-go/qwen3.8-flash": "one cause",
+    }
+    const c = voter(same)
+    const messages = turn()
+    await chat.applyTurnConsensusToSystem({ messages }, { system: ["base"] }, c, c.fetchImpl)
+    const afterSystem = c.asked.length
+    assert.equal(afterSystem, 4)
+    await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.equal(c.asked.length, afterSystem, "a host firing both hooks must not pay twice")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a system hook with no system array votes on nothing", async () => {
+  const ctx = sandbox("vibeos-turnvote-nosys-")
+  try {
+    const chat = await load("m" + Date.now())
+    const c = voter({})
+    const reason = await chat.applyTurnConsensusToSystem({ messages: turn() }, {}, c, c.fetchImpl)
+    assert.match(reason, /no system array/, reason)
+    assert.equal(c.asked.length, 0)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a live-shaped transcript votes end to end", async () => {
+  const ctx = sandbox("vibeos-turnvote-liveshape-")
+  try {
+    const chat = await load("n" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "the tail buffer is dropped",
+      "opencode-go/deepseek-v4-flash": "the tail buffer is dropped",
+      "opencode-go/glm-5.1": "the tail buffer is dropped",
+      "opencode-go/qwen3.8-flash": "unrelated",
+    })
+    // The exact shape captured from a live run: { info: { role, ... }, parts }.
+    const messages = [
+      { info: { role: "user", id: "m1", sessionID: "s" }, parts: [{ type: "text", text: PROMPT }] },
+    ]
+    const reason = await chat.applyTurnConsensus(messages, c, c.fetchImpl)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked[0].prompt, PROMPT, "the voters must get the user's real question")
+    assert.ok(messages[0].parts.some((p) => p.text?.includes(CONSENSUS_MARKER)))
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a mode the control vector picked mid-run still votes", async () => {
+  // A run launched in vibeultrax spends most turns in whatever regime the
+  // blackbox chose; gating on one mode name meant the vote almost never ran.
+  const ctx = sandbox("vibeos-turnvote-audit-mode-", ["opencode-go/glm-5.1", "opencode-go/qwen3.8-flash"], "audit")
+  try {
+    const chat = await load("o" + Date.now())
+    const c = voter({
+      "opencode-go/mimo-v2.5": "same", "opencode-go/deepseek-v4-flash": "same",
+      "opencode-go/glm-5.1": "same", "opencode-go/qwen3.8-flash": "same",
+    })
+    const reason = await chat.applyTurnConsensus(turn(), c, c.fetchImpl)
+    assert.match(reason, /agreed/, reason)
+    assert.equal(c.asked.length, 4)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("a voter's failure reason is kept, not flattened into silence", async () => {
+  const { runModelVote } = await import("../src/vibeOS-lib/model-vote.js")
+  const c = {
+    session: {
+      create: async () => ({ data: { id: "s1" } }),
+      delete: async () => {},
+      prompt: async ({ body }) => {
+        if (body.model.modelID === "b") throw new Error("model not authorized")
+        return { data: { parts: [{ type: "text", text: "ok" }] } }
+      },
+    },
+  }
+  const r = await runModelVote(c, { models: ["p/a", "p/b", "p/c"], prompt: "q" })
+  assert.equal(r.errors.length, 1)
+  assert.match(r.errors[0], /p\/b: model not authorized/,
+    "0 of N answered gives no way to tell a bad model id from a rejected request")
+})

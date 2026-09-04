@@ -24,6 +24,7 @@ import {
   loadSessionOrchestration,
   _cacheDb, recordCacheSaving, getVibeOSHome, safeCopyIntoSession,
   _OC_SID, ML_CONFIDENCE_THRESHOLD,
+  getCurrentSessionId,
 } from "../state.js"
 import { getLatestBlackboxLoopMsg, getLatestBlackboxPivotMsg, getLatestBlackboxState, resetBlackboxTracker, setLatestBlackboxState } from "../cascade.js"
 import { appendJsonlWithRotation } from "../../utils/fs-helpers.js"
@@ -63,6 +64,15 @@ import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCO
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
 import { installVibeTierAgents } from "../runtime-config.js"
+import { voteModelPool, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
+import { runDirectVote } from "../../vibeOS-lib/direct-vote.js"
+import {
+  latestUserPrompt,
+  planTurnConsensus,
+  buildConsensusNote,
+  buildContestedNote,
+  CONSENSUS_MARKER,
+} from "../../vibeOS-lib/turn-consensus.js"
 
 const BYTES_PER_TOKEN = 4
 
@@ -1340,6 +1350,157 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
   } catch {}
 }
 
+// The chain experiment's winning arm votes on the answer to the user's question,
+// so the vote has to run here, on the primary turn. The Task-delegation vote in
+// tool-execute.ts covers a path live turns measured in the A/B rig never take:
+// they call read, bash, edit and write, never task.
+function turnVoteEnabled(): boolean {
+  return String(process.env.VIBEOS_TURN_VOTE || "").trim().toLowerCase() !== "off"
+}
+
+// One vote per user turn. onMessagesTransform fires again for every tool
+// round-trip inside the same turn, and re-polling four models each time would
+// multiply the cost by the number of tool calls while asking a question the
+// models have already answered.
+const _votedTurns = new Set<string>()
+
+function _turnVoteKey(sessionId: string, prompt: string): string {
+  return `${sessionId}::${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`
+}
+
+// A vote that runs but leaves no trace is indistinguishable from one that never
+// ran -- the Task-branch vote sat dead through five trials for exactly that
+// reason. Same file chat-params.ts audits routing to, so both live in one place.
+function _writeTurnVoteAudit(row: Record<string, unknown>): void {
+  try {
+    const vibeHome = getVibeOSHome()
+    if (!vibeHome || vibeHome === "undefined" || vibeHome.startsWith("undefined")) return
+    const dir = join(vibeHome, "cascade-audit")
+    mkdirSync(dir, { recursive: true })
+    appendJsonlWithRotation(join(dir, "cascade-audit.jsonl"), JSON.stringify({
+      _ts: new Date().toISOString(),
+      sessionId: String(getCurrentSessionId() || ""),
+      source: "turn-vote",
+      ...row,
+    }) + "\n")
+  } catch {}
+}
+
+export async function applyTurnConsensus(messages: unknown[], client: unknown, fetchImpl?: typeof fetch): Promise<string> {
+  // Skips are audited alongside votes. Auditing only the vote leaves every
+  // reason it did not happen invisible, which is how the Task-branch vote sat
+  // dead through five trials looking like a vote that ran and did not help.
+  const t0 = Date.now()
+  const outcome = await _turnConsensus(messages, client, fetchImpl)
+  _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
+  return outcome.reason
+}
+
+interface ConsensusOutcome { reason: string; voted: boolean; audit: Record<string, unknown> }
+const _skip = (reason: string, audit: Record<string, unknown> = {}): ConsensusOutcome => ({ reason, voted: false, audit })
+
+async function _turnConsensus(messages: unknown[], client: unknown, fetchImpl?: typeof fetch): Promise<ConsensusOutcome> {
+  if (!turnVoteEnabled()) return _skip("disabled")
+  if (!Array.isArray(messages) || messages.length === 0 || Object.isFrozen(messages)) return _skip("no messages")
+  const last = messages[messages.length - 1] as { parts?: unknown[] }
+  if (!last || !Array.isArray(last.parts)) return _skip("no injectable turn")
+  if (last.parts.some((p) => p?.type === "text" && typeof p?.text === "string" && p.text.includes(CONSENSUS_MARKER))) {
+    return _skip("already carries a verdict")
+  }
+  return _voteOn(latestUserPrompt(messages), client, (note) => {
+    last.parts.push({ type: "text", text: note, synthetic: true })
+  }, "messages", fetchImpl)
+}
+
+// experimental.chat.messages.transform does not fire on every OpenCode version --
+// run 13 recorded fourteen control-sync rows from system.transform and not one
+// message-transform vote. The vote therefore runs from whichever hook the host
+// actually calls, sharing one dedup key so a host that fires both still pays for
+// exactly one vote.
+export async function applyTurnConsensusToSystem(input: unknown, output: unknown, client: unknown, fetchImpl?: typeof fetch): Promise<string> {
+  const t0 = Date.now()
+  const system = (output as { system?: unknown })?.system
+  const outcome = !Array.isArray(system)
+    ? _skip("no system array to inject into")
+    : system.some((t) => typeof t === "string" && t.includes(CONSENSUS_MARKER))
+      ? _skip("already carries a verdict")
+      : await _voteOn(String(extractLastUserText(input) || extractLastUserText(output) || ""), client,
+        (note) => { system.push(note) }, "system", fetchImpl)
+  _writeTurnVoteAudit({ ...outcome.audit, reason: outcome.reason, voted: outcome.voted, totalMs: Date.now() - t0 })
+  return outcome.reason
+}
+
+async function _voteOn(
+  prompt: string,
+  client: unknown,
+  inject: (note: string) => void,
+  host = "messages",
+  fetchImpl?: typeof fetch,
+): Promise<ConsensusOutcome> {
+  if (!turnVoteEnabled()) return _skip("disabled")
+  const selection = loadSelection()
+  // The mode is not static: the control vector moves it every turn, so a run
+  // launched in vibeultrax spends most of its turns in whatever regime the
+  // blackbox picked (run probe-2 spent 2360 of 2523 turns in "audit"). Gating on
+  // one mode name meant the vote almost never ran. Raw is the only mode that
+  // opts out of orchestration entirely; every other mode votes when the
+  // envelope gives it somewhere to escalate.
+  const mode = String(selection?.optimization_mode || "").trim().toLowerCase()
+  if (mode === "raw") return _skip("raw mode does not vote")
+
+  const plan = planTurnConsensus(prompt, selection?.active_pipeline)
+  const base = { host, promptChars: prompt.length, pipeline: selection?.active_pipeline, plan: plan.reason }
+  if (!plan.wantsVote) return _skip(plan.reason, base)
+
+  const key = _turnVoteKey(String(getCurrentSessionId() || ""), prompt)
+  if (_votedTurns.has(key)) return _skip("already voted this turn", base)
+
+  // TRINITY_* are mutable module bindings, empty until something loads them.
+  // Left unloaded the pool silently shrinks to whatever vote_pool holds and
+  // drops below a majority, which reads as "no vote configured" rather than as
+  // the bug it is.
+  loadTrinitySlotsFromTiersFile()
+  const pool = voteModelPool(selection, TRINITY_CHEAP, TRINITY_MEDIUM)
+  const withPool = { ...base, pool }
+  if (pool.length < MIN_VOTERS) return _skip(`pool of ${pool.length} cannot form a majority`, withPool)
+
+  _votedTurns.add(key)
+  // The SDK client cannot deliver a vote: a session.prompt issued from inside a
+  // hook never settles. Measured three ways -- blocking at 60s, blocking at
+  // 240s, and dispatched without awaiting at 120s -- roughly 1900 attempts
+  // returned zero answers and zero errors, each burning its full deadline. The
+  // voters are polled directly over HTTP instead, which is an outbound call and
+  // so cannot wait on the turn that is awaiting it.
+  const vote = await runDirectVote({
+    models: pool,
+    prompt,
+    timeoutMs: Number(process.env.VIBEOS_VOTE_DEADLINE_MS || 60000),
+    fetchImpl,
+  })
+  const audit = {
+    ...withPool,
+    samples: vote.samples, ran: vote.ran, agreed: vote.agreed,
+    agreement: vote.agreement, elapsedMs: vote.elapsedMs,
+    errors: vote.errors?.slice(0, 4) || [],
+  }
+  if (!vote.ran || vote.samples < MIN_VOTERS) {
+    return { reason: `only ${vote.samples} of ${pool.length} models answered`, voted: false, audit }
+  }
+
+  const note = vote.agreed
+    ? buildConsensusNote(vote.answer, vote.samples, vote.agreement)
+    : buildContestedNote(vote.samples, vote.agreement)
+  if (!note) return { reason: "agreed answer was empty", voted: false, audit }
+  inject(note)
+  return {
+    reason: vote.agreed
+      ? `${vote.samples} models agreed (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`
+      : `${vote.samples} models split (${vote.agreement.toFixed(2)}) in ${vote.elapsedMs}ms`,
+    voted: true,
+    audit,
+  }
+}
+
 export const onMessagesTransform = async (_input, output) => {
   resetChatTransformStateForHome()
   nextTurn()
@@ -1364,6 +1525,13 @@ export const onMessagesTransform = async (_input, output) => {
     injectVolatileDirectives(messages)
     applyDecadence()
     await trackBlackbox(messages)
+
+    try {
+      const consensus = await applyTurnConsensus(messages, (onMessagesTransform as unknown)._client)
+      console.error(`[vibeOS] turn vote: ${consensus}`)
+    } catch (err) {
+      console.error("[vibeOS] turn vote failed (non-fatal):", err?.message || err)
+    }
 
     // auto-amend: inject verification message if unsubstantiated claims found
     try {
@@ -1611,6 +1779,13 @@ export const onSystemTransform = async (_input, output) => {
     if (typeof userText === "string" && userText.trim()) latestUserIntent = userText
     else if (!latestUserIntent) latestUserIntent = null
     if (latestUserIntent) observeUserCorrection(latestUserIntent)
+
+    try {
+      const consensus = await applyTurnConsensusToSystem(_input, output, (onSystemTransform as unknown)._client)
+      console.error(`[vibeOS] turn vote: ${consensus}`)
+    } catch (err) {
+      console.error("[vibeOS] turn vote failed (non-fatal):", err?.message || err)
+    }
 
     const selectionMode = String(loadSelection()?.requested_optimization_mode || loadSelection()?.optimization_mode || "").trim().toLowerCase()
     const requestedOptimizationMode = selectionMode || loadOptimizationMode()

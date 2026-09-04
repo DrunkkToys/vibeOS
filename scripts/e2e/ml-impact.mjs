@@ -22,7 +22,7 @@
 //                                  [--out .ml-impact-out] [--turn-timeout 300000] [--seed s]
 
 import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
@@ -194,12 +194,27 @@ function runTurn(trial, turn, sessionId) {
   args.push(turn.prompt)
 
   const started = Date.now()
+  // spawnSync's timeout kills the direct child, but it keeps waiting for EOF on
+  // the stdout pipe -- and opencode leaves grandchildren holding that pipe open,
+  // so the call blocks long past the deadline. Run 9 measured a turn at 3861s
+  // under a 600s timeout because of this. Writing to files instead of pipes
+  // removes the pipe spawnSync would wait on, so the timeout is the timeout.
+  const outPath = join(OUT, "logs", `${trial.name}-${turn.id}.stdout`)
+  const errPath = join(OUT, "logs", `${trial.name}-${turn.id}.stderr`)
   let res
+  let outFd = null
+  let errFd = null
   try {
-    res = spawnSync(OPENCODE, args, { encoding: "utf8", timeout: TURN_TIMEOUT, killSignal: "SIGKILL", maxBuffer: 128 * 1024 * 1024, env })
+    outFd = openSync(outPath, "w")
+    errFd = openSync(errPath, "w")
+    res = spawnSync(OPENCODE, args, { timeout: TURN_TIMEOUT, killSignal: "SIGKILL", stdio: ["ignore", outFd, errFd], env })
   } catch (e) {
-    res = { stdout: e.stdout || "", stderr: e.stderr || "", status: e.status ?? -1 }
+    res = { status: e.status ?? -1 }
+  } finally {
+    for (const fd of [outFd, errFd]) { if (fd !== null) { try { closeSync(fd) } catch {} } }
   }
+  res.stdout = existsSync(outPath) ? readFileSync(outPath, "utf8") : ""
+  res.stderr = existsSync(errPath) ? readFileSync(errPath, "utf8") : ""
   const elapsedMs = Date.now() - started
   const stdout = res.stdout || ""
   const stderr = res.stderr || ""
@@ -223,7 +238,8 @@ function runTurn(trial, turn, sessionId) {
   return {
     id: turn.id,
     status: res.status ?? -1,
-    timedOut: res.status === null || res.signal === "SIGTERM",
+    // killSignal is SIGKILL, so a killed turn reports SIGKILL, not SIGTERM.
+    timedOut: res.status === null || res.signal === "SIGKILL" || res.signal === "SIGTERM",
     elapsedMs,
     sessionId: sid,
     text: text.join("\n"),
