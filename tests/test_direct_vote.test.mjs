@@ -182,4 +182,10 @@ test("an empty prompt is never sent to a paid endpoint", async () => {
 test("the token cap has a documented default", () => {
   assert.equal(typeof VOTE_MAX_TOKENS, "number")
   assert.ok(VOTE_MAX_TOKENS > 0)
+  // A reasoning model spends this budget on reasoning_content before it emits
+  // any content, so a cap sized to the answer truncates it mid-thought and
+  // returns an empty string. Measured on the shipped pool: at 900 two of four
+  // voters returned zero content on a realistic prompt and the vote fell below
+  // MIN_VOTERS; at 4096 all four answered.
+  assert.ok(VOTE_MAX_TOKENS >= 4096, `cap ${VOTE_MAX_TOKENS} starves reasoning voters`)
 })

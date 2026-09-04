@@ -111,7 +111,11 @@ export async function askDirect(
   }
 }
 
-export const VOTE_MAX_TOKENS = 900
+// Sized to the reasoning budget, not to the answer: a reasoning model spends
+// this cap on reasoning_content first and returns empty content if it runs out
+// mid-thought. At 900 two of the four shipped voters answered with nothing,
+// silently dropping the vote below MIN_VOTERS.
+export const VOTE_MAX_TOKENS = 4096
 
 export async function runDirectVote(opts: {
   models: unknown
