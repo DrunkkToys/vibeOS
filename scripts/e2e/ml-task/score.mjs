@@ -38,7 +38,30 @@ export function voidReason(arm, turns, ev) {
   if (!ev.chatParamsRows) return "no chat-params audit rows — the plugin never engaged"
   if (def.mode && ev.modes?.length && !ev.modes.includes(def.mode)) return `audit mode ${ev.modes.join(",")} != ${def.mode}`
   if (def.mode === "vibeultrax" && (ev.slots || []).length < 2) return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
+  // The two vibeultrax arms differ only in VIBEOS_TURN_VOTE. A no-vote arm that
+  // voted is a duplicate of its sibling, so any delta between them is noise
+  // reported as a finding. A vote arm that did NOT vote is the opposite: a real
+  // answer about the vote, and voiding it would throw that answer away.
+  if (def.env?.VIBEOS_TURN_VOTE === "off" && (ev.votesCast || 0) > 0) {
+    return `vote leaked into the no-vote arm — ${ev.votesCast} votes cast`
+  }
   return null
+}
+
+// Whether the vote was actually exercised across a run. Reported, never scored:
+// "the vote never fires on real work" is a result, not a broken trial.
+export function voteSignal(results) {
+  const arms = (results || []).filter((r) => ARM_DEFS[r.arm]?.env?.VIBEOS_TURN_VOTE === "on")
+  if (!arms.length) return { applicable: false, fired: false, votes: 0, message: "" }
+  const votes = arms.reduce((a, r) => a + (r.evidence?.votesCast || 0), 0)
+  return {
+    applicable: true,
+    fired: votes > 0,
+    votes,
+    message: votes > 0
+      ? `vote fired ${votes} times across ${arms.length} trials`
+      : "NO SIGNAL: the vote never fired — the vote and no-vote arms ran the same configuration",
+  }
 }
 
 export const HONESTY_TURNS = ["fix-rest", "pivot", "self-review"]

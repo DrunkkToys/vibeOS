@@ -160,3 +160,46 @@ test("the cascade void guard follows the mode, not the arm name", async () => {
   const ok = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap", "brain"] }
   assert.equal(voidReason("vibeultrax-novote", turns, ok), null)
 })
+
+// ── the vote must be observably present, or absent, in the arm that claims it ──
+// The two vibeultrax arms differ only in an env var. If the vote never fires in
+// the vote-on arm, the arms are the same configuration and any delta between them
+// is noise reported as a finding — the exact failure this file exists to prevent.
+
+test("a no-vote arm that cast votes is void, not a data point", async () => {
+  const { voidReason } = await import("../scripts/e2e/ml-task/score.mjs")
+  const turns = [{ id: "diagnose", status: 0 }]
+  const base = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap", "brain"] }
+  assert.match(String(voidReason("vibeultrax-novote", turns, { ...base, votesCast: 2 })),
+    /vote leaked/i, "an env leak makes the arm a duplicate of its sibling")
+  assert.equal(voidReason("vibeultrax-novote", turns, { ...base, votesCast: 0 }), null)
+})
+
+test("a vote arm that cast no votes is reported, not voided", async () => {
+  const { voidReason, voteSignal } = await import("../scripts/e2e/ml-task/score.mjs")
+  const turns = [{ id: "diagnose", status: 0 }]
+  const base = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap", "brain"] }
+  // "the vote never fires on real work" is a result about the vote, not a broken
+  // trial. Voiding it would throw away the answer.
+  assert.equal(voidReason("vibeultrax", turns, { ...base, votesCast: 0 }), null)
+
+  const dead = voteSignal([
+    { arm: "vibeultrax", evidence: { votesCast: 0 } },
+    { arm: "vibeultrax", evidence: { votesCast: 0 } },
+    { arm: "vibeultrax-novote", evidence: { votesCast: 0 } },
+  ])
+  assert.equal(dead.fired, false)
+  assert.match(dead.message, /same configuration/i)
+
+  const live = voteSignal([
+    { arm: "vibeultrax", evidence: { votesCast: 3 } },
+    { arm: "vibeultrax-novote", evidence: { votesCast: 0 } },
+  ])
+  assert.equal(live.fired, true)
+  assert.equal(live.votes, 3)
+})
+
+test("voteSignal ignores arms that were never asked to vote", async () => {
+  const { voteSignal } = await import("../scripts/e2e/ml-task/score.mjs")
+  assert.equal(voteSignal([{ arm: "raw", evidence: { votesCast: 0 } }]).applicable, false)
+})

@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url"
 import { generateTask } from "./ml-task/generate.mjs"
 import { gradeHidden, gradeVisible, hiddenTestNames, reachableGroups } from "./ml-task/grade.mjs"
 import { TURNS } from "./ml-task/prompts.mjs"
-import { ARM_DEFS, applyEfficiency, constantComponents, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
+import { ARM_DEFS, applyEfficiency, constantComponents, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -277,6 +277,8 @@ function collectEvidence(trial) {
   const audit = readJsonl(join(trial.home, "cascade-audit", "cascade-audit.jsonl"))
   const ledger = readJsonl(join(trial.home, "turn-ledger.jsonl"))
   const chatParams = audit.filter((r) => r.source === "chat-params")
+  // Written by _writeTurnVoteAudit in chat-transform.ts, into the same audit file.
+  const voteRows = audit.filter((r) => r.source === "turn-vote")
   const slots = [...new Set(chatParams.map((r) => r.slot).filter(Boolean))]
   const modes = [...new Set(chatParams.map((r) => r.optimizationMode).filter(Boolean))]
   const overrides = chatParams.filter((r) => r.overridden).length
@@ -290,6 +292,9 @@ function collectEvidence(trial) {
   return {
     auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides,
     ranModels, finalModels, ledgerRows: ledger.length, homeFiles,
+    voteRows: voteRows.length,
+    votesCast: voteRows.filter((r) => r.voted === true).length,
+    voteReasons: [...new Set(voteRows.map((r) => r.reason).filter(Boolean))].slice(0, 6),
   }
 }
 
@@ -390,6 +395,8 @@ function report(results) {
   }
   // A component with one value across every scored trial cannot separate the arms.
   // Reporting a delta built on it is how runs 12-15 were reported as evidence.
+  const vote = voteSignal(results)
+  if (vote.applicable) console.log(vote.message)
   const dead = constantComponents(results)
   for (const d of dead) {
     console.log(`NO SIGNAL: ${d.component} constant at ${d.value.toFixed(4)} across all ${d.trials} scored trials`)
