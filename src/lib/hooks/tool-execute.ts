@@ -45,7 +45,7 @@ import {
   isUserAskingForTests, resolveEnforcementMode,
   _getBlackboxTracker, loadBlackboxState, saveBlackboxState as _saveBlackboxState,
   noteTaskRoutingLearning,
-  incrementTurnCounter,
+  incrementTurnCounter, loadOptimizationMode,
 } from "../cascade.js"
 import { saveReport } from "../reporting.js"
 import { remoteCall, isApiConnected } from "../api-client.js"
@@ -1263,16 +1263,7 @@ export const onToolExecuteAfter = async (input, output) => {
       const { ltTasks, ltCache, ltCost, sesTrend, sesTaskDelegations } = readLifetimeSavings()
       const ltTotal = ltTasks + ltCache
       const selNow = loadSelection()
-      let liveModel = ""
-      try {
-        const cfg = await client.config.get("model")
-        if (cfg) liveModel = String(cfg)
-      } catch (cfgErr) {
-        if (DEBUG_INTERNALS) console.error(`[vibeOS] config.get error: ${cfgErr.message}`)
-      }
-      if (!liveModel) {
-        liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
-      }
+      const liveModel = readConfig(projectDirectory) || readConfig(join(process.env.HOME || "", ".config", "opencode")) || process?.env?.OPENCODE_MODEL || ""
       const displayModel = resolveTrinityDisplayModel(projectDirectory, selNow.active_slot || "", liveModel, currentModel) || liveModel || currentModel
       const resolvedModel = displayModel || liveModel || currentModel || ""
       if (resolvedModel && resolvedModel !== currentModel) {

@@ -1134,7 +1134,7 @@ async function resolveFooterDisplayState(
     modelLocked: _modelLocked,
     quietIntent: isGreetingLike(latestUserIntent || ""),
   })
-  const prevAssistantTexts = typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : []
+  const prevAssistantTexts: string[] = []
   // getSessionHealthSnapshot internally runs evaluateClaimEvidence and returns
   // it as snapshot.claimEvidence; calling it separately here would re-read the
   // cascade-audit, session-events, sqlite facts, and turn-ledger a second time
@@ -1379,7 +1379,7 @@ async function _appendFooter(input, output, directory, lastModelError?: string, 
             finalOutcome: rewardOutcome,
             assistantText: rewardText,
             userText: latestUserIntent || "",
-            prevAssistantTexts: typeof _prevAssistantTexts !== "undefined" && Array.isArray(_prevAssistantTexts) ? _prevAssistantTexts : [],
+            prevAssistantTexts: [],
             savingsUsd: state._perTurnCacheDelta,
             isBrainTier: String(currentTier || "").toLowerCase() === "high",
             sessionId: state.sid,

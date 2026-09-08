@@ -56,7 +56,7 @@ import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot } from "../selection-manager.js"
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, writeSessionOptMode } from "../selection-manager.js"
 import { buildSessionBridge, recordSessionBridge } from "./footer.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
@@ -933,8 +933,8 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
             toModel: _ocModel,
             toTier: slot,
             reason: `control vector selected ${slot}`,
-            prompt: userText || latestUserIntent || "",
-            userText: latestUserIntent || userText || "",
+            prompt: latestUserIntent || "",
+            userText: latestUserIntent || "",
             activePipeline: durablePipeline || [],
             projectFingerprint: currentProjectFingerprint,
             projectName: currentProjectName || "",

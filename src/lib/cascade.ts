@@ -12,6 +12,7 @@ import { ResolutionTracker } from "../vibeOS-lib/blackbox/index.js"
 import { vibeqmaxControlVector } from "../vibeOS-lib/blackbox/vibeqmax.js"
 import { vibeultraxControlVector } from "../vibeOS-lib/blackbox/vibeultrax.js"
 import { safeJsonParse, _blackboxEnabled, setBlackboxEnabled as _setGlobalBlackboxEnabled, _OC_SID, currentProjectFingerprint, currentTier, setCurrentProjectFingerprint, _handleStateCorruption, _lockPathFor, withFileLock, readJsonOrEmpty, validateState, loadBlackboxState, saveBlackboxState, loadGlobalLearning, updateGlobalLearning, getLearnedExploratoryWords, projectFingerprint, loadProjectState, saveProjectState, detectTechStack, ensureProjectBucket, recordMissedContext7, recentToolEvents, getVibeOSHome, getCurrentSessionId, updateState } from "./state.js"
+import type { Mode } from "./mode-table.js"
 import { loadSelection, loadSessionOptMode, loadGlobalOptMode, saveGlobalOptMode, writeSelection, writeSessionOptMode, writeSessionSlot } from "./selection-manager.js"
 import { getApiClient, isApiFallback, ensureBootstrapExchange, clearRejectedToken } from "./api-client.js"
 

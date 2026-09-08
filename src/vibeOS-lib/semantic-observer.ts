@@ -201,7 +201,7 @@ function recordFrictionPattern(key, summary, meta = {}) {
       const client = api.getApiClient?.()
       if (client && _OC_SID) {
         const family = meta.family || meta.path || "unknown"
-        client.patternsObserve(_OC_SID, family, summary, key, fp).catch(() => {})
+        client.patternsObserve(_OC_SID, family, summary, key, meta.fingerprint || currentProjectFingerprint || "").catch(() => {})
       }
     }).catch(() => {})
   } catch {}
