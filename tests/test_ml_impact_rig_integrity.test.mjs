@@ -10,7 +10,9 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { spawn } from "node:child_process"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -111,24 +113,39 @@ test("constantComponents ignores voided trials and needs more than one data poin
   assert.deepEqual(constantComponents(withVoid), [])
 })
 
-test("ml-impact refuses a truncated run unless partial is explicitly opted into", () => {
-  const run = (args) => {
-    try {
-      const out = execFileSync(process.execPath, [join(ROOT, "scripts/e2e/ml-impact.mjs"), ...args],
-        { encoding: "utf8", timeout: 20000, cwd: ROOT })
-      return { status: 0, out }
-    } catch (e) {
-      return { status: e.status, out: (e.stdout?.toString() || "") + (e.stderr?.toString() || "") }
-    }
-  }
-  const truncated = run(["--turns", "2", "--model", "x/y"])
+test("ml-impact refuses a truncated run unless partial is explicitly opted into", async () => {
+  // The rig spawns `opencode run` through spawnSync. A timeout on the direct
+  // child kills the rig but not that grandchild, which is reparented to init
+  // and keeps running -- observed on this machine ten minutes after the suite
+  // had exited, writing into <worktree>/.ml-impact-out and competing with a
+  // live A/B run for the same models. Spawn detached, kill the whole process
+  // group, and keep the rig output out of the working tree.
+  const outDir = mkdtempSync(join(tmpdir(), "ml-impact-guard-"))
+  // A developer may legitimately have run the rig with its documented default
+  // --out, so this asserts that THIS run created nothing, not that the working
+  // tree is pristine.
+  const defaultOut = join(ROOT, ".ml-impact-out")
+  const defaultOutExisted = existsSync(defaultOut)
+  const run = (args) => new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(ROOT, "scripts/e2e/ml-impact.mjs"), "--out", outDir, ...args],
+      { cwd: ROOT, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+    let text = ""
+    child.stdout.on("data", (d) => { text += d })
+    child.stderr.on("data", (d) => { text += d })
+    const timer = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL") } catch {} }, 20000)
+    child.on("close", (status) => { clearTimeout(timer); resolve({ status, out: text }) })
+  })
+  const truncated = await run(["--turns", "2", "--model", "x/y"])
   assert.notEqual(truncated.status, 0, "a truncated run must not proceed silently")
   assert.match(truncated.out, /--allow-partial/, "the refusal must name the opt-out")
   assert.match(truncated.out, /2 of 5/, "the refusal must say how much of the scenario was cut")
 
   // The opt-in must get past the turn guard and fail later, on its own merits.
-  const opted = run(["--turns", "2", "--allow-partial", "--model", "x/y"])
+  const opted = await run(["--turns", "2", "--allow-partial", "--model", "x/y"])
   assert.doesNotMatch(opted.out, /--allow-partial/, "opting in must not re-trip the turn guard")
+  assert.equal(existsSync(defaultOut), defaultOutExisted,
+    "the guard run must not write the rig default output directory into the working tree")
+  rmSync(outDir, { recursive: true, force: true })
 })
 
 // ── the vote arm ──
