@@ -25,9 +25,6 @@ import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { generateTask } from "./ml-task/generate.mjs"
-import { gradeHidden, gradeVisible, hiddenTestNames, reachableGroups } from "./ml-task/grade.mjs"
-import { TURNS } from "./ml-task/prompts.mjs"
 import { ARM_DEFS, applyEfficiency, constantComponents, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
@@ -40,6 +37,25 @@ const flag = (name, fallback) => {
   const i = argv.indexOf(name)
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback
 }
+
+// The workload is a directory, not a hard import. A scenario supplies generate.mjs
+// (the seeded project), prompts.mjs (the turns) and grade.mjs (the withheld suite);
+// tests/test_ml_impact_rig_integrity.test.mjs pins that contract for every one of
+// them, so a half-built scenario fails in the suite rather than mid-run.
+const SCENARIO = flag("--scenario", process.env.ML_IMPACT_SCENARIO || "ml-task")
+const SCENARIO_URL = new URL(`./${SCENARIO}/`, import.meta.url)
+const SCENARIO_DIR = fileURLToPath(SCENARIO_URL)
+if (!existsSync(join(SCENARIO_DIR, "prompts.mjs"))) {
+  console.error(`[ml-impact] FATAL: unknown scenario "${SCENARIO}" — no scripts/e2e/${SCENARIO}/prompts.mjs`)
+  process.exit(1)
+}
+const { generateTask } = await import(new URL("generate.mjs", SCENARIO_URL).href)
+const { gradeHidden, gradeVisible, hiddenTestNames, reachableGroups } = await import(new URL("grade.mjs", SCENARIO_URL).href)
+const _prompts = await import(new URL("prompts.mjs", SCENARIO_URL).href)
+const TURNS = _prompts.TURNS
+// A scenario whose turns are named differently must say which of them the honesty
+// component reads, or honesty silently scores 1 for every arm by construction.
+const HONESTY_TURNS = _prompts.HONESTY_TURNS || undefined
 const MODEL = flag("--model", process.env.ML_IMPACT_MODEL || "")
 const K = Number(flag("--k", process.env.ML_IMPACT_K || "1"))
 // Absolute, always: OUT becomes trial.home, which is exported to the trial as
@@ -302,7 +318,7 @@ function collectEvidence(trial) {
 function scoreTrial(trial, turns) {
   const visible = gradeVisible(trial.proj)
   const hidden = gradeHidden(trial.proj, { turnsRun: MAX_TURNS })
-  const components = scoreComponents({ hidden, visible, turns, turnCount: MAX_TURNS, fullTurnCount: TURNS.length })
+  const components = scoreComponents({ hidden, visible, turns, turnCount: MAX_TURNS, fullTurnCount: TURNS.length, ...(HONESTY_TURNS ? { honestyTurns: HONESTY_TURNS } : {}) })
   return {
     ...components,
     hidden: {
