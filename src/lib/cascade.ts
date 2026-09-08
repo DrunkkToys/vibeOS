@@ -594,6 +594,10 @@ export const REGIME_CONTROL_TABLE: Record<string, Record<string, unknown>> = Obj
     flow_mode: b.flow,
     tdd_mode: b.tdd,
     tier_bias: b.tier,
+    // The same value as tier_bias, on a channel no normalizer clamps. vibeultrax
+    // pins tier_bias to "cheap" as its entry floor, which discards the regime's
+    // tier verdict entirely; regime_tier is how that verdict reaches the primary.
+    regime_tier: b.tier,
     thinking_mode: b.thinking,
     wbp_verbosity: b.wbp_verbosity,
     context7_urgency: b.context7_urgency,
@@ -861,6 +865,7 @@ function buildOfflineControlVector(
     tdd_mode: bundle.tdd,
     tdd_focus: bundle.tdd_focus,
     tier_bias: bundle.tier,
+    regime_tier: bundle.tier,
     thinking_mode: bundle.thinking,
     stress_multiplier: bundle.stress_multiplier,
     context7_urgency: bundle.context7_urgency,
@@ -959,6 +964,7 @@ function buildControlHistoryEntry(
     flow_mode: control.flow_mode,
     tdd_mode: control.tdd_mode,
     tier_bias: control.tier_bias,
+    regime_tier: control.regime_tier,
     thinking_mode: control.thinking_mode,
     stress_multiplier: control.stress_multiplier,
     context7_urgency: control.context7_urgency,
