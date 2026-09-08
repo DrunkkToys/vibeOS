@@ -361,13 +361,14 @@ async function main() {
         if (t.status !== 0) break
       }
       const ev = collectEvidence(trial)
-      const reason = voidReason(arm, turns, ev)
+      const execution = readExecution(sid)
+      const reason = voidReason(arm, turns, ev, execution)
       // evidence is the plugin's account of its own decisions; execution is
       // OpenCode's account of what it ran. They are allowed to disagree, and
       // when they do, execution is the one that counts.
       const record = {
         trial: trial.name, arm, index: i, sessionId: sid, evidence: ev,
-        execution: readExecution(sid),
+        execution,
         turns: turns.map(({ text, ...rest }) => ({ ...rest, textBytes: text.length })),
         void: reason || null,
       }
