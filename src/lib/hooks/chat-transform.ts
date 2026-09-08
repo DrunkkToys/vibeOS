@@ -307,6 +307,31 @@ function normalizeSlot(value: unknown): "brain" | "medium" | "cheap" | null {
   return null
 }
 
+// Two independent per-turn tier verdicts, and the stronger one wins.
+//
+// `resolved_tier` is derived from computeDifficulty, which scores prompt TEXT --
+// length, file mentions, error signals, action density. Measured against the
+// evtpipe task the A/B rig runs, all five turns land at 0.284-0.379, so the
+// scorer returns "moderate"/"simple" and never once reaches the >= 0.55 needed
+// for brain. Read alone it capped sixteen vibeultrax runs at medium: the rig
+// recorded ranModels=[cheap,medium] with brain never running, against a raw arm
+// on brain for every turn.
+//
+// `regime_tier` is the blackbox regime's own verdict (REGIME_AXIS_BASE), a
+// session-state signal rather than a keyword count, and the one CLAUDE.md
+// documents as driving the tier. Taking the stronger of the two lets a hard
+// regime escalate past a weak prompt-text read, while EXPLORING -> cheap still
+// de-escalates -- without that, escalation is a one-way ratchet and vibeultrax
+// saves nothing. "auto" is not a slot and carries no verdict.
+export function strongestTierVerdict(a: unknown, b: unknown): "brain" | "medium" | "cheap" | null {
+  const RANK = { cheap: 0, medium: 1, brain: 2 } as const
+  const left = normalizeSlot(a)
+  const right = normalizeSlot(b)
+  if (!left) return right
+  if (!right) return left
+  return RANK[left] >= RANK[right] ? left : right
+}
+
 // A classify response only carries a tier verdict if one of its tier fields holds a
 // real slot name. A 200 that carries none -- a degraded backend, a partial rollout, a
 // stand-in mock -- is not an authoritative "stay where you are"; it is no answer at
@@ -865,7 +890,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         // `tier_bias` is deliberately NOT a source: normalizeBackendDecision forces
         // it to "cheap" for vibeultrax, so reading it would pin the slot forever.
         let verdict: string | null =
-          normalizeSlot(cv.resolved_tier) ||
+          strongestTierVerdict(cv.resolved_tier, cv.regime_tier) ||
           normalizeSlot(routePath.length > 1 ? routePath[routePath.length - 1] : null) ||
           normalizeSlot(cv.selected_slot)
         if (!verdict && latestUserIntent) {
