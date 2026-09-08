@@ -22,7 +22,7 @@ import { buildStatusPayload, buildSavingsPayload, buildSessionCheckout, diagnose
 import { TEMPLATE_LIBRARY } from "./lib/templates.js"
 import { saveReport, listReports, readReport } from "./lib/reporting.js"
 import { appendJsonlWithRotation } from "./utils/fs-helpers.js"
-import { writeSessionSlot, writeSessionOptMode, _resetSelectionCacheForTest } from "./lib/selection-manager.js"
+import { writeSessionSlot, writeSessionOptMode, writePendingGateEscalation, _resetSelectionCacheForTest } from "./lib/selection-manager.js"
 import { loadCredit, thinkingLevel, _lazyRefresh, _readAuth } from "./lib/credit-api.js"
 import { createTrinityTool } from "./lib/trinity-tool.js"
 import { classifyAndRankModels, modelToCcAlias, discoverAvailableModels, probeModel } from "./lib/trinity-rebuild.js"
@@ -216,7 +216,7 @@ function _extractOutputText(output) {
 // Deterministic quality gate — vibeOS v2. Runs on every completion. Silent when
 // the model's claims are backed by real tool evidence; on failure appends one
 // concise, deduped report listing the exact missing evidence. Never blocks.
-function _escalateOnGateFailure(verdict, selection) {
+function _escalateOnGateFailure(verdict, selection, sessionId?) {
   try {
     const sel = selection || loadSelection()
     const from = sel?.active_slot || null
@@ -227,10 +227,22 @@ function _escalateOnGateFailure(verdict, selection) {
       locked: sel?.slot_locked === true,
     })
     if (!target) return
+    const sid = sessionId || getCurrentSessionId()
     writeSelection("active_slot", target)
+    // Writing the selection alone is what made this a no-op for a year: the next
+    // turn read an unchanged session slot, took the reconcile branch, and put the
+    // live model straight back on the tier the gate had just rejected. The
+    // session slot is what the next turn actually compares against; the marker is
+    // what tells it this came from an answer rather than from a prompt guess.
+    if (sid) {
+      writeSessionSlot(sid, target)
+      writePendingGateEscalation(sid, target)
+    }
     console.error(`[vibeOS] quality gate failed on ${from} — escalating to ${target} for the next turn`)
   } catch {}
 }
+
+export const _escalateOnGateFailureForTest = _escalateOnGateFailure
 
 function _runQualityGate(output) {
   try {
