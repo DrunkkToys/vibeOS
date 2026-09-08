@@ -845,16 +845,14 @@ export function withFileLock<T>(filePath: string, fn: () => T, opts: { staleMs?:
   const lockPath = _lockPathFor(filePath)
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
+    let fd: number
+    // Only the acquisition is retryable. Wrapping fn() in the same try meant a
+    // deterministic callback error (a missing file, a corrupt parse) was retried
+    // every 10ms for the whole timeout and then reported as contention that
+    // never happened, with the real cause discarded.
     try {
       mkdirSync(FILE_LOCK_DIR, { recursive: true })
-      const fd = openSync(lockPath, "wx")
-      try { writeFileSync(fd, `${process.pid}\n${Date.now()}\n`) } catch {}
-      try {
-        return fn()
-      } finally {
-        try { closeSync(fd) } catch {}
-        try { rmSync(lockPath, { force: true }) } catch {}
-      }
+      fd = openSync(lockPath, "wx")
     } catch {
       try {
         if (existsSync(lockPath)) {
@@ -870,6 +868,14 @@ export function withFileLock<T>(filePath: string, fn: () => T, opts: { staleMs?:
       try {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
       } catch {}
+      continue
+    }
+    try { writeFileSync(fd, `${process.pid}\n${Date.now()}\n`) } catch {}
+    try {
+      return fn()
+    } finally {
+      try { closeSync(fd) } catch {}
+      try { rmSync(lockPath, { force: true }) } catch {}
     }
   }
   throw new Error(`[vibeOS] lock not acquired for ${filePath} after ${timeoutMs}ms`)
