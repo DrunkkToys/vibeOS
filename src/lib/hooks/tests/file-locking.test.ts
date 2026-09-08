@@ -46,14 +46,14 @@ describe('withFileLock', () => {
     assert.strictEqual(existsSync(lockPath), false);
   });
 
-  it('removes lock file even when callback throws', async () => {
+  it('propagates the callback error and still removes the lock file', async () => {
     const path = '/tmp/test-lock-error-' + Date.now() + '-' + Math.random();
     const lockPath = lockPathFor(path);
     await assert.rejects(
       async () => {
         withFileLock(path, () => { throw new Error('callback failed'); }, { timeoutMs: 100 });
       },
-      /lock not acquired/
+      /callback failed/
     );
     assert.strictEqual(existsSync(lockPath), false);
   });

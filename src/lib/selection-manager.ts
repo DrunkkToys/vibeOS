@@ -25,6 +25,15 @@ export function _resetSelectionCacheForTest(): void {
   _selCacheHome = ""
 }
 
+// A writer must tolerate a home that has no model-tiers.json yet. It used to
+// readFileSync it unconditionally: on a fresh install the ENOENT was swallowed
+// by withFileLock, retried for its whole 2000ms timeout, reported as a lock
+// failure, and the write was dropped.
+function readTiersForWrite(tiersFile: string): any {
+  const raw = existsSync(tiersFile) ? readFileSync(tiersFile, "utf-8") : "{}"
+  return safeJsonParse<any>(raw) || {}
+}
+
 function loadSelectionImpl(): any {
   const TIERS_FILE = TIERS_FILE_PATH()
   try {
@@ -98,7 +107,7 @@ export function writeSelection(key: string, value: any): boolean {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     const result = withFileLock(TIERS_FILE, () => {
-      const j = safeJsonParse<any>(readFileSync(TIERS_FILE, "utf-8"))
+      const j = readTiersForWrite(TIERS_FILE)
       if (!j.selection) j.selection = {}
       for (const shadowKey of SHADOW_SELECTION_KEYS) delete j.selection[shadowKey]
       j.selection[key] = value
@@ -221,7 +230,7 @@ export function writeAxisOverride(name: string, value: string): boolean {
   const TIERS_FILE = join(getVibeOSHome(), "model-tiers.json")
   try {
     return withFileLock(TIERS_FILE, () => {
-      const j = safeJsonParse<any>(readFileSync(TIERS_FILE, "utf-8"))
+      const j = readTiersForWrite(TIERS_FILE)
       if (!j.selection) j.selection = {}
       for (const shadowKey of SHADOW_SELECTION_KEYS) delete j.selection[shadowKey]
       if (!j.selection.axis_overrides || typeof j.selection.axis_overrides !== "object") j.selection.axis_overrides = {}
