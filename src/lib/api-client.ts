@@ -144,6 +144,21 @@ function persistPrimaryApiEnvState(next: { token?: string | null }): void {
   }
 }
 
+// A refused connection is not a flaky one. The next attempt to a closed port is
+// refused exactly as fast as the first, so the 1+2+4s retry ladder buys nothing
+// and costs 7s -- per call, on every turn the API is down.
+function isUnreachable(err: unknown): boolean {
+  const e = err as { message?: string; code?: string; cause?: { code?: string; errors?: Array<{ code?: string }> } }
+  const codes = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN"])
+  if (e?.code && codes.has(e.code)) return true
+  if (e?.cause?.code && codes.has(e.cause.code)) return true
+  if (Array.isArray(e?.cause?.errors) && e.cause.errors.some((x) => x?.code && codes.has(x.code))) return true
+  const msg = String(e?.message || "")
+  for (const code of codes) if (msg.includes(code)) return true
+  // Bun words this differently from undici and matches none of the codes above.
+  return msg.includes("Unable to connect")
+}
+
 export class VibeOSApiClient {
   baseUrl: string
   apiToken: string | null
@@ -163,6 +178,16 @@ export class VibeOSApiClient {
   async request(path: string, body: Record<string, unknown> | null = null, isAdmin = false): Promise<unknown> {
     if (!this.apiToken && !isAdmin) {
       throw new Error("VIBEOS_API_TOKEN is not set")
+    }
+
+    // Only remoteCall used to arm the breaker, so every direct client.X() call
+    // site -- classify, blackboxAnalyze, blackboxState, recordRoutingDecision --
+    // paid the full ladder again in the same turn. /health is exempt: it is the
+    // probe that ends the cooldown, so gating it would make fallback permanent.
+    const isHealthProbe = path === "/health"
+    if (!isAdmin && !isHealthProbe && _apiFallbackMode && _apiFallbackSince
+      && Date.now() - _apiFallbackSince < fallbackCooldownMs()) {
+      throw new VibeOSNetworkError("API is in fallback cooldown; not attempting " + path)
     }
 
     const url = this.baseUrl + path
@@ -202,6 +227,8 @@ export class VibeOSApiClient {
           throw new Error("API error " + res.status + ": " + (errorBody.error || res.statusText))
         }
 
+        _apiFallbackMode = false
+        _apiFallbackSince = 0
         return res.json()
       } catch (err: unknown) {
         if (err instanceof VibeOSAuthError) throw err
@@ -214,6 +241,9 @@ export class VibeOSApiClient {
           throw new VibeOSTimeoutError("Request to " + url + " timed out after " + this.timeout + "ms")
         }
         lastError = err as Error
+        // Unreachable is terminal: retrying a refused connection only burns the
+        // backoff. Everything else keeps the retry behaviour it already had.
+        if (isUnreachable(err)) break
         if (attempt <= MAX_RETRIES && error.message && (
           error.message.includes("fetch") || error.message.includes("network") || error.message.includes("ECONNREFUSED")
         )) {
@@ -222,7 +252,14 @@ export class VibeOSApiClient {
       }
     }
 
-    throw new VibeOSNetworkError("Failed to reach API after " + MAX_RETRIES + " retries: " + (lastError ? lastError.message : "unknown error"))
+    if (!isAdmin) {
+      _apiFallbackSince = Date.now()
+      if (!_apiFallbackMode) {
+        _apiFallbackMode = true
+        console.error("[vibeOS] API fallback activated (" + path + "): " + (lastError ? lastError.message : "unreachable"))
+      }
+    }
+    throw new VibeOSNetworkError("Failed to reach API: " + (lastError ? lastError.message : "unknown error"))
   }
 
   async exchangeBootstrapToken(bootstrapToken: string, buildChannel = ALPHA_BUILD_CHANNEL): Promise<string> {
