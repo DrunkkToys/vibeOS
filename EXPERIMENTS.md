@@ -151,14 +151,67 @@ ever unrecoverable again.
 
 ---
 
-## run23 — in flight
+## run23 — the hang is the provider's, not the plugin's
 
-Current master `6c70147f`, sha256 `c448fd85c202`. One turn, both arms, k=1: the
-only question is whether a vibeultrax turn one completes at all on a build that
-carries #552, #553 and #554.
+Current master `6c70147f`, sha256 `c448fd85c202`. One turn, both arms, k=1.
 
-**Prediction:** the vibeultrax trial completes turn one within the wall clock
-raw needs for it (roughly 160s), or fails with output rather than in silence.
-**Falsified if:** it hangs for the full 900s having emitted nothing, which would
-make the hang deterministic and plugin-side, since the same turn on the same
-model completes without the plugin.
+**Prediction:** the vibeultrax trial completes turn one, or fails with output
+rather than in silence.
+**Result: falsified, and so was the alternative.** Both arms hung. Each ran
+`diagnose` twice for the full 900s and emitted zero bytes.
+
+| trial | attempt 1 | attempt 2 | outcome |
+|---|---|---|---|
+| raw-0 | 900s, 0 bytes | 900s, 0 bytes | void |
+| vibeultrax-0 | 900s, 0 bytes | 900s, 0 bytes | void |
+
+raw-0 carries no plugin at all, so the hang cannot be plugin-side. That
+retrospectively removes the only suggestive thing about run22: both of its
+vibeultrax trials died on turn one, but so does the control here.
+
+**The direct probe.** A bare `opencode run --pure`, no plugin, no scenario, in an
+empty directory, prompt "Reply with the single word OK and nothing else":
+
+| model | result |
+|---|---|
+| `opencode/mimo-v2.5-free` | 180s, zero bytes, SIGKILL |
+| `opencode/muse-spark-1.2-contributor-free` | 90s, zero bytes, SIGKILL |
+| `opencode-go/mimo-v2.5` | 401 — insufficient balance |
+| `deepseek/deepseek-v4-flash` | 402 — insufficient balance |
+| `openrouter/deepseek/deepseek-chat` | insufficient credits |
+| `google/gemini-2.5-flash` | model retired |
+| `google/gemini-3.5-flash-lite` | responded, 3s |
+| `google/gemini-3.5-flash` | responded, 5s |
+| `google/gemini-3.6-flash` | responded, 4s |
+
+The entire ladder run20 through run23 used is unreachable, and the free tier
+fails by hanging rather than by erroring, which is why it cost four trials and
+several hours before it was visible.
+
+**What it produced:** #561's retry firing live, and the finding that the ladder
+had to move providers.
+
+---
+
+## run24 — in flight, on a ladder that answers
+
+Current master `6c70147f`, sha256 `c448fd85c202`. Five turns, k=2, both arms.
+New ladder, since the old one is unreachable:
+
+| slot | model |
+|---|---|
+| cheap | `google/gemini-3.5-flash-lite` |
+| medium | `google/gemini-3.5-flash` |
+| brain | `google/gemini-3.6-flash` |
+
+**Not comparable to run20-22.** Different models, different provider. This is a
+new baseline, and the raw arm in this run is the only control its vibeultrax arm
+may be measured against.
+
+**Prediction:** trials complete rather than hang, giving the first evaluable
+answer to criteria 1 through 4 -- at least two distinct models per vibeultrax
+session in `opencode.db`, escalation following gate verdicts, at least one turn
+on the cheap rung, and no void trials.
+**Falsified if:** `opencode.db` shows one model per vibeultrax session, which
+would mean the routing fixes in #551 do not reach a live session even on a
+provider that answers.
