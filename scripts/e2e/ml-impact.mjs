@@ -29,6 +29,7 @@ import { ARM_DEFS, applyEfficiency, cliModelArgs, constantComponents, entryModel
 import { readExecution } from "./ml-task/execution.mjs"
 import { readInternalErrors } from "./ml-task/internal-errors.mjs"
 import { readBundleProvenance } from "./ml-task/provenance.mjs"
+import { readGateOutcomes } from "./ml-task/gate-verdicts.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -310,9 +311,11 @@ function collectEvidence(trial) {
   const ranModels = [...new Set(chatParams.map((r) => r.intendedModel || r.inputModel).filter(Boolean))]
   const homeFiles = existsSync(trial.home) ? readdirSync(trial.home) : []
   const internal = readInternalErrors(trial.home)
+  const gate = readGateOutcomes(trial.home)
   return {
     auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides,
     ranModels, finalModels, ledgerRows: ledger.length, homeFiles,
+    gateVerdicts: gate,
     internalErrors: internal.count,
     internalErrorMessages: internal.messages.slice(0, 6),
     internalErrorCounts: internal.byMessage,
