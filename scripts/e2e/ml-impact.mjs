@@ -27,6 +27,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { ARM_DEFS, applyEfficiency, cliModelArgs, constantComponents, entryModel, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { readExecution } from "./ml-task/execution.mjs"
+import { readInternalErrors } from "./ml-task/internal-errors.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -307,9 +308,13 @@ function collectEvidence(trial) {
   const finalModels = [...new Set(ledger.map((r) => r?.finalized?.finalVisibleModel).filter(Boolean))]
   const ranModels = [...new Set(chatParams.map((r) => r.intendedModel || r.inputModel).filter(Boolean))]
   const homeFiles = existsSync(trial.home) ? readdirSync(trial.home) : []
+  const internal = readInternalErrors(trial.home)
   return {
     auditRows: audit.length, chatParamsRows: chatParams.length, slots, modes, overrides,
     ranModels, finalModels, ledgerRows: ledger.length, homeFiles,
+    internalErrors: internal.count,
+    internalErrorMessages: internal.messages.slice(0, 6),
+    internalErrorCounts: internal.byMessage,
     voteRows: voteRows.length,
     votesCast: voteRows.filter((r) => r.voted === true).length,
     voteReasons: [...new Set(voteRows.map((r) => r.reason).filter(Boolean))].slice(0, 6),
