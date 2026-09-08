@@ -18,7 +18,7 @@ function sandbox(name, votePool = ["opencode-go/glm-5.1", "opencode-go/qwen3.8-f
   const old = { HOME: process.env.HOME, VIBEOS_HOME: process.env.VIBEOS_HOME, TURN: process.env.VIBEOS_TURN_VOTE }
   process.env.HOME = dir
   process.env.VIBEOS_HOME = join(dir, ".claude")
-  delete process.env.VIBEOS_TURN_VOTE
+  process.env.VIBEOS_TURN_VOTE = "on"
   mkdirSync(process.env.VIBEOS_HOME, { recursive: true })
   old.DATA = process.env.OPENCODE_DATA_DIR
   old.CACHE = process.env.OPENCODE_CACHE_DIR
@@ -363,4 +363,39 @@ test("a voter's failure reason is kept, not flattened into silence", async () =>
   assert.equal(r.errors.length, 1)
   assert.match(r.errors[0], /p\/b: model not authorized/,
     "0 of N answered gives no way to tell a bad model id from a rejected request")
+})
+
+// ── Default ───────────────────────────────────────────────────────────
+// The vote shipped ON. Across 11,028 audit rows on real work it fired 12
+// times (0.1%) and every one of those came back split — never a single
+// consensus — while charging 14-69s of latency to the turns it did reach.
+// A feature that cannot converge on the workload it ships on does not get to
+// be the default; it becomes opt-in, and the audit rows stay so the next
+// person can measure it rather than trust this comment.
+test("the vote is opt-in: an unset switch does not vote", async () => {
+  const ctx = sandbox("vibeos-turnvote-default-")
+  try {
+    delete process.env.VIBEOS_TURN_VOTE
+    const chat = await load("dflt" + Date.now())
+    const c = voter({})
+    const messages = turn()
+    assert.equal(await chat.applyTurnConsensus(messages, c, c.fetchImpl), "disabled")
+    assert.equal(c.asked.length, 0, "an unset switch must not poll a single voter")
+    assert.equal(messages[0].parts.length, 1, "the default must leave the turn untouched")
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test("VIBEOS_TURN_VOTE=on still turns it back on", async () => {
+  const ctx = sandbox("vibeos-turnvote-optin-")
+  try {
+    process.env.VIBEOS_TURN_VOTE = "on"
+    const chat = await load("optin" + Date.now())
+    const c = voter({})
+    const reason = await chat.applyTurnConsensus(turn(), c, c.fetchImpl)
+    assert.notEqual(reason, "disabled", "the opt-in switch must still reach the vote")
+  } finally {
+    ctx.cleanup()
+  }
 })

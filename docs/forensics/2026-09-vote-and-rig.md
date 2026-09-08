@@ -81,9 +81,10 @@ Four guards, each with a contract test in
 
 ## What is still open
 
-- **The vote ships ON by default** and never agrees. `turnVoteEnabled()` in
-  `chat-transform.ts:1357` returns true unless `VIBEOS_TURN_VOTE=off`, so every
-  vibeultrax user is paying the latency in #9 for zero consensus. Raising
+- ~~**The vote ships ON by default** and never agrees.~~ RESOLVED: the vote is
+  now opt-in — `turnVoteEnabled()` returns true only for `VIBEOS_TURN_VOTE=on`,
+  so no user pays the latency in #9 by default. The audit rows are unchanged,
+  because they are what made the vote measurable in the first place. Raising
   `VOTE_MAX_TOKENS` from 900 makes this worse, not better: at 900 a starved voter
   fails fast, and at 4096 it runs to completion and burns full latency to reach
   the same disagreement. The cap is not the bug.
