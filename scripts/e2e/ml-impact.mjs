@@ -25,7 +25,7 @@ import { execFileSync, execSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { ARM_DEFS, applyEfficiency, constantComponents, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
+import { ARM_DEFS, applyEfficiency, cliModelArgs, constantComponents, entryModel, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -159,6 +159,7 @@ function setupTrial(arm, index) {
 
   const config = { $schema: "https://opencode.ai/config.json" }
   if (def.plugin) {
+    config.model = entryModel(def, TIERS, MODEL)
     config.plugin = [BUNDLE]
     installVibeTierAgentsInConfig(config, {
       trinity: { cheap: { oc: TIERS.cheap }, medium: { oc: TIERS.medium }, brain: { oc: TIERS.brain } },
@@ -222,7 +223,7 @@ function runTurn(trial, turn, sessionId) {
     // share a mode, so an inherited value from the caller's shell must not win.
     ...(def.env || {}),
   }
-  const args = ["run", "--dir", trial.proj, "--format", "json", "--auto", "-m", MODEL, "--agent", def.agent]
+  const args = ["run", "--dir", trial.proj, "--format", "json", "--auto", ...cliModelArgs(def, MODEL), "--agent", def.agent]
   if (def.pure) args.push("--pure")
   if (sessionId) args.push("-s", sessionId)
   args.push(turn.prompt)

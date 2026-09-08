@@ -164,3 +164,24 @@ export function retryDecision(turn, attempt, backoff = RETRY_BACKOFF_MS) {
   if (attempt >= backoff.length) return { retry: false, reason: "retries exhausted" }
   return { retry: true, waitMs: backoff[attempt], reason: "transient provider failure" }
 }
+
+// The rig invoked every arm as `opencode run ... -m <MODEL>`, plugin arms included.
+// An explicit CLI model pin outranks the plugin's chat.params override, so the
+// plugin computed a route, wrote it to its own audit, and OpenCode ran the pinned
+// model anyway. Measured on .ml-run19/.ml-run20 by querying what actually executed
+// (opencode.db `message` rows, not the plugin's audit): every assistant message in
+// every vibeultrax trial ran the brain model. `evidence.ranModels` reported cheap
+// and medium because it is built from the plugin's intent, not from execution.
+// Twenty runs compared a cascade against a baseline while never routing once.
+//
+// A plugin arm must therefore start from its entry tier in config and carry NO
+// CLI pin, so the routing decision is the only thing choosing the model. The raw
+// arm keeps its pin -- being fixed to the brain model is what makes it the baseline.
+export function cliModelArgs(def, model) {
+  return def?.plugin ? [] : ["-m", model]
+}
+
+export function entryModel(def, tiers, model) {
+  if (!def?.plugin) return model
+  return tiers?.[def.entry] || model
+}
