@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url"
 import { ARM_DEFS, applyEfficiency, cliModelArgs, constantComponents, entryModel, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
 import { readExecution } from "./ml-task/execution.mjs"
 import { readInternalErrors } from "./ml-task/internal-errors.mjs"
+import { readBundleProvenance } from "./ml-task/provenance.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -345,6 +346,12 @@ async function main() {
   const results = []
   console.log(`\n[ml-impact] model=${MODEL} arms=${ARMS.join(",")} k=${K} seed=${SEED} out=${OUT}`)
   console.log(`[ml-impact] tiers cheap=${TIERS.cheap} medium=${TIERS.medium} brain=${TIERS.brain}`)
+  const provenance = readBundleProvenance(BUNDLE)
+  mkdirSync(OUT, { recursive: true })
+  writeFileSync(join(OUT, "provenance.json"), JSON.stringify(provenance, null, 2))
+  console.log(`[ml-impact] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)}` +
+    ` commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}` +
+    (provenance.dirty ? " — the commit does not identify this build" : ""))
 
   for (const arm of ARMS) {
     for (let i = 0; i < K; i++) {
