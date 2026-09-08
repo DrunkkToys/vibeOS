@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // @ts-nocheck
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
@@ -208,6 +208,65 @@ function readJsonLines(file: string): any[] {
 
 function getSessionEventLog(sessionId: string, vibeHome = getVibeOSHome()): any[] {
   return readJsonLines(join(vibeHome, "session-events", `${sessionId}.jsonl`))
+}
+
+export interface InternalErrorSummary {
+  total: number
+  distinct: number
+  top: Array<{ message: string; count: number }>
+}
+
+// The console guard in flow-enforcer routes every "[vibeOS] ..." failure into
+// session-events as a footer-error row instead of stderr. Nothing read those
+// rows, so a run could log a hundred internal failures and still report success.
+// Grouping normalizes paths and numbers so one defect seen on three files with
+// three different timeouts is reported as one defect, not three.
+function normalizeErrorMessage(message: string): string {
+  return String(message || "")
+    .replace(/\/[^\s:]+/g, "<path>")
+    .replace(/\d+/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160)
+}
+
+function summarizeErrorRows(rows: any[], limit: number): InternalErrorSummary {
+  const counts = new Map<string, { message: string; count: number }>()
+  let total = 0
+  for (const event of rows) {
+    if (event?.kind !== "footer-error") continue
+    total++
+    const key = normalizeErrorMessage(event?.message)
+    const seen = counts.get(key)
+    if (seen) seen.count++
+    else counts.set(key, { message: String(event?.message || "").slice(0, 160), count: 1 })
+  }
+  const top = [...counts.values()].sort((a, b) => b.count - a.count).slice(0, Math.max(0, limit))
+  return { total, distinct: counts.size, top }
+}
+
+export function getInternalErrorSummary(
+  sessionId = getCurrentSessionId(),
+  vibeHome = getVibeOSHome(),
+  limit = 5,
+): InternalErrorSummary {
+  return summarizeErrorRows(getSessionEventLog(sessionId, vibeHome), limit)
+}
+
+// `vibe diagnose` runs after the fact, often in a fresh session, so scoping the
+// report to the current session would hide exactly the failures the user is
+// trying to diagnose.
+export function getAllInternalErrors(vibeHome = getVibeOSHome(), limit = 5): InternalErrorSummary {
+  const dir = join(vibeHome, "session-events")
+  let files: string[] = []
+  try {
+    files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".jsonl")) : []
+  } catch {
+    return { total: 0, distinct: 0, top: [] }
+  }
+  const rows: any[] = []
+  for (const f of files) rows.push(...readJsonLines(join(dir, f)))
+  return summarizeErrorRows(rows, limit)
 }
 
 function getCascadeAuditEntries(vibeHome = getVibeOSHome()): any[] {
