@@ -36,6 +36,14 @@ export function voidReason(arm, turns, ev) {
     return artifacts.length ? `raw arm produced vibeOS artifacts: ${artifacts.join(",")}` : null
   }
   if (!ev.chatParamsRows) return "no chat-params audit rows — the plugin never engaged"
+  // Protocol rule 5. The console guard hides vibeOS-internal failures from the
+  // terminal and files them as footer-error rows; a trial that logged any of
+  // them ran a degraded plugin, so its score describes something other than the
+  // thing under test.
+  if (ev.internalErrors > 0) {
+    const top = (ev.internalErrorMessages || []).slice(0, 3).join(" | ")
+    return `plugin logged ${ev.internalErrors} internal error${ev.internalErrors === 1 ? "" : "s"}` + (top ? `: ${top}` : "")
+  }
   if (def.mode && ev.modes?.length && !ev.modes.includes(def.mode)) return `audit mode ${ev.modes.join(",")} != ${def.mode}`
   if (def.mode === "vibeultrax" && (ev.slots || []).length < 2) return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
   // The two vibeultrax arms differ only in VIBEOS_TURN_VOTE. A no-vote arm that
