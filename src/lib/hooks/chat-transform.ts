@@ -56,7 +56,7 @@ import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart
 import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
-import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, writeSessionOptMode } from "../selection-manager.js"
+import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, writeSessionOptMode, takePendingGateEscalation } from "../selection-manager.js"
 import { buildSessionBridge, recordSessionBridge } from "./footer.js"
 import { noteProjectPattern } from "../index-helpers.js"
 import { saveSessionStress } from "../index-helpers.js"
@@ -906,9 +906,19 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         console.error("[vibeOS] ultrax primary escalation failed (non-fatal):", ultraErr?.message || ultraErr)
       }
     }
-    const slot = ultraTarget || entrySlot
     const slotLocked = currentSel.slot_locked === true
     const SLOT_RANK: Record<string, number> = { cheap: 0, medium: 1, brain: 2 }
+    // `ultraTarget || entrySlot` is derived from the prompt, before any answer
+    // exists. A pending gate escalation is derived from the answer the model just
+    // produced, judged against real tool evidence. When they disagree the answer
+    // wins -- otherwise vibeultrax re-enters at cheap every turn and reverts the
+    // escalation the gate just made. Consumed here, so it applies to exactly one
+    // turn and de-escalation still works.
+    const promptSlot = ultraTarget || entrySlot
+    const pendingGateSlot = slotLocked ? null : takePendingGateEscalation(sid)
+    const gateOutranksPrompt = !!pendingGateSlot &&
+      (SLOT_RANK[pendingGateSlot] ?? -1) > (SLOT_RANK[promptSlot] ?? -1)
+    const slot = gateOutranksPrompt ? pendingGateSlot : promptSlot
     const userRequestedQuality = currentSel.requested_optimization_mode === "quality"
     const qualityFloorBlock = userRequestedQuality && slot && slot !== "auto" && (SLOT_RANK[slot] ?? 0) < (SLOT_RANK["brain"] ?? 2)
     const canApplySlot = !qualityFloorBlock && slot && slot !== "auto" && (authoritative || (!slotLocked && !_modelLocked))

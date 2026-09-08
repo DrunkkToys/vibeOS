@@ -185,6 +185,32 @@ export function writeSessionOptMode(sid: string, mode: string): boolean {
   })
 }
 
+// The quality gate judges the answer the model actually produced. The cascade's
+// own escalation is pre-hoc -- it guesses from the prompt, before any answer
+// exists. When they disagree the answer wins, so the gate leaves a one-shot
+// marker here that the next turn's syncControlSettings consumes. One-shot, not
+// sticky: a session that escalates on a bad answer must still be able to come
+// back down when the next answer is fine, or the cascade saves nothing.
+export function loadPendingGateEscalation(sid: string): string | null {
+  const record = readSessionRecord(sid)
+  return record?.pending_gate_escalation || null
+}
+
+export function writePendingGateEscalation(sid: string, slot: string): boolean {
+  return writeSessionRecord(sid, (record) => {
+    record.pending_gate_escalation = slot
+  })
+}
+
+export function takePendingGateEscalation(sid: string): string | null {
+  const pending = loadPendingGateEscalation(sid)
+  if (!pending) return null
+  writeSessionRecord(sid, (record) => {
+    delete record.pending_gate_escalation
+  })
+  return pending
+}
+
 export function loadAxisOverrides(): Record<string, string> {
   try {
     return { ...(loadSelection().axis_overrides || {}) }
