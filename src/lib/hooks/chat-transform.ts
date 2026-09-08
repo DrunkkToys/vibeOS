@@ -1380,7 +1380,7 @@ async function trackBlackbox(messages: unknown[]): Promise<void> {
 // tool-execute.ts covers a path live turns measured in the A/B rig never take:
 // they call read, bash, edit and write, never task.
 function turnVoteEnabled(): boolean {
-  return String(process.env.VIBEOS_TURN_VOTE || "").trim().toLowerCase() !== "off"
+  return String(process.env.VIBEOS_TURN_VOTE || "").trim().toLowerCase() === "on"
 }
 
 // One vote per user turn. onMessagesTransform fires again for every tool
