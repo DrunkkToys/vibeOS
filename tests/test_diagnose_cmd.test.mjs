@@ -4,7 +4,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -380,4 +380,48 @@ test("help: repair-state description matches what the command actually repairs",
   const help = await hooks.tool.trinity.execute({ action: "help" })
   assert.ok(!help.includes("fingerprint collisions"), "help must not claim repair-state fixes fingerprint collisions")
   assert.ok(help.includes("repair-state"), "repair-state still listed in help")
+})
+
+// Internal failures used to be written to session-events and read by nothing:
+// a run could log 106 of them and still report every check green.
+function writeSessionEvents(sessionId, rows) {
+  mkdirSync(join(HOME, ".claude/session-events"), { recursive: true })
+  writeFileSync(
+    join(HOME, ".claude/session-events", `${sessionId}.jsonl`),
+    rows.map((r) => JSON.stringify(r)).join("\n") + "\n",
+  )
+}
+
+test("diagnose: reports internal errors recorded by the console guard", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  writeSessionEvents("bench-run", [
+    { kind: "footer-error", message: "[vibeOS] failed to record session bridge: userText is not defined" },
+    { kind: "footer-error", message: "[vibeOS] failed to record session bridge: userText is not defined" },
+    { kind: "footer-error", message: "[vibeOS] cascade classify failed: Failed to reach API after 3 retries" },
+    { kind: "footer-probe", message: "[vibeOS] not an error" },
+  ])
+
+  const hooks = await freshPlugin()
+  await hooks.tool.trinity.execute({ action: "status" })
+  const output = await hooks.tool.trinity.execute({ action: "diagnose" })
+
+  assert.ok(output.includes("internal errors"), "diagnose reports an internal errors check: " + output)
+  assert.ok(/3/.test(output), "the occurrence count is shown")
+  assert.ok(output.includes("userText is not defined"), "the most frequent failure is named: " + output)
+})
+
+test("diagnose: a clean home reports no internal errors", async () => {
+  baseDirs()
+  writeOpenCodeConfig()
+  writeTiers()
+  rmSync(join(HOME, ".claude/session-events"), { recursive: true, force: true })
+
+  const hooks = await freshPlugin()
+  await hooks.tool.trinity.execute({ action: "status" })
+  const output = await hooks.tool.trinity.execute({ action: "diagnose" })
+
+  assert.ok(output.includes("internal errors"), "the check is always present")
+  assert.ok(output.includes("none"), "a clean home says none: " + output)
 })

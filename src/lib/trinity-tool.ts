@@ -8,7 +8,7 @@ import { LABEL_MODES, buildDeterministicTrinity, resolveCurrentExecution, resolv
 import { BRANDED_MODES, RUNTIME_MODES, RAW_MODE, MODE_TABLE, normalizeLegacyMode, resolveCascadeSlot } from "./cascade.js"
 import { getBackendVersion, invalidateApiToken, isApiConnected } from "./api-client.js"
 import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
-import { getSessionHealthSnapshot, getLiveOpenCodeModel } from "./session-health.js"
+import { getSessionHealthSnapshot, getLiveOpenCodeModel, getAllInternalErrors } from "./session-health.js"
 import { getVibeOSHome, getCurrentSessionId, withFileLock } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
 import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, isVibeOSUninstalledCached, resetUninstalledMarkerCache, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
@@ -1644,6 +1644,22 @@ export function createTrinityTool(deps) {
             ? null
             : "run \`npx vibeostheog setup --project\` to repair stale vibeOS plugin registration",
         })
+        // The console guard persists every "[vibeOS] ..." failure to
+        // session-events instead of stderr. Nothing read those rows, so runs
+        // that logged a hundred internal failures still reported all-green.
+        try {
+          const internal = getAllInternalErrors(deps.VIBEOS_HOME || getVibeOSHome())
+          results.push({
+            ok: internal.total === 0,
+            okLabel: internal.total === 0 ? "\u2705" : "\u274c",
+            label: "internal errors",
+            detail: internal.total === 0
+              ? "none"
+              : `${internal.total} in ${internal.distinct} distinct: ` + internal.top.map((e) => `${e.message} (x${e.count})`).join("; "),
+            fix: internal.total === 0 ? null : "these are real plugin failures, not warnings - report them",
+          })
+        } catch {}
+
         if (diagnoseCascade) {
           results.push(...cascadeDiagnosticResults(deps))
         }
