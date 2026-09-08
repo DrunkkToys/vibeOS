@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { ARM_DEFS, applyEfficiency, cliModelArgs, constantComponents, entryModel, voteSignal, countMutating, mean, retryDecision, scoreComponents, stdev, toolNameOf, voidReason } from "./ml-task/score.mjs"
+import { readExecution } from "./ml-task/execution.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -356,8 +357,12 @@ async function main() {
       }
       const ev = collectEvidence(trial)
       const reason = voidReason(arm, turns, ev)
+      // evidence is the plugin's account of its own decisions; execution is
+      // OpenCode's account of what it ran. They are allowed to disagree, and
+      // when they do, execution is the one that counts.
       const record = {
         trial: trial.name, arm, index: i, sessionId: sid, evidence: ev,
+        execution: readExecution(sid),
         turns: turns.map(({ text, ...rest }) => ({ ...rest, textBytes: text.length })),
         void: reason || null,
       }
