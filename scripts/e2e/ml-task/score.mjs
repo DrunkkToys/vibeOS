@@ -180,6 +180,15 @@ export function countMutating(toolNames) {
 // double-apply the edit, silently corrupting the trial the retry is meant to rescue.
 export function retryDecision(turn, attempt, backoff = RETRY_BACKOFF_MS) {
   if (turn.status === 0) return { retry: false, reason: "succeeded" }
+  // A turn that hit the timeout having written nothing to stdout, run no tool
+  // and touched no file did not half-happen -- it did not happen. run22 lost
+  // three of four trials to this, in both arms, on turns the control had
+  // completed in under three minutes. Retried once only: a hang that is the
+  // plugin's own would otherwise cost the run another full timeout per attempt.
+  if (turn.timedOut && (turn.stdoutBytes || 0) === 0 && (turn.mutatingCalls || 0) === 0) {
+    if (attempt >= 1) return { retry: false, reason: "silent hang already retried once" }
+    return { retry: true, waitMs: backoff[attempt], reason: "silent hang — the turn produced nothing" }
+  }
   if (!RETRYABLE.test(turn.errorText || "")) return { retry: false, reason: "not a transient provider failure" }
   if ((turn.mutatingCalls || 0) > 0) return { retry: false, reason: "a tool already changed the repo" }
   if (attempt >= backoff.length) return { retry: false, reason: "retries exhausted" }
