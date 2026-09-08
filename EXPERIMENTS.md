@@ -99,12 +99,66 @@ being retried as lock contention and then mislabelled).
 
 ---
 
-## run22 — in flight
+## run22 — no comparison: three trials of four died on a silent hang
 
-Same configuration as run21, on `d0ab1bd8` (#551 only). The single variable
-against run21 is the gate-escalation routing fix; #552, #553 and #554 are
-deliberately excluded so criterion 1 is testable on its own.
+`d0ab1bd8` (#551 only), sha256 `076b6a9bf5d8`, worktree dirty. Same
+configuration as run21; #552, #553 and #554 deliberately excluded so criterion 1
+was testable on its own.
 
-**Prediction:** >= 2 distinct models in each vibeultrax session, with the
-escalation following a gate failure rather than a regime label.
-**Falsified if:** `opencode.db` still shows one model per session.
+**Prediction:** >= 2 distinct models in each vibeultrax session, escalation
+following a gate failure rather than a regime label.
+
+**Result: unevaluable.** Nothing was measured about routing, because the run
+never produced a vibeultrax trial to measure.
+
+| trial | outcome |
+|---|---|
+| raw-0 | completed, 5 turns, correctness 0.933, qscore 0.973 |
+| raw-1 | void — `pivot` ran 1800s and emitted zero bytes |
+| vibeultrax-0 | void — `diagnose` ran 1800s and emitted zero bytes |
+| vibeultrax-1 | void — `diagnose` ran 1800s and emitted zero bytes |
+
+Final table: raw n=1 (1 void), vibeultrax **n=0** (2 void).
+
+**The failure mode.** Each dead turn wrote nothing at all: the `.stdout` and
+`.stderr` logs are literally empty for the whole timeout. `diagnose` is the turn
+raw-0 completed in 169s and raw-1 in 156s. Both vibeultrax sessions logged
+exactly three internal errors before going silent -- two
+`API fallback activated (blackboxControlVector)` and one
+`updateState failed after 3 retries: lock not acquired` -- and one chat-params
+row, slot `medium`, `overridden: true`.
+
+**What can and cannot be concluded.** Both plugin trials died on turn one; the
+raw trial that died went four turns first. That asymmetry is suggestive and it
+is not proof: one raw trial hung with no plugin loaded at all, so the provider
+can produce this shape unaided, and four trials is not a distribution. run23
+repeats turn one alone on current master to find out whether it is deterministic.
+
+**What it produced:** #561 -- the rig had refused to retry any of these, because
+an empty `errorText` does not match the retryable pattern, so a hang that
+emitted nothing was filed as "not a transient provider failure". A turn that
+produced no output, ran no tool and touched no file did not half-happen, and is
+the one class of timeout that is safe to run again.
+
+**A correction to the record.** In #558 I attributed the falling internal-error
+counts across run20, run21 and run22 to #550, #552 and #554 landing. That is not
+supported: run22's bundle contains none of #552, #553 or #554, and run20's and
+run21's bundles were the main checkout's `dist/vibeOS.js`, since rebuilt and
+now unidentifiable. All the counts support is that both raw arms logged zero
+rows in every run and every vibeultrax trial logged some. #560 records the
+sha256 and commit of the bundle for every run from now on, so no run's build is
+ever unrecoverable again.
+
+---
+
+## run23 — in flight
+
+Current master `6c70147f`, sha256 `c448fd85c202`. One turn, both arms, k=1: the
+only question is whether a vibeultrax turn one completes at all on a build that
+carries #552, #553 and #554.
+
+**Prediction:** the vibeultrax trial completes turn one within the wall clock
+raw needs for it (roughly 160s), or fails with output rather than in silence.
+**Falsified if:** it hangs for the full 900s having emitted nothing, which would
+make the hang deterministic and plugin-side, since the same turn on the same
+model completes without the plugin.
