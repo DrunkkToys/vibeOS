@@ -815,11 +815,22 @@ function buildUltraxControlVector(state: { sub_regime?: string; latest_stress_mu
     stress_multiplier: stress,
     user_text: state?.user_text || state?.prompt || "",
   })
+  const subRegime = String(state?.sub_regime || "INIT").toUpperCase()
+  // vibeultrax builds its whole vector from cascadeDecide(text), a prompt-text
+  // scorer that tops out at "medium" on ordinary instructions, and drops the
+  // regime. Every other mode goes through buildOfflineControlVector, which
+  // publishes its axis bundle's tier as regime_tier -- the channel
+  // strongestTierVerdict reads and no normalizer clamps. Without it here the
+  // channel is dead for the only mode that needs it: .ml-run18 recorded
+  // regime_tier=undefined on every persisted vector while the session sat in
+  // LOOPING, and brain never ran. tier_bias stays on the cheap entry floor.
+  const regimeTier = (REGIME_AXIS_BASE as Record<string, AxisBundle>)[subRegime]?.tier ?? REGIME_AXIS_BASE.INIT.tier
   return {
     ...ultra,
+    regime_tier: regimeTier,
     enforcement_reason: `[optimize: vibeultrax] cascade root`,
     agent_mode: ultra.ultrax_profile === "deep" ? "plan" : undefined as unknown,
-    directives: [`[ultrax root] Dedicated cascade root active for ${state?.sub_regime || "INIT"}.`],
+    directives: [`[ultrax root] Dedicated cascade root active for ${subRegime}.`],
   }
 }
 
