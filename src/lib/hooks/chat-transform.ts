@@ -2326,8 +2326,11 @@ export const onSystemTransform = async (_input, output) => {
     }
 
     // ── Project guard (every 5 turns instead of every turn) ──
+    // Turn state, not system: it appears on one turn in five, and in `system`
+    // it landed AHEAD of the byte-identical anti-fabrication constants, so its
+    // arrival and departure shifted the whole cached prefix twice every cycle.
     if (_turnCountInject % 5 === 0) {
-      pushSystem(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
+      pushTurnState(output, "[project guard: CRITICAL] AGENTS.md and README.md are protected by vibeOS. " +
         "Do NOT modify either file without explicit user permission. " +
         "AGENTS.md defines that AI agents must ask before changing code.")
     }

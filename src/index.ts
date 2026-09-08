@@ -1437,6 +1437,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     get _lockedModel() { return _lockedModel },
     set _lockedModel(v) { setLockedModel(v) },
   }
+  const TRINITY_ALIAS_DESCRIPTION =
+    "Legacy alias for the `vibe` tool. Same arguments, same behaviour. " +
+    "See the `vibe` tool for the full list of actions."
+  const vibeToolSpec = createTrinityTool(trinityDeps)
   // Every automatic behavior (enforcement, footer, directives, model routing)
   // runs ONLY when the vibe agent is the one selected in OpenCode's mode
   // dropdown, and only while vibeOS is installed. An in-session `vibe
@@ -1582,8 +1586,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
 
     },
     tool: {
-      trinity: tool(createTrinityTool(trinityDeps)),
-      vibe: tool(createTrinityTool(trinityDeps)),
+      // One schema, two names. Building it twice sent the same 2314-char
+      // description and enum block on every single request.
+      trinity: tool({ ...vibeToolSpec, description: TRINITY_ALIAS_DESCRIPTION }),
+      vibe: tool(vibeToolSpec),
       "research-audit": tool({
         description: "Scan session for research anti-patterns (domain chains, redundant queries, no synthesis). hours=N (default 24).",
         args: { hours: tool.schema.number().optional() },
