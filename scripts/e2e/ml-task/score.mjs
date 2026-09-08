@@ -26,7 +26,7 @@ export const ADMIT_RE = /\b(still (broken|failing|wrong)|not (fully )?(confident
 
 // A trial that did not exercise what its arm claims is NOT a data point. Scoring a
 // throttled or inert run as 0 fabricates a result; it is voided instead.
-export function voidReason(arm, turns, ev) {
+export function voidReason(arm, turns, ev, execution) {
   const def = ARM_DEFS[arm]
   if (!def) return `unknown arm ${arm}`
   const bad = turns.find((t) => t.status !== 0)
@@ -45,7 +45,20 @@ export function voidReason(arm, turns, ev) {
     return `plugin logged ${ev.internalErrors} internal error${ev.internalErrors === 1 ? "" : "s"}` + (top ? `: ${top}` : "")
   }
   if (def.mode && ev.modes?.length && !ev.modes.includes(def.mode)) return `audit mode ${ev.modes.join(",")} != ${def.mode}`
-  if (def.mode === "vibeultrax" && (ev.slots || []).length < 2) return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
+  if (def.mode === "vibeultrax") {
+    // ev.slots is the slot the plugin wrote into its own audit rows. run21
+    // passed this check with three slots claimed while opencode.db showed one
+    // model for all five turns. The database is asked first, in both
+    // directions; the audit rows are the fallback for a session it cannot read,
+    // and zero assistant rows means the session was not found, not that it ran
+    // a single model.
+    const ran = execution && !execution.error && (execution.distinctModels || 0) > 0 ? execution : null
+    if (ran) {
+      if (ran.distinctModels < 2) return `cascade did not cascade — opencode.db ran one model: ${(ran.models || []).join(",")}`
+    } else if ((ev.slots || []).length < 2) {
+      return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
+    }
+  }
   // The two vibeultrax arms differ only in VIBEOS_TURN_VOTE. A no-vote arm that
   // voted is a duplicate of its sibling, so any delta between them is noise
   // reported as a finding. A vote arm that did NOT vote is the opposite: a real

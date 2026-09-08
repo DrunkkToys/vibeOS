@@ -103,5 +103,6 @@ test("the rig attaches the execution table to every trial record", async () => {
   const { readFileSync } = await import("node:fs")
   const rig = readFileSync(new URL("../scripts/e2e/ml-impact.mjs", import.meta.url), "utf8")
   assert.match(rig, /readExecution/, "ml-impact must call readExecution")
-  assert.match(rig, /execution:/, "the trial record must carry an execution key")
+  // Shorthand or not: the record must carry the key, the syntax is not the contract.
+  assert.match(rig, /\n\s*execution[,:]/, "the trial record must carry an execution key")
 })
