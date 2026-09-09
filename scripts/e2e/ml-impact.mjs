@@ -30,6 +30,7 @@ import { readExecution } from "./ml-task/execution.mjs"
 import { readInternalErrors } from "./ml-task/internal-errors.mjs"
 import { readBundleProvenance } from "./ml-task/provenance.mjs"
 import { readGateOutcomes } from "./ml-task/gate-verdicts.mjs"
+import { hashTree, treeChangedBetween } from "./ml-task/tree-hash.mjs"
 import { installVibeTierAgentsInConfig } from "../lib/vibe-tier-agents.mjs"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -199,9 +200,15 @@ function setupTrial(arm, index) {
 // A turn is only retried when it did NO work. Once the model has called a tool it
 // may have edited files, and re-sending the prompt would double-apply the edit and
 // silently corrupt the trial it is meant to rescue.
+//
+// The turn's own report of its tool calls dies with it when the turn is killed, so
+// the project is hashed on either side of every attempt and that is what the retry
+// rule reads. Unknown (an unreadable tree) is not "unchanged".
 function runTurnWithRetry(trial, turn, sessionId) {
   for (let attempt = 0; ; attempt++) {
+    const before = hashTree(trial.proj)
     const result = runTurn(trial, turn, sessionId)
+    result.treeChanged = treeChangedBetween(before, hashTree(trial.proj))
     result.attempts = attempt + 1
     const decision = retryDecision(result, attempt)
     if (!decision.retry) {
