@@ -180,16 +180,24 @@ export function countMutating(toolNames) {
 // double-apply the edit, silently corrupting the trial the retry is meant to rescue.
 export function retryDecision(turn, attempt, backoff = RETRY_BACKOFF_MS) {
   if (turn.status === 0) return { retry: false, reason: "succeeded" }
-  // A turn that hit the timeout having written nothing to stdout, run no tool
-  // and touched no file did not half-happen -- it did not happen. run22 lost
-  // three of four trials to this, in both arms, on turns the control had
-  // completed in under three minutes. Retried once only: a hang that is the
-  // plugin's own would otherwise cost the run another full timeout per attempt.
-  if (turn.timedOut && (turn.stdoutBytes || 0) === 0 && (turn.mutatingCalls || 0) === 0) {
+  // A turn that hit the timeout leaving the project byte-identical did not
+  // half-happen -- it did not happen. run22 lost three of four trials to this,
+  // in both arms, on turns the control had completed in under three minutes.
+  //
+  // The test is the file tree, NOT the turn's own output. `opencode run --format
+  // json` does not stream, so a killed turn reports zero stdout bytes and zero
+  // mutating calls whether it rewrote the repository or never started: the guard
+  // that read those fields (#561) was blind in precisely the case it existed for.
+  // Retried once only: a hang that is the plugin's own would otherwise cost the
+  // run another full timeout per attempt.
+  if (turn.timedOut) {
+    if (turn.treeChanged === true) return { retry: false, reason: "the killed turn already changed the repo" }
+    if (turn.treeChanged !== false) return { retry: false, reason: "killed with the tree state unknown — not retried" }
     if (attempt >= 1) return { retry: false, reason: "silent hang already retried once" }
-    return { retry: true, waitMs: backoff[attempt], reason: "silent hang — the turn produced nothing" }
+    return { retry: true, waitMs: backoff[attempt], reason: "silent hang — the project is unchanged" }
   }
   if (!RETRYABLE.test(turn.errorText || "")) return { retry: false, reason: "not a transient provider failure" }
+  if (turn.treeChanged === true) return { retry: false, reason: "the turn already changed the repo" }
   if ((turn.mutatingCalls || 0) > 0) return { retry: false, reason: "a tool already changed the repo" }
   if (attempt >= backoff.length) return { retry: false, reason: "retries exhausted" }
   return { retry: true, waitMs: backoff[attempt], reason: "transient provider failure" }
