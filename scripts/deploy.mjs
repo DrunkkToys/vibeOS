@@ -128,7 +128,8 @@ try {
 
   // ── Install nightly pricing sync cron if not already present ──
   const isWin = process.platform === "win32"
-  if (!isWin) {
+  const wantCron = process.env.VIBEOS_INSTALL_CRON === "1"
+  if (wantCron && !isWin) {
     try {
       const { execSync } = await import("node:child_process")
       const CRON_MARKER = "# vibeOS nightly pricing sync"
@@ -151,7 +152,7 @@ try {
       }
       process.stderr.write("[vibeOS deploy]   24h pricing sync is recommended to keep model cost data current.\n")
     }
-  } else {
+  } else if (wantCron) {
     process.stderr.write("[vibeOS deploy] Windows: scheduled tasks not yet automated.\n")
     process.stderr.write("[vibeOS deploy]   Create a Task Scheduler task running daily: node " + join(ROOT, "scripts", "sync-pricing.mjs") + "\n")
     process.stderr.write("[vibeOS deploy]   Or install via WSL and use crontab there.\n")

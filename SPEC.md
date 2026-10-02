@@ -359,8 +359,8 @@
 - **Module**: `scripts/uninstall.mjs`
 
 ### 10.3 Building or Deploying Installs Nothing Unasked
-- **Contract**: `build-bundle.mjs` (and so `npm test`) writes only to `dist/` and `bin/`; it never copies the plugin into an OpenCode home. `deploy.mjs` registers the `com.vibeos.opencode-event-retention` LaunchAgent only when `VIBEOS_INSTALL_RETENTION=1`. It does not delete other plugins' `.ts` files or `lib/`/`utils/` dirs in the OpenCode plugin dir.
-- **Test**: `tests/test_no_silent_machine_installs.test.mjs` — 4 tests
+- **Contract**: `build-bundle.mjs` (and so `npm test`) writes only to `dist/` and `bin/`; it never copies the plugin into an OpenCode home. `deploy.mjs` registers the `com.vibeos.opencode-event-retention` LaunchAgent only when `VIBEOS_INSTALL_RETENTION=1`, and touches the user's crontab only when `VIBEOS_INSTALL_CRON=1`. It does not delete other plugins' `.ts` files or `lib/`/`utils/` dirs in the OpenCode plugin dir.
+- **Test**: `tests/test_no_silent_machine_installs.test.mjs` — 6 tests
 - **Module**: `scripts/build-bundle.mjs`, `scripts/deploy.mjs`
 
 ### 10.2b The `vibe` Mode-Dropdown Entry Disappears From Every Source
