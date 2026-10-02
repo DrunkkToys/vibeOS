@@ -8,7 +8,7 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 type Slot = "cheap" | "medium" | "brain"
 
 export function routerOnlyEnabled(): boolean {
-  return process.env.VIBEOS_ROUTER_ONLY === "1"
+  return process.env.VIBEOS_ROUTER_ONLY !== "0"
 }
 
 export function slotForText(text: string): Slot {
