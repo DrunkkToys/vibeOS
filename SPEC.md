@@ -340,7 +340,7 @@
 - **Module**: `src/lib/hooks/chat-transform.ts`
 
 ### 9.10 Router-Only Mode Routes Per Message and Injects Nothing
-- **Contract**: With `VIBEOS_ROUTER_ONLY=1`, the only automatic behavior is per-message model selection: `chat.message` scores the user's text with `computeDifficulty` (simple -> cheap, moderate -> medium, complex -> brain) and `chat.params` sets that slot's model when it is on the same provider. The system prompt, the messages and the answer are left byte-identical; no footer, no directives, no enforcement. Non-vibe agents and cross-provider slots are never overridden.
+- **Contract**: With `VIBEOS_ROUTER_ONLY=1`, the only automatic behavior is per-message model selection: `chat.message` scores the user's text with `computeDifficulty` (simple -> cheap, moderate -> medium, complex -> brain) and sets that slot's `provider/model` on the user message (`output.message.model`), which is the model OpenCode uses for the turn, on any provider. `chat.params` `options.model` is not used: OpenCode passes it as provider options and ignores it for model selection (verified live on OpenCode 1.18.34). The system prompt, the messages and the answer are left byte-identical; no footer, no directives, no enforcement. Only the primary `vibe` agent is routed; `vibe-*` tier subagents and non-vibe agents keep their own model.
 - **Test**: `tests/test_router_only.test.mjs`
 - **Module**: `src/lib/router-only.ts`
 

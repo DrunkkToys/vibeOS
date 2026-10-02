@@ -31,7 +31,8 @@ async function hooks() {
 }
 
 async function turn(h, sid, text, model = GOOGLE) {
-  await h["chat.message"]({ sessionID: sid, agent: "vibe" }, { message: { role: "user" }, parts: [{ type: "text", text }] })
+  const message = { role: "user", model: { ...model } }
+  await h["chat.message"]({ sessionID: sid, agent: "vibe", model }, { message, parts: [{ type: "text", text }] })
   const messages = [{ info: { role: "user", sessionID: sid }, parts: [{ type: "text", text }] }]
   const msgs = { messages: structuredClone(messages) }
   await h["experimental.chat.messages.transform"]({ sessionID: sid }, msgs)
@@ -41,7 +42,7 @@ async function turn(h, sid, text, model = GOOGLE) {
   await h["chat.params"]({ sessionID: sid, agent: "vibe", model, provider: {}, message: {} }, params)
   const out = { text: "answer" }
   await h["experimental.text.complete"]({ sessionID: sid }, out)
-  return { messages, msgs, sys, params, out }
+  return { message, messages, msgs, sys, params, out }
 }
 
 test("router-only adds nothing to the prompt, the messages or the answer", async () => {
@@ -54,25 +55,38 @@ test("router-only adds nothing to the prompt, the messages or the answer", async
   }
 })
 
-test("router-only picks the model per message from its difficulty", async () => {
+test("router-only switches the model of the user message by its difficulty", async () => {
   const h = await hooks()
-  assert.equal((await turn(h, "s-route", SIMPLE)).params.options.model, "gemini-3.5-flash-lite")
-  assert.equal((await turn(h, "s-route", MODERATE)).params.options.model, "gemini-3.5-flash")
-  assert.equal((await turn(h, "s-route", SIMPLE)).params.options.model, "gemini-3.5-flash-lite")
+  assert.deepEqual((await turn(h, "s-route", SIMPLE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
+  assert.deepEqual((await turn(h, "s-route", MODERATE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash" })
+  assert.deepEqual((await turn(h, "s-route", SIMPLE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
 })
 
-test("router-only never switches provider mid-turn", async () => {
+test("router-only switches provider when the slot is on another provider", async () => {
   const h = await hooks()
   const r = await turn(h, "s-cross", SIMPLE, { providerID: "anthropic", modelID: "some-model" })
+  assert.deepEqual(r.message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
+})
+
+test("router-only does not set chat.params options.model, which OpenCode ignores", async () => {
+  const h = await hooks()
+  const r = await turn(h, "s-params", SIMPLE)
   assert.equal(r.params.options.model, undefined)
 })
 
 test("router-only leaves non-vibe agents alone", async () => {
   const h = await hooks()
-  await h["chat.message"]({ sessionID: "s-build", agent: "build" }, { message: {}, parts: [{ type: "text", text: SIMPLE }] })
-  const params = { options: {} }
-  await h["chat.params"]({ sessionID: "s-build", agent: "build", model: GOOGLE, provider: {}, message: {} }, params)
-  assert.equal(params.options.model, undefined)
+  const message = { role: "user", model: { ...GOOGLE } }
+  await h["chat.message"]({ sessionID: "s-build", agent: "build", model: GOOGLE }, { message, parts: [{ type: "text", text: SIMPLE }] })
+  assert.deepEqual(message.model, GOOGLE)
+})
+
+test("router-only leaves vibe tier subagents on their own model", async () => {
+  const h = await hooks()
+  const brain = { providerID: "google", modelID: "gemini-3.6-flash" }
+  const message = { role: "user", model: { ...brain } }
+  await h["chat.message"]({ sessionID: "s-sub", agent: "vibe-brain", model: brain }, { message, parts: [{ type: "text", text: SIMPLE }] })
+  assert.deepEqual(message.model, brain)
 })
 
 test("cleanup", () => {

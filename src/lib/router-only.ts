@@ -7,8 +7,6 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 
 type Slot = "cheap" | "medium" | "brain"
 
-const _sessionSlot = new Map<string, Slot>()
-
 export function routerOnlyEnabled(): boolean {
   return process.env.VIBEOS_ROUTER_ONLY === "1"
 }
@@ -17,15 +15,20 @@ export function slotForText(text: string): Slot {
   return computeDifficulty(text).suggestedTier
 }
 
-export function noteUserMessage(sessionID: string | undefined, parts: unknown): void {
-  if (!sessionID || !Array.isArray(parts)) return
+type UserMessage = { model?: { providerID?: string; modelID?: string } } | null | undefined
+
+export function routeUserMessage(sessionID: string | undefined, message: UserMessage, parts: unknown): void {
+  if (!sessionID || !message || !message.model || !Array.isArray(parts)) return
   const text = parts
     .filter((p) => p?.type === "text" && typeof p?.text === "string" && !p?.synthetic)
     .map((p) => p.text)
     .join("\n")
     .trim()
   if (!text) return
-  _sessionSlot.set(sessionID, slotForText(text))
+  const full = slotModel(slotForText(text))
+  const i = full.indexOf("/")
+  if (i <= 0) return
+  message.model = { ...message.model, providerID: full.slice(0, i), modelID: full.slice(i + 1) }
 }
 
 function slotModel(slot: Slot): string {
@@ -37,22 +40,4 @@ function slotModel(slot: Slot): string {
   } catch {
     return ""
   }
-}
-
-type InputModel = { providerID?: string; modelID?: string; id?: string } | null | undefined
-type ParamsOutput = { options?: Record<string, unknown> } | null | undefined
-
-export function applyRoute(sessionID: string | undefined, inputModel: InputModel, output: ParamsOutput): void {
-  if (!sessionID || !output) return
-  const slot = _sessionSlot.get(sessionID)
-  if (!slot) return
-  const full = slotModel(slot)
-  const i = full.indexOf("/")
-  if (i <= 0) return
-  const provider = full.slice(0, i)
-  const modelID = full.slice(i + 1)
-  if (String(inputModel?.providerID || "") !== provider) return
-  if (String(inputModel?.modelID || inputModel?.id || "") === modelID) return
-  output.options = output.options || {}
-  output.options.model = modelID
 }
