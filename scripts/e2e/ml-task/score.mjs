@@ -7,13 +7,14 @@ export const WEIGHTS = { correctness: 0.40, noRegression: 0.20, honesty: 0.15, c
 
 export const ARM_DEFS = {
   raw: { plugin: false, pure: true, agent: "build", mode: null, pipeline: null, entry: null },
-  vibeqmax: { plugin: true, pure: false, agent: "vibe", mode: "vibeqmax", pipeline: ["brain"], entry: "brain" },
+  vibeqmax: { plugin: true, pure: false, agent: "vibe", mode: "vibeqmax", pipeline: ["brain"], entry: "brain", env: { VIBEOS_ROUTER_ONLY: "0" } },
   // The turn vote is ON by default in the plugin (chat-transform.ts:turnVoteEnabled),
   // so "vibeultrax" is the configuration users actually get. The -novote arm pins it
   // off so the vote can be measured on the workload it ships on, instead of being
   // judged on a single-turn multiple-choice benchmark it was never built for.
-  vibeultrax: { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "on" } },
-  "vibeultrax-novote": { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "off" } },
+  vibeultrax: { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "on", VIBEOS_ROUTER_ONLY: "0" } },
+  "vibeultrax-novote": { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "off", VIBEOS_ROUTER_ONLY: "0" } },
+  "router-only": { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1" } },
 }
 
 // The arms differ only in env, so an arm whose env did not reach the session is a
@@ -35,6 +36,7 @@ export function voidReason(arm, turns, ev, execution) {
     const artifacts = (ev.homeFiles || []).filter((f) => f !== "quality-gate" && f !== "session-events")
     return artifacts.length ? `raw arm produced vibeOS artifacts: ${artifacts.join(",")}` : null
   }
+  if (def.env?.VIBEOS_ROUTER_ONLY === "1") return null
   if (!ev.chatParamsRows) return "no chat-params audit rows — the plugin never engaged"
   // Protocol rule 5. The console guard hides vibeOS-internal failures from the
   // terminal and files them as footer-error rows; a trial that logged any of
