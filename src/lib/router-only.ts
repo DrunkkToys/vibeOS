@@ -11,8 +11,9 @@ export function routerOnlyEnabled(): boolean {
   return process.env.VIBEOS_ROUTER_ONLY !== "0"
 }
 
-export function slotForText(text: string): Slot {
-  return computeDifficulty(text).suggestedTier
+export function clearlyTrivial(text: string): boolean {
+  const d = computeDifficulty(text)
+  return d.level === "simple" && d.confidence >= 0.85
 }
 
 type UserMessage = { model?: { providerID?: string; modelID?: string } } | null | undefined
@@ -24,8 +25,8 @@ export function routeUserMessage(sessionID: string | undefined, message: UserMes
     .map((p) => p.text)
     .join("\n")
     .trim()
-  if (!text) return
-  const full = slotModel(slotForText(text))
+  if (!text || !clearlyTrivial(text)) return
+  const full = slotModel("cheap")
   const i = full.indexOf("/")
   if (i <= 0) return
   message.model = { ...message.model, providerID: full.slice(0, i), modelID: full.slice(i + 1) }

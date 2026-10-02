@@ -56,11 +56,23 @@ test("router-only adds nothing to the prompt, the messages or the answer", async
   }
 })
 
-test("router-only switches the model of the user message by its difficulty", async () => {
+test("router-only moves only clearly trivial messages to the cheap slot", async () => {
   const h = await hooks()
   assert.deepEqual((await turn(h, "s-route", SIMPLE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
-  assert.deepEqual((await turn(h, "s-route", MODERATE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash" })
-  assert.deepEqual((await turn(h, "s-route", SIMPLE)).message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
+  assert.deepEqual((await turn(h, "s-route", "say ok")).message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
+})
+
+test("router-only keeps the chosen model for anything not clearly trivial", async () => {
+  const h = await hooks()
+  for (const text of [
+    MODERATE,
+    "now refactor the auth module across three files and fix the failing tests",
+    "diagnose why the dedup step drops rows in build.py",
+    "why does this deadlock only happen in production?",
+    "fix the off-by-one in the pagination",
+  ]) {
+    assert.deepEqual((await turn(h, "s-keep", text)).message.model, GOOGLE, text)
+  }
 })
 
 test("router-only switches provider when the slot is on another provider", async () => {
