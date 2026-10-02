@@ -37,7 +37,7 @@ import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
 import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
-import { routerOnlyEnabled, noteUserMessage, applyRoute } from "./lib/router-only.js"
+import { routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -1454,7 +1454,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const pluginHooks = {
     "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
-      if (routerOnlyEnabled() && _gateOpen(input?.sessionID)) noteUserMessage(input?.sessionID, output?.parts)
+      if (routerOnlyEnabled() && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
     },
     "tool.execute.before": async (input, output) => {
       if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
@@ -1489,10 +1489,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     },
     "chat.params": async (_input, output) => {
       recordSessionAgent(_input?.sessionID, _input?.agent)
-      if (routerOnlyEnabled()) {
-        if (_gateOpen(_input?.sessionID)) applyRoute(_input?.sessionID, _input?.model, output)
-        return
-      }
+      if (routerOnlyEnabled()) return
       if (!_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
