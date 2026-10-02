@@ -50,7 +50,7 @@ test("deploy does not register a background LaunchAgent unless asked", () => {
   }
 })
 
-test("deploy registers the retention LaunchAgent only with VIBEOS_INSTALL_RETENTION=1", () => {
+test("deploy registers the retention LaunchAgent only with VIBEOS_INSTALL_RETENTION=1", { skip: process.platform !== "darwin" }, () => {
   const { home, env } = sandbox()
   try {
     const res = run("deploy.mjs", { ...env, VIBEOS_INSTALL_RETENTION: "1" })
