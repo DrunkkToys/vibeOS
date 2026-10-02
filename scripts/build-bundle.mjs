@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSyn
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { execFileSync } from 'child_process';
-import { resolveOpenCodeHomes } from './lib/opencode-homes.mjs';
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
@@ -123,18 +122,6 @@ if (existsSync(dashboardSrc)) {
     }),
   );
   console.log('[bundle] Copied dashboard');
-}
-
-for (const home of resolveOpenCodeHomes({ cwd: ROOT, home: homedir() })) {
-  const pluginDir = join(home, 'plugins');
-  const destPath = join(pluginDir, 'vibeOS.js');
-  const pluginAssets = join(pluginDir, 'assets');
-  if (!existsSync(pluginDir)) mkdirSync(pluginDir, { recursive: true });
-  copyFileSync(join(DIST, 'vibeOS.js'), destPath);
-  console.log(`[bundle] Deployed to ${destPath}`);
-  if (!existsSync(pluginAssets)) mkdirSync(pluginAssets, { recursive: true });
-  copyDirRecursive(assetsDir, pluginAssets);
-  console.log(`[bundle] Deployed assets to ${pluginAssets}/`);
 }
 
 console.log('[bundle] Done!');

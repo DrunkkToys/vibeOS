@@ -353,6 +353,11 @@
 - **Test**: `tests/test_uninstall_completeness.test.mjs` — 11 tests
 - **Module**: `scripts/uninstall.mjs`
 
+### 10.3 Building or Deploying Installs Nothing Unasked
+- **Contract**: `build-bundle.mjs` (and so `npm test`) writes only to `dist/` and `bin/`; it never copies the plugin into an OpenCode home. `deploy.mjs` registers the `com.vibeos.opencode-event-retention` LaunchAgent only when `VIBEOS_INSTALL_RETENTION=1`. It does not delete other plugins' `.ts` files or `lib/`/`utils/` dirs in the OpenCode plugin dir.
+- **Test**: `tests/test_no_silent_machine_installs.test.mjs` — 4 tests
+- **Module**: `scripts/build-bundle.mjs`, `scripts/deploy.mjs`
+
 ### 10.2b The `vibe` Mode-Dropdown Entry Disappears From Every Source
 - **Contract**: The dropdown entry can come from `config.agent.vibe`, a legacy `config.mode.vibe` block, or a markdown agent file (`<home>/agent/vibe*.md`, `<project>/.opencode/agent/vibe*.md`). Uninstall removes all three. Non-vibe `mode` entries and hand-written `agent/vibe*.md` files (no `vibeOS`/`VibeUltraX` marker in the body) are preserved.
 - **Test**: `tests/test_uninstall_completeness.test.mjs` — "uninstall removes every source of the vibe mode-dropdown entry"
