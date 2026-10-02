@@ -334,6 +334,11 @@
 - **Test**: `tests/mega/mega_09_savings_ledger_tracking.test.mjs` — "report functions exported from index.js"
 - **Module**: `src/lib/reporting.ts`
 
+### 9.9 The System Prompt Prefix Is Stable By Default
+- **Contract**: Per-turn directives (stress, context7 urgency, regime, tier, thinking) are kept out of `output.system` and delivered as a trailing `[vibeos:turn-state]` part on the last message, so the system prefix is byte-identical across turns and the provider cache holds. On by default; `VIBEOS_STABLE_PREFIX=0` restores the old in-system placement. OpenCode runs `messages.transform` before `system.transform`, so directives computed in `system.transform` land on the next request; a drain with no messages never discards them.
+- **Test**: `tests/test_stable_prefix.test.mjs`, `tests/test_stable_prefix_holds.test.mjs`
+- **Module**: `src/lib/hooks/chat-transform.ts`
+
 ### 9.10 Router-Only Mode Routes Per Message and Injects Nothing
 - **Contract**: With `VIBEOS_ROUTER_ONLY=1`, the only automatic behavior is per-message model selection: `chat.message` scores the user's text with `computeDifficulty` (simple -> cheap, moderate -> medium, complex -> brain) and `chat.params` sets that slot's model when it is on the same provider. The system prompt, the messages and the answer are left byte-identical; no footer, no directives, no enforcement. Non-vibe agents and cross-provider slots are never overridden.
 - **Test**: `tests/test_router_only.test.mjs`
@@ -352,6 +357,11 @@
 - **Contract**: The uninstaller sweeps every OpenCode home an install could have targeted (`~/.opencode`, the XDG dir, the desktop app support dir, the project `.opencode`, and any `VIBEOS_OPENCODE_HOME` override) and removes plugin files, the `/vibe` skill, home-root runtime artifacts (`opencode-retention.log`, `learned-patterns.json`, `recent-events.jsonl`), vibeOS auto-generated project skills, runtime state dirs, the legacy home-root deployment, and the stray `undefined/` deploy artifact. It strips the vibe plugin ref, tier agents, and `default_agent` from both `opencode.json` and `opencode.jsonc` while preserving non-vibe entries. It is idempotent and safe on a bare `HOME`.
 - **Test**: `tests/test_uninstall_completeness.test.mjs` — 11 tests
 - **Module**: `scripts/uninstall.mjs`
+
+### 10.3 Building or Deploying Installs Nothing Unasked
+- **Contract**: `build-bundle.mjs` (and so `npm test`) writes only to `dist/` and `bin/`; it never copies the plugin into an OpenCode home. `deploy.mjs` registers the `com.vibeos.opencode-event-retention` LaunchAgent only when `VIBEOS_INSTALL_RETENTION=1`. It does not delete other plugins' `.ts` files or `lib/`/`utils/` dirs in the OpenCode plugin dir.
+- **Test**: `tests/test_no_silent_machine_installs.test.mjs` — 4 tests
+- **Module**: `scripts/build-bundle.mjs`, `scripts/deploy.mjs`
 
 ### 10.2b The `vibe` Mode-Dropdown Entry Disappears From Every Source
 - **Contract**: The dropdown entry can come from `config.agent.vibe`, a legacy `config.mode.vibe` block, or a markdown agent file (`<home>/agent/vibe*.md`, `<project>/.opencode/agent/vibe*.md`). Uninstall removes all three. Non-vibe `mode` entries and hand-written `agent/vibe*.md` files (no `vibeOS`/`VibeUltraX` marker in the body) are preserved.

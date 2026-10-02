@@ -35,10 +35,17 @@ test("volatile directives stay out of system when the flag is on", async () => {
   assert.equal(JSON.stringify(output.system), before)
 })
 
-test("the flag is off by default, preserving shipped behaviour", async () => {
+test("the stable prefix is on by default", async () => {
   delete process.env.VIBEOS_STABLE_PREFIX
   const m = await load()
-  assert.equal(m.stablePrefixEnabled(), false, "must not change shipped behaviour without opt-in")
+  assert.equal(m.stablePrefixEnabled(), true, "default users must not have the cache busted every turn")
+})
+
+test("VIBEOS_STABLE_PREFIX=0 opts out", async () => {
+  process.env.VIBEOS_STABLE_PREFIX = "0"
+  const m = await load()
+  assert.equal(m.stablePrefixEnabled(), false)
+  delete process.env.VIBEOS_STABLE_PREFIX
 })
 
 test("injectVolatileDirectives lands one trailing synthetic part", async () => {
@@ -69,10 +76,22 @@ test("injection is idempotent within a turn", async () => {
   assert.equal(messages[0].parts.length, 1, "must not double-inject")
 })
 
-test("off by default, injectVolatileDirectives is inert", async () => {
-  delete process.env.VIBEOS_STABLE_PREFIX
+test("opted out, injectVolatileDirectives is inert", async () => {
+  process.env.VIBEOS_STABLE_PREFIX = "0"
   const m = await load()
   const messages = [{ parts: [{ type: "text", text: "hello" }] }]
   m.injectVolatileDirectives(messages)
   assert.equal(messages[0].parts.length, 1)
+})
+
+test("a drain with no messages keeps the directives for the next request", async () => {
+  process.env.VIBEOS_STABLE_PREFIX = "1"
+  const m = await load()
+  m.resetVolatileBuffer()
+  m.pushTurnState({ system: [] }, "[stress mitigation: elevated] x")
+  m.injectVolatileDirectives(undefined)
+  const messages = [{ parts: [{ type: "text", text: "next request" }] }]
+  m.injectVolatileDirectives(messages)
+  assert.equal(messages[0].parts.length, 2, "directives were discarded by a drain that had nowhere to put them")
+  assert.ok(messages[0].parts[1].text.includes("[stress mitigation: elevated] x"))
 })
