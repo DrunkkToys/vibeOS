@@ -43,6 +43,11 @@ function fp(dir) {
   return createHash("sha256").update(dir).digest("hex").slice(0, 12)
 }
 
+async function modelText(output) {
+  const ct = await import("../src/lib/hooks/chat-transform.js")
+  return [...(output.system || []), ...ct.takeVolatileDirectives()].join(" ")
+}
+
 // --- stress tests ---
 
 test("scoreStress: high stress >0.7 triggers CRITICAL directive", async () => {
@@ -60,7 +65,7 @@ test("scoreStress: high stress >0.7 triggers CRITICAL directive", async () => {
     output
   )
 
-  const sysText = output.system.join(" ")
+  const sysText = await modelText(output)
   assert.ok(sysText.includes("[stress mitigation:"),
     `Expected stress directive, got: ${sysText.slice(0, 200)}`)
   assert.ok(sysText.length > 0, "system text should not be empty")
@@ -83,7 +88,7 @@ test("scoreStress: moderate stress 0.4-0.7 triggers elevated directive", async (
     output
   )
 
-  const sysText = output.system.join(" ")
+  const sysText = await modelText(output)
   assert.ok(sysText.includes("stress") || sysText.includes("elevated") || sysText.includes("CRITICAL"),
     `Expected elevated stress directive, got: ${sysText.slice(0, 200)}`)
   assert.ok(sysText.length > 0, "system text should not be empty")
@@ -106,7 +111,7 @@ test("scoreStress: calm text produces no stress directive", async () => {
     output
   )
 
-  const sysText = output.system ? output.system.join(" ") : ""
+  const sysText = await modelText(output)
   assert.ok(!sysText.includes("stress mitigation"),
     "No stress directive expected for calm text")
   assert.ok(Array.isArray(output.system), "output.system should be an array")
@@ -186,7 +191,7 @@ test("isLikelyOffTopic: off-topic request triggers job-focus directive", async (
     output
   )
 
-  const sysText = output.system ? output.system.join(" ") : ""
+  const sysText = await modelText(output)
   assert.ok(sysText.includes("[job-focus] Active job context exists"),
     `Expected job-focus directive, got: ${sysText.slice(0, 200)}`)
   assert.ok(sysText.length > 0, "system text should not be empty")
@@ -218,7 +223,7 @@ test("isLikelyOffTopic: on-topic request produces no job-focus directive", async
     output
   )
 
-  const sysText = output.system ? output.system.join(" ") : ""
+  const sysText = await modelText(output)
   assert.ok(!sysText.includes("job-focus"),
     "No job-focus directive expected for on-topic request")
   assert.ok(Array.isArray(output.system), "output.system should be an array")
@@ -250,7 +255,7 @@ test("isLikelyOffTopic: new task keyword bypasses detection", async () => {
     output
   )
 
-  const sysText = output.system ? output.system.join(" ") : ""
+  const sysText = await modelText(output)
   assert.ok(!sysText.includes("job-focus"),
     "No job-focus directive expected when user explicitly starts new task")
   assert.ok(Array.isArray(output.system), "output.system should be an array")

@@ -104,7 +104,7 @@ test("the system prefix is byte-identical on every turn once it has settled", as
 })
 
 test("with the stable prefix off, the project guard still goes into system", async () => {
-  delete process.env.VIBEOS_STABLE_PREFIX
+  process.env.VIBEOS_STABLE_PREFIX = "0"
   const chatTransform = await import("../src/lib/hooks/chat-transform.js")
 
   let seen = false
@@ -113,7 +113,7 @@ test("with the stable prefix off, the project guard still goes into system", asy
     await chatTransform.onSystemTransform(freshInput(), output)
     seen = output.system.map(String).some((entry) => entry.includes(GUARD))
   }
-  assert.ok(seen, "default (non-stable-prefix) behaviour must be unchanged")
+  assert.ok(seen, "opt-out (non-stable-prefix) behaviour must be unchanged")
 })
 
 test("the trinity tool schema is sent once per request, not twice", async () => {
