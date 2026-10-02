@@ -20,6 +20,7 @@ function sandbox() {
     PATH: dirname(process.execPath),
   }
   delete env.VIBEOS_INSTALL_RETENTION
+  delete env.VIBEOS_INSTALL_CRON
   return { home, ocHome, env }
 }
 
@@ -76,6 +77,38 @@ test("deploy leaves other plugins in the OpenCode plugin dir untouched", () => {
     assert.equal(readFileSync(join(plugins, "someone-else.ts"), "utf8"), "export default {}\n")
     assert.ok(existsSync(join(plugins, "lib", "helper.js")), "deploy deleted plugins/lib")
     assert.ok(existsSync(join(plugins, "utils", "util.ts")), "deploy deleted plugins/utils")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+function fakeCrontab(home) {
+  const bin = join(home, "fake-bin")
+  mkdirSync(bin, { recursive: true })
+  const log = join(home, "crontab-calls.log")
+  writeFileSync(join(bin, "crontab"), `#!/bin/sh\necho "$@" >> "${log}"\ncat > /dev/null\n`, { mode: 0o755 })
+  return { path: `${bin}:${dirname(process.execPath)}:/bin:/usr/bin`, log }
+}
+
+test("deploy does not touch the user's crontab unless asked", { skip: process.platform === "win32" }, () => {
+  const { home, env } = sandbox()
+  try {
+    const cron = fakeCrontab(home)
+    const res = run("deploy.mjs", { ...env, PATH: cron.path })
+    assert.equal(res.status, 0, res.stderr)
+    assert.equal(existsSync(cron.log), false, "deploy called crontab without opt-in")
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test("deploy installs the nightly cron only with VIBEOS_INSTALL_CRON=1", { skip: process.platform === "win32" }, () => {
+  const { home, env } = sandbox()
+  try {
+    const cron = fakeCrontab(home)
+    const res = run("deploy.mjs", { ...env, PATH: cron.path, VIBEOS_INSTALL_CRON: "1" })
+    assert.equal(res.status, 0, res.stderr)
+    assert.ok(existsSync(cron.log), "deploy did not install the cron with opt-in")
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
