@@ -24,8 +24,9 @@ const SIMPLE = "list the files in src"
 const MODERATE = "Refactor the authentication module across src/auth.ts, src/session.ts, src/db.ts and src/api.ts to use async token rotation, then debug the failing integration tests, fix the race condition in the cache invalidation, and redesign the error handling architecture end to end"
 const GOOGLE = { providerID: "google", modelID: "gemini-3.6-flash" }
 
-async function hooks() {
-  process.env.VIBEOS_ROUTER_ONLY = "1"
+async function hooks(flag = "1") {
+  if (flag === null) delete process.env.VIBEOS_ROUTER_ONLY
+  else process.env.VIBEOS_ROUTER_ONLY = flag
   const { DelegationEnforcer } = await import("../src/index.js")
   return DelegationEnforcer({ client: null, directory: join(sandbox, "proj") })
 }
@@ -87,6 +88,31 @@ test("router-only leaves vibe tier subagents on their own model", async () => {
   const message = { role: "user", model: { ...brain } }
   await h["chat.message"]({ sessionID: "s-sub", agent: "vibe-brain", model: brain }, { message, parts: [{ type: "text", text: SIMPLE }] })
   assert.deepEqual(message.model, brain)
+})
+
+test("router-only is the default when VIBEOS_ROUTER_ONLY is unset", async () => {
+  const h = await hooks(null)
+  const r = await turn(h, "s-default", SIMPLE)
+  assert.deepEqual(r.sys.system, ["BASE"])
+  assert.equal(r.out.text, "answer")
+  assert.deepEqual(r.message.model, { providerID: "google", modelID: "gemini-3.5-flash-lite" })
+})
+
+test("VIBEOS_ROUTER_ONLY=0 restores the full plugin", async () => {
+  const h = await hooks("0")
+  const r = await turn(h, "s-full", SIMPLE)
+  assert.notEqual(r.out.text, "answer", "the full plugin appends its footer")
+})
+
+test("router-only registers only the vibe tool", async () => {
+  const h = await hooks("1")
+  assert.deepEqual(Object.keys(h.tool), ["vibe"])
+})
+
+test("the full plugin keeps all its tools", async () => {
+  const h = await hooks("0")
+  assert.ok(Object.keys(h.tool).includes("trinity"))
+  assert.ok(Object.keys(h.tool).includes("report-save"))
 })
 
 test("cleanup", () => {

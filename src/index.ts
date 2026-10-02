@@ -954,7 +954,7 @@ async function ensureMcpServerRunning() {
           },
           readReport: (rvId) => readReport(rvId),
           runDiagnose: async () => {
-            const trinity = _pluginHooksRuntime?.tool?.trinity
+            const trinity = _pluginHooksRuntime?.tool?.trinity || _pluginHooksRuntime?.tool?.vibe
             if (!trinity?.execute)
               return { error: "trinity runtime unavailable" }
             const raw = await trinity.execute({ action: "diagnose" })
@@ -993,13 +993,13 @@ async function ensureMcpServerRunning() {
             }
           },
           runProject: async () => {
-            const trinity = _pluginHooksRuntime?.tool?.trinity
+            const trinity = _pluginHooksRuntime?.tool?.trinity || _pluginHooksRuntime?.tool?.vibe
             if (!trinity?.execute)
               return { error: "trinity runtime unavailable" }
             return projectStructuredFromText(await trinity.execute({ action: "project" }), loadSelection(), loadCredit())
           },
           runTrinity: async (rvAction, params = {}) => {
-            const trinity = _pluginHooksRuntime?.tool?.trinity
+            const trinity = _pluginHooksRuntime?.tool?.trinity || _pluginHooksRuntime?.tool?.vibe
             if (!trinity?.execute)
               return { error: "trinity runtime unavailable" }
             return trinity.execute({ action: rvAction, slot: params.slot, level: params.level, token: params.token })
@@ -1713,6 +1713,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
         },
       }),
     },
+  }
+  if (routerOnlyEnabled()) {
+    for (const name of ["trinity", "research-audit", "report-save", "report-list", "report-read"]) delete pluginHooks.tool[name]
   }
   _pluginHooksRuntime = pluginHooks
   // ── MCP server startup ─────────────────────────────────────────────

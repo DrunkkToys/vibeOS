@@ -76,6 +76,7 @@ const result = spawnSync(process.execPath, args, {
     NODE_OPTIONS: [`--loader ${loader}`, process.env.NODE_OPTIONS || ""].filter(Boolean).join(" "),
     VIBEOS_MCP_PORT: process.env.VIBEOS_MCP_PORT || "0",
     VIBEOS_TEST_CONTEXT: "1",
+    VIBEOS_ROUTER_ONLY: process.env.VIBEOS_ROUTER_ONLY || "0",
     VIBEOS_UNINSTALLED_MARKER_DIR: markerIsolationDir,
     VIBEOS_FAST_CI: mode === "ci" ? "1" : "0",
   },
