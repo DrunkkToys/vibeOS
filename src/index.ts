@@ -1454,7 +1454,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const pluginHooks = {
     "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
-      if (routerOnlyEnabled() && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
+      if (routerOnlyEnabled() && input?.agent === "vibe" && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
     },
     "tool.execute.before": async (input, output) => {
       if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return

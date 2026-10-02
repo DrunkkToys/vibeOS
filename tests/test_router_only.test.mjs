@@ -81,6 +81,14 @@ test("router-only leaves non-vibe agents alone", async () => {
   assert.deepEqual(message.model, GOOGLE)
 })
 
+test("router-only leaves vibe tier subagents on their own model", async () => {
+  const h = await hooks()
+  const brain = { providerID: "google", modelID: "gemini-3.6-flash" }
+  const message = { role: "user", model: { ...brain } }
+  await h["chat.message"]({ sessionID: "s-sub", agent: "vibe-brain", model: brain }, { message, parts: [{ type: "text", text: SIMPLE }] })
+  assert.deepEqual(message.model, brain)
+})
+
 test("cleanup", () => {
   for (const [k, v] of Object.entries(prev)) {
     if (v === undefined) delete process.env[k]
