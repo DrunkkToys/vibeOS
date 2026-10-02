@@ -334,6 +334,11 @@
 - **Test**: `tests/mega/mega_09_savings_ledger_tracking.test.mjs` — "report functions exported from index.js"
 - **Module**: `src/lib/reporting.ts`
 
+### 9.10 Router-Only Mode Routes Per Message and Injects Nothing
+- **Contract**: With `VIBEOS_ROUTER_ONLY=1`, the only automatic behavior is per-message model selection: `chat.message` scores the user's text with `computeDifficulty` (simple -> cheap, moderate -> medium, complex -> brain) and `chat.params` sets that slot's model when it is on the same provider. The system prompt, the messages and the answer are left byte-identical; no footer, no directives, no enforcement. Non-vibe agents and cross-provider slots are never overridden.
+- **Test**: `tests/test_router_only.test.mjs`
+- **Module**: `src/lib/router-only.ts`
+
 ---
 
 ## 10. Bootstrap & Setup
