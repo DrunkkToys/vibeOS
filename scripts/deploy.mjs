@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, copyFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync, renameSync } from "node:fs"
+import { cpSync, copyFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, renameSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -84,7 +84,7 @@ try {
       copyFileSync(uninstallSrc, join(pluginDir, "uninstall.mjs"))
       process.stderr.write(`[vibeOS deploy] dist/uninstall.mjs -> ${home}/plugins/uninstall.mjs\n`)
     }
-    await installRetentionAgent(pluginDir)
+    if (process.env.VIBEOS_INSTALL_RETENTION === "1") await installRetentionAgent(pluginDir)
 
     if (existsSync(assetsPath)) {
       const tmpAssets = destAssets + '.deploying'
@@ -99,14 +99,11 @@ try {
       process.stderr.write(`[vibeOS deploy] Installed /vibe skill at ${skill.path}\n`)
     }
 
-    for (const staleDir of [join(pluginDir, "lib"), join(pluginDir, "utils"), join(pluginDir, "vibeOS-lib"), join(pluginDir, "vibeOS-api-server"), join(pluginDir, "dashboard", "dist")]) {
+    for (const staleDir of [join(pluginDir, "vibeOS-lib"), join(pluginDir, "vibeOS-api-server"), join(pluginDir, "dashboard", "dist")]) {
       if (existsSync(staleDir)) {
         rmSync(staleDir, { recursive: true, force: true })
       }
     }
-    const rmTsRecursive = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (statSync(f).isDirectory()) rmTsRecursive(f); else if (e.endsWith('.ts')) { rmSync(f); } } }
-    rmTsRecursive(pluginDir)
-    process.stderr.write(`[vibeOS deploy] Stripped .ts files from ${home}/plugins\n`)
   }
 
   const envSrc = join(ROOT, ".env.production")
