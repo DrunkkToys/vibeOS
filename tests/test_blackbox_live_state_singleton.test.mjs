@@ -61,7 +61,8 @@ test("live blackbox state is shared through the canonical getter", async () => {
 
   const systemOutput = { system: [] }
   await chatTransform.onSystemTransform({}, systemOutput)
-  assert.ok(systemOutput.system.some((entry) => String(entry).includes("REFINING") || String(entry).includes("resolved")), JSON.stringify(systemOutput.system))
+  const reachedModel = [...systemOutput.system, ...chatTransform.takeVolatileDirectives()]
+  assert.ok(reachedModel.some((entry) => String(entry).includes("REFINING") || String(entry).includes("resolved")), JSON.stringify(reachedModel))
 
   const hooks = await DelegationEnforcer({ client: {}, directory: join(sandbox, "proj") })
   const status = await hooks.tool.trinity.execute({ action: "blackbox", slot: "status" })

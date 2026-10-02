@@ -1084,10 +1084,10 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
 // injectVolatileDirectives() lands as a trailing synthetic message, after the
 // cached prefix, where changing them costs only their own tokens.
 //
-// Off by default: moving a directive out of `system` changes where the model
-// sees it, and CLAUDE.md section 2 lists stress inoculation, context7 injection
-// and the blackbox directives as claimed behaviour. VIBEOS_STABLE_PREFIX=1 opts
-// in. The directive text and ordering are byte-identical either way.
+// On by default: with it off, the system prompt changed from byte 612 onward on
+// every turn, so every default user missed the provider cache on the whole
+// conversation every turn. VIBEOS_STABLE_PREFIX=0 opts out. The directive text
+// and ordering are byte-identical either way; only their position moves.
 const VOLATILE_MARKER = "[vibeos:turn-state]"
 let _volatileBuffer: string[] = []
 // OpenCode does not document whether system.transform or messages.transform
@@ -1098,7 +1098,7 @@ let _volatileTurn = 0
 let _volatileStamp = -1
 
 export function stablePrefixEnabled(): boolean {
-  return process.env.VIBEOS_STABLE_PREFIX === "1"
+  return process.env.VIBEOS_STABLE_PREFIX !== "0"
 }
 
 export function resetVolatileBuffer(): void {
@@ -1121,7 +1121,7 @@ function pushSystem(output: unknown, text: string | null): void {
 }
 
 // Per-turn directive: cache-poisoning if it lands in `system`.
-function pushTurnState(output: unknown, text: string | null): void {
+export function pushTurnState(output: unknown, text: string | null): void {
   if (!text) return
   if (!stablePrefixEnabled()) { pushSystem(output, text); return }
   _volatileStamp = _volatileTurn
@@ -1132,10 +1132,11 @@ function pushTurnState(output: unknown, text: string | null): void {
 // after every cached message, so the prefix above them stays byte-stable.
 export function injectVolatileDirectives(messages: unknown[]): void {
   if (!stablePrefixEnabled()) return
-  const pending = takeVolatileDirectives()
-  if (pending.length === 0 || !Array.isArray(messages) || messages.length === 0) return
+  if (!Array.isArray(messages) || messages.length === 0) return
   const last = messages[messages.length - 1]
   if (!last || !Array.isArray(last.parts)) return
+  const pending = takeVolatileDirectives()
+  if (pending.length === 0) return
   if (last.parts.some(p => p?.type === "text" && typeof p?.text === "string" && p.text.includes(VOLATILE_MARKER))) return
   last.parts.push({
     type: "text",

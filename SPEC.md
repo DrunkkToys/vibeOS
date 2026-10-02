@@ -334,6 +334,11 @@
 - **Test**: `tests/mega/mega_09_savings_ledger_tracking.test.mjs` — "report functions exported from index.js"
 - **Module**: `src/lib/reporting.ts`
 
+### 9.9 The System Prompt Prefix Is Stable By Default
+- **Contract**: Per-turn directives (stress, context7 urgency, regime, tier, thinking) are kept out of `output.system` and delivered as a trailing `[vibeos:turn-state]` part on the last message, so the system prefix is byte-identical across turns and the provider cache holds. On by default; `VIBEOS_STABLE_PREFIX=0` restores the old in-system placement. OpenCode runs `messages.transform` before `system.transform`, so directives computed in `system.transform` land on the next request; a drain with no messages never discards them.
+- **Test**: `tests/test_stable_prefix.test.mjs`, `tests/test_stable_prefix_holds.test.mjs`
+- **Module**: `src/lib/hooks/chat-transform.ts`
+
 ---
 
 ## 10. Bootstrap & Setup
