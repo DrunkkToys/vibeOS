@@ -37,6 +37,7 @@ import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
 import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
+import { routerOnlyEnabled, noteUserMessage, applyRoute } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -1451,11 +1452,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     return isVibeAgentSession(sessionID)
   }
   const pluginHooks = {
-    "chat.message": async (input) => {
+    "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
+      if (routerOnlyEnabled() && _gateOpen(input?.sessionID)) noteUserMessage(input?.sessionID, output?.parts)
     },
     "tool.execute.before": async (input, output) => {
-      if (!_gateOpen(input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1475,7 +1477,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
-      if (!_gateOpen(input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1487,6 +1489,10 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     },
     "chat.params": async (_input, output) => {
       recordSessionAgent(_input?.sessionID, _input?.agent)
+      if (routerOnlyEnabled()) {
+        if (_gateOpen(_input?.sessionID)) applyRoute(_input?.sessionID, _input?.model, output)
+        return
+      }
       if (!_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
@@ -1497,14 +1503,14 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     },
     "chat.headers": async (_input, output) => {
       recordSessionAgent(_input?.sessionID, _input?.agent)
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       setVibeOSHomeContext(hookVibeHome)
       if (typeof setChatParamsDirectory === "function") setChatParamsDirectory(directory || "")
       _input._directory = directory
       return onChatHeaders(_input, output)
     },
     "experimental.chat.messages.transform": async (_input, output) => {
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       ensureDeferredBootstrap()
@@ -1513,12 +1519,12 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onMessagesTransform(_input, output)
     },
     "experimental.session.compacting": async (_input, output) => {
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       return onSessionCompacting(_input, output)
     },
     "experimental.chat.system.transform": async (_input, output) => {
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1533,7 +1539,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onSystemTransform(_input, output)
     },
     "shell.env": async (_input, output) => {
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
@@ -1544,7 +1550,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onShellEnv(_input, output)
     },
     "experimental.text.complete": async (_input, output) => {
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1569,7 +1575,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       // run the footer/API/state path. text.complete is the authoritative
       // completion hook on current OpenCode builds; legacy hosts may opt in.
       if (process.env.VIBEOS_ENABLE_MESSAGE_UPDATED_FOOTER !== "1") return
-      if (!_gateOpen(_input?.sessionID)) return
+      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
         setCurrentProjectFingerprint(hookFp)
