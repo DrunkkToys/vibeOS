@@ -98,7 +98,7 @@ test("installVibeTierAgentsInConfig binds vibe primary + tier subagents to the t
   assert.equal(config.agent["vibe-cheap"].mode, "subagent")
   assert.equal(config.agent["vibe-medium"].mode, "subagent")
   assert.equal(config.agent["vibe-brain"].mode, "subagent")
-  assert.equal(config.default_agent, "vibe", "default_agent must stay on the unified primary vibe agent")
+  assert.equal(config.default_agent, undefined, "install must not choose the user's default agent")
 })
 
 test("installVibeTierAgentsInConfig is idempotent and preserves custom permission overrides", async () => {

@@ -152,7 +152,7 @@ test("diagnose cascade reports VIBEOS_HOME cascade state and repair candidates",
 
   assert.ok(output.includes("cascade vibeos_home"), "cascade VIBEOS_HOME line present: " + output)
   assert.ok(output.includes("cascade active_pipeline"), "cascade active_pipeline line present: " + output)
-  assert.ok(output.includes('"expected":"build|plan|vibe"'), "cascade default_agent should accept native OpenCode agents: " + output)
+  assert.ok(output.includes('"expected":"not a vibe tier subagent"'), "cascade default_agent should accept any agent the user picked: " + output)
   assert.ok(output.includes('OK cascade default_agent'), "cascade diagnose should treat native OpenCode default agents as valid instead of forcing vibe: " + output)
   assert.ok(output.includes("cascade repair candidates"), "cascade repair candidates line present: " + output)
   assert.ok(output.includes("repair-state apply"), "cascade diagnose should point to repair command: " + output)

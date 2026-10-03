@@ -196,9 +196,8 @@ export function installVibeTierAgentsInConfig(config: JsonRecord, trinity: Trini
     config.agent[VIBE_PRIMARY_AGENT] = nextPrimary
     changed = true
   }
-  const nextDefaultAgent = normalizeNativeOpenCodeAgent(String(config.default_agent || "").trim() || VIBE_PRIMARY_AGENT)
-  if (config.default_agent !== nextDefaultAgent) {
-    config.default_agent = nextDefaultAgent
+  if (/^vibe-(cheap|medium|brain)$/.test(String(config.default_agent || "").trim())) {
+    delete config.default_agent
     changed = true
   }
   for (const slot of ["cheap", "medium", "brain"]) {
