@@ -30,3 +30,13 @@ test("a router-only trial is not voided for writing no chat-params audit rows", 
 test("a router-only trial is still voided when a turn fails", () => {
   assert.match(voidReason("router-only", [{ id: "diagnose", status: 1 }], { chatParamsRows: 0 }, null), /exited 1/)
 })
+
+test("the cascade arm runs router-only with the test-verified cascade on", () => {
+  const def = ARM_DEFS.cascade
+  assert.ok(def, "cascade arm exists")
+  assert.equal(def.plugin, true)
+  assert.equal(def.agent, "vibe")
+  assert.equal(def.env?.VIBEOS_ROUTER_ONLY, "1")
+  assert.equal(def.env?.VIBEOS_CASCADE, "1")
+  assert.equal(voidReason("cascade", OK_TURNS, { chatParamsRows: 0, internalErrors: 0 }, null), null)
+})
