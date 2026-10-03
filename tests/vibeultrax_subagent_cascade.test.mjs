@@ -99,7 +99,7 @@ test("vibeultrax sync installs the unified vibe primary agent plus tier subagent
       assert.equal(oc.agent["vibe-medium"].model, "opencode-go/mimo-v2.5", configPath)
       assert.equal(oc.agent["vibe-brain"].mode, "subagent", configPath)
       assert.equal(oc.agent["vibe-brain"].model, "deepseek/deepseek-v4-flash", configPath)
-      assert.equal(oc.default_agent, "vibe", configPath)
+      assert.equal(oc.default_agent, undefined, configPath)
     }
     const selection = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), "utf8")).selection
     assert.equal(selection.entry_slot || selection.active_slot, "cheap")
@@ -129,7 +129,7 @@ test("vibeultrax sync does not rewrite default_agent when the active slot change
     }, { authoritative: true, directory: ctx.sandbox })
 
     const initial = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
-    assert.equal(initial.default_agent, "vibe")
+    assert.equal(initial.default_agent, undefined)
     assert.equal(first.selected_slot, "cheap")
 
     const second = mod.syncControlSettings({
@@ -146,7 +146,7 @@ test("vibeultrax sync does not rewrite default_agent when the active slot change
     }, { authoritative: true, directory: ctx.sandbox })
 
     const after = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
-    assert.equal(after.default_agent, "vibe", "per-turn slot changes must not churn the OpenCode default agent")
+    assert.equal(after.default_agent, undefined, "per-turn slot changes must not churn the OpenCode default agent")
     assert.equal(after.agent.vibe.mode, "primary")
     assert.equal(after.agent.vibe.model, undefined)
     assert.equal(after.agent["vibe-cheap"].mode, "subagent")

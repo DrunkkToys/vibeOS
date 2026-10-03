@@ -40,7 +40,7 @@ test("installVibeTierAgentsInConfig: creates vibe primary + 3 subagents on empty
   const cfg = {}
   const changed = installVibeTierAgentsInConfig(cfg, TRINITY)
   assert.equal(changed, true, "should report changed")
-  assert.equal(cfg.default_agent, "vibe", "default_agent must be vibe")
+  assert.equal(cfg.default_agent, undefined, "install must not choose the user's default agent")
   const agents = cfg.agent
   assert.ok(agents, "agent field must exist")
   // Primary agent
@@ -101,7 +101,7 @@ test("installVibeTierAgentsInConfig: fixes agents with mode: primary instead of 
   }
   const changed = installVibeTierAgentsInConfig(cfg, TRINITY)
   assert.equal(changed, true, "broken config must report changed")
-  assert.equal(cfg.default_agent, "vibe", "default_agent must be fixed to vibe")
+  assert.equal(cfg.default_agent, undefined, "a vibe tier subagent cannot be the default agent, so it is removed, not replaced")
   assert.ok(cfg.agent["vibe"], "vibe primary agent must be created")
   assert.equal(cfg.agent["vibe"].mode, "primary", "vibe agent must be primary")
   assert.equal(cfg.agent["vibe"].model, undefined, "vibe agent must NOT have model")
@@ -111,12 +111,11 @@ test("installVibeTierAgentsInConfig: fixes agents with mode: primary instead of 
   }
 })
 
-test("installVibeTierAgentsInConfig: fixes stale default_agent", async () => {
+test("installVibeTierAgentsInConfig: preserves the user's own default_agent", async () => {
   const { installVibeTierAgentsInConfig } = await import("../src/lib/runtime-config.js")
   const cfg = { default_agent: "claude" }
-  const changed = installVibeTierAgentsInConfig(cfg, TRINITY)
-  assert.equal(changed, true, "stale default_agent must be fixed")
-  assert.equal(cfg.default_agent, "vibe")
+  installVibeTierAgentsInConfig(cfg, TRINITY)
+  assert.equal(cfg.default_agent, "claude")
 })
 
 test("installVibeTierAgentsInConfig: preserves existing agent permissions", async () => {

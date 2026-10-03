@@ -11,7 +11,7 @@ import { getRealityCheckView } from "../vibeOS-lib/flow-enforcer.js"
 import { getSessionHealthSnapshot, getLiveOpenCodeModel, getAllInternalErrors } from "./session-health.js"
 import { getVibeOSHome, getCurrentSessionId, withFileLock } from "./state.js"
 import { resolveDashboardBaseUrlFromState } from "./dashboard-base-url.js"
-import { collectOpenCodeConfigPaths, installVibeTierAgents, isNativeOpenCodeAgent, normalizeNativeOpenCodeAgent, isVibeOSUninstalledCached, resetUninstalledMarkerCache, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
+import { collectOpenCodeConfigPaths, installVibeTierAgents, isVibeOSUninstalledCached, resetUninstalledMarkerCache, VIBE_PRIMARY_AGENT } from "./runtime-config.js"
 import { getSessionSavingsDiagnostics } from "./session-savings.js"
 import { loadAxisOverrides, writeAxisOverride, clearAxisOverrides } from "./selection-manager.js"
 
@@ -301,11 +301,11 @@ function cascadeDiagnosticResults(deps) {
   results.push({ ok: !!sessionCv || !sid, okLabel: !!sessionCv || !sid ? "OK" : "WARN", label: "cascade session cv", detail: sessionCv ? JSON.stringify({ cascade_root: sessionCv.cascade_root || null, route_path: sessionCv.route_path || null, selected_slot: sessionCv.selected_slot || null }) : (sid ? `missing for ${sid}` : "no session id") })
   results.push({ ok: existingOcConfigs.length > 0, okLabel: existingOcConfigs.length > 0 ? "OK" : "WARN", label: "cascade opencode configs", detail: existingOcConfigs.length ? existingOcConfigs.join(" | ") : "none found", fix: "run `vibe setup --project` or `npm run deploy`" })
   const primaryAgent = primaryOc.agent && typeof primaryOc.agent === "object" ? primaryOc.agent[VIBE_PRIMARY_AGENT] || null : null
-  const resolvedDefaultAgent = normalizeNativeOpenCodeAgent(primaryOc.default_agent, "vibe")
+  const resolvedDefaultAgent = String(primaryOc.default_agent || "").trim() || null
   const primaryAgentOk = !!primaryAgent && primaryAgent.mode === "primary" && !String(primaryAgent.model || "").trim()
   results.push({ ok: primaryAgentOk, okLabel: primaryAgentOk ? "OK" : "WARN", label: "cascade vibe", detail: primaryAgent ? `${primaryOcConfigPath} ${JSON.stringify({ mode: primaryAgent.mode || null, model: primaryAgent.model || null, default_agent: resolvedDefaultAgent, expected: "primary vibe agent present" })}` : `missing in ${primaryOcConfigPath}`, fix: "run `vibe repair-state apply` or start a new VibeUltraX turn" })
-  const defaultAgentOk = isNativeOpenCodeAgent(primaryOc.default_agent)
-  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: resolvedDefaultAgent, expected: "build|plan|vibe", active_slot: sel.active_slot || null }), fix: "run `vibe repair-state apply` or start a new VibeUltraX turn" })
+  const defaultAgentOk = !/^vibe-(cheap|medium|brain)$/.test(String(primaryOc.default_agent || "").trim())
+  results.push({ ok: defaultAgentOk, okLabel: defaultAgentOk ? "OK" : "WARN", label: "cascade default_agent", detail: JSON.stringify({ default_agent: resolvedDefaultAgent, expected: "not a vibe tier subagent", active_slot: sel.active_slot || null }), fix: "run `vibe repair-state apply` or start a new VibeUltraX turn" })
   results.push({
     ok: cheapFirstOk,
     okLabel: cheapFirstOk ? "OK" : "WARN",
