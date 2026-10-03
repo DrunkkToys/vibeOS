@@ -264,6 +264,10 @@ Out of the box vibeOS does one thing: when a message to the `vibe` agent is clea
 
 Everything described in the rest of this README (footer, VibeBoX, stress routing, flow and TDD enforcement, delegation, reports) is the full plugin. Set `VIBEOS_ROUTER_ONLY=0` to turn it on.
 
+### Opt-in: test-verified cascade
+
+With `VIBEOS_CASCADE=1`, a `vibe` session starts on the cheap slot. When the last test command of a turn (pytest, `npm test`, `node --test`, `go test`, `cargo test` and similar) fails, the next message moves up one slot: cheap, then medium, then brain. It never moves back down within a session. Passing tests and other commands change nothing.
+
 ### Scoped to the vibe agent
 
 vibeOS runs **only while `vibe` is the agent selected in OpenCode's mode dropdown** (and inside its own `vibe-cheap` / `vibe-medium` / `vibe-brain` tier subagents). Pick `build` or `plan` and every automatic behavior switches off for that session — no footer, no system-prompt directives, no delegation enforcement, no per-turn model override — until you switch back. The selection is read from the agent OpenCode reports on each turn, so it takes effect on the next turn after you change the dropdown, with no restart.
@@ -534,6 +538,7 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 | VIBEOS_API_TOKEN | unset | Remote API auth |
 | VIBEOS_API_BOOTSTRAP_TOKEN | unset | Bootstrap exchange |
 | VIBEOS_ROUTER_ONLY | unset (router-only) | `0` turns on the full plugin (footer, directives, enforcement, all tools) |
+| VIBEOS_CASCADE | unset (off) | `1` starts each message of a `vibe` session on the cheap slot and moves up one slot after a failed test run (router-only mode) |
 | VIBEOS_AGENT_GATE | unset | `off` runs vibeOS under every agent instead of only the `vibe` dropdown selection |
 | VIBEOS_MCP_PORT | 3001 | MCP server port |
 | VIBEOS_BUILD_CHANNEL | alpha | Build channel for API client |

@@ -37,7 +37,7 @@ import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
 import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
-import { routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
+import { recordToolResult, routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -1477,7 +1477,11 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
-      if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
+      if (routerOnlyEnabled()) {
+        if (_gateOpen(input?.sessionID)) recordToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata)
+        return
+      }
+      if (!_gateOpen(input?.sessionID)) return
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {

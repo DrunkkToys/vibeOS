@@ -344,6 +344,11 @@
 - **Test**: `tests/test_router_only.test.mjs`
 - **Module**: `src/lib/router-only.ts`
 
+### 9.11 Test-Verified Cascade (opt-in)
+- **Contract**: With `VIBEOS_CASCADE=1` in router-only mode, every message of a primary `vibe` session starts on the cheap slot. `tool.execute.after` records the exit code of each `bash` test command (pytest, npm/pnpm/yarn/bun test, node --test, jest, vitest, go test, cargo test and similar); the last test run of a turn decides. If it failed, the next message moves up one slot (cheap, then medium, then brain); a passing run or a non-test command does not. Escalation is never undone within a session. State is kept per session in `$VIBEOS_HOME/cascade-state.json`, so it survives one `opencode run` process per turn. Non-vibe agents keep their own model. Verified live on OpenCode 1.18.34: turn 1 ran on the cheap slot, `npm test` exited 254, turn 2 ran on the medium slot.
+- **Test**: `tests/test_cascade_escalation.test.mjs`
+- **Module**: `src/lib/router-only.ts`
+
 ---
 
 ## 10. Bootstrap & Setup
