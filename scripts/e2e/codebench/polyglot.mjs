@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-import { execFileSync, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { python } from "./python.mjs"
 
 export function loadPolyglot(root) {
   const base = join(root, "python", "exercises", "practice")
@@ -36,14 +37,6 @@ export function turnsForExercise(ex) {
     { id: "implement", prompt: `Read INSTRUCTIONS.md and implement ${ex.solution.join(", ")} so the tests pass. Do not modify the test files. Run the tests with \`${cmd}\` and fix any failures.` },
     { id: "fix", prompt: `Run the tests with \`${cmd}\` and fix any failures. Do not modify the test files.` },
   ]
-}
-
-let _python = null
-function python() {
-  if (!_python) {
-    _python = execFileSync("uv", ["run", "--no-project", "python", "-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim()
-  }
-  return _python
 }
 
 export function gradeExercise(proj, ex, { timeoutMs = 60000 } = {}) {

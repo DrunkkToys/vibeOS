@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-import { execFileSync, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { gunzipSync } from "node:zlib"
 import { ARM_DEFS } from "../ml-task/score.mjs"
+import { python } from "./python.mjs"
 
 export const TURNS = [
   { id: "implement", prompt: "Implement the function in solution.py so it is correct for all inputs its docstring describes, not only the examples. Then run the tests with `python3 -m unittest` and fix any failures." },
@@ -62,12 +63,10 @@ import unittest
 
 import solution
 
-
 class TestExamples(unittest.TestCase):
     def test_docstring_examples(self):
         result = doctest.testmod(solution)
         self.assertEqual(result.failed, 0)
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -76,14 +75,6 @@ if __name__ == "__main__":
 export function writeTask(proj, task) {
   writeFileSync(join(proj, "solution.py"), task.prompt + "    raise NotImplementedError\n")
   writeFileSync(join(proj, "test_solution.py"), VISIBLE_TEST)
-}
-
-let _python = null
-function python() {
-  if (!_python) {
-    _python = execFileSync("uv", ["run", "--no-project", "python", "-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim()
-  }
-  return _python
 }
 
 export function gradeTask(proj, task, { timeoutMs = 30000 } = {}) {
