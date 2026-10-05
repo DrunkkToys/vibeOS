@@ -222,8 +222,15 @@ function runTurnWithRetry(trial, turn, sessionId) {
 
 function runTurn(trial, turn, sessionId) {
   const def = ARM_DEFS[trial.arm]
+  const realHome = process.env.HOME || ""
+  const isoHome = join(trial.home, "oc-home")
+  mkdirSync(isoHome, { recursive: true })
   const env = {
     ...process.env,
+    HOME: isoHome,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME || join(realHome, ".local", "share"),
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME || join(realHome, ".config"),
+    XDG_CACHE_HOME: process.env.XDG_CACHE_HOME || join(realHome, ".cache"),
     VIBEOS_HOME: trial.home,
     VIBEOS_API_URL: BASE_URL,
     VIBEOS_API_TOKEN: BACKEND === "real" ? process.env.VIBEOS_API_TOKEN : "vos_" + "a".repeat(64),
