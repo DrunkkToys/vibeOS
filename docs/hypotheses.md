@@ -2,7 +2,7 @@
 
 Written before any benchmark run. A hypothesis passes only on the holdout half of the benchmark subset, run once. Dev-half results never count as proof.
 
-Benchmark: HumanEval (164 Python tasks, hidden `check()` tests; the local copy at `theog-frontier-extract/evaluation/humaneval/HumanEval.jsonl.gz`), 30 tasks by seeded selection, split into 15 dev and 15 holdout. The agent sees the stub and a doctest suite built from the docstring examples; the hidden `check()` suite is applied only after the session ends. k=2 runs per exercise per arm. Statistics: paired bootstrap 95% CI over exercises and an exact sign test (`scripts/e2e/codebench/stats.mjs`).
+Benchmark: Aider polyglot, Python exercises (34 available; JavaScript needs jest from npm and is left out), 30 by seeded selection (`codebench-1`), split into 15 dev and 15 holdout. The agent sees the stub, the tests and the instructions; grading runs a pristine copy of the tests against the agent's solution files only. k=2 runs per exercise per arm. Statistics: paired bootstrap 95% CI over exercises and an exact sign test (`scripts/e2e/codebench/stats.mjs`). HumanEval (`--suite humaneval`) is kept as a second suite.
 
 ## Gate 1: the benchmark separates models
 

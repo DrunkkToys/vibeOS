@@ -11,6 +11,7 @@ import { hashTree, treeChangedBetween } from "../ml-task/tree-hash.mjs"
 import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
 import { ARMS, TURNS, armTiers, gradeTask, loadTasks, selectSubset, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
+import { gradeExercise, loadPolyglot, turnsForExercise, writeExercise } from "./polyglot.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
 const BUNDLE = join(ROOT, "dist", "vibeOS.js")
@@ -22,7 +23,8 @@ const flag = (name, fallback) => {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback
 }
 
-const DATA = resolve(flag("--data", join(ROOT, "..", "theog-frontier-extract", "evaluation", "humaneval", "HumanEval.jsonl.gz")))
+const SUITE = flag("--suite", "humaneval")
+const DATA = resolve(flag("--data", SUITE === "polyglot" ? "" : join(ROOT, "..", "theog-frontier-extract", "evaluation", "humaneval", "HumanEval.jsonl.gz")))
 const SPLIT = flag("--split", "dev")
 const SEED = flag("--seed", "codebench-1")
 const K = Number(flag("--k", "2"))
@@ -34,6 +36,7 @@ const ARM_LIST = flag("--arms", "raw-weak,raw-strong,cascade").split(",").map((s
 const RESUME = argv.includes("--resume")
 
 if (!MODELS.weak || !MODELS.strong) { console.error("[codebench] FATAL: --weak and --strong are required"); process.exit(1) }
+if (!["humaneval", "polyglot"].includes(SUITE)) { console.error("[codebench] FATAL: --suite must be humaneval or polyglot"); process.exit(1) }
 if (!["dev", "holdout"].includes(SPLIT)) { console.error("[codebench] FATAL: --split must be dev or holdout"); process.exit(1) }
 if (!existsSync(DATA)) { console.error(`[codebench] FATAL: no dataset at ${DATA}`); process.exit(1) }
 if (!existsSync(OPENCODE)) { console.error(`[codebench] FATAL: opencode CLI not found at ${OPENCODE}`); process.exit(1) }
@@ -43,7 +46,10 @@ if (!RESUME) rmSync(OUT, { recursive: true, force: true })
 mkdirSync(join(OUT, "logs"), { recursive: true })
 mkdirSync(join(OUT, "trials"), { recursive: true })
 
-const ALL = loadTasks(DATA)
+const ALL = SUITE === "polyglot" ? loadPolyglot(DATA) : loadTasks(DATA)
+const write = SUITE === "polyglot" ? writeExercise : writeTask
+const grade = SUITE === "polyglot" ? gradeExercise : gradeTask
+const turnsFor = SUITE === "polyglot" ? turnsForExercise : () => TURNS
 const SUBSET = selectSubset(ALL, { n: 30, seed: SEED })
 const IDS = LIMIT ? SUBSET[SPLIT].slice(0, LIMIT) : SUBSET[SPLIT]
 const TASKS = IDS.map((id) => ALL.find((t) => t.task_id === id))
@@ -57,7 +63,7 @@ function setupTrial(arm, task, index) {
   mkdirSync(home, { recursive: true })
   const { def } = ARMS[arm]
   const { model, tiers } = armTiers(arm, MODELS)
-  writeTask(proj, task)
+  write(proj, task)
   const config = { $schema: "https://opencode.ai/config.json" }
   if (def.plugin) {
     config.model = entryModel(def, tiers, model)
@@ -162,7 +168,7 @@ function byArm(results) {
 
 function report(results) {
   const arms = byArm(results)
-  const lines = ["", `================ CODEBENCH (${SPLIT}, seed ${SEED}) ================`, "arm          trials  void  pass-rate  strong-share  wall(s)"]
+  const lines = ["", `================ CODEBENCH ${SUITE} (${SPLIT}, seed ${SEED}) ================`, "arm          trials  void  pass-rate  strong-share  wall(s)"]
   for (const arm of ARM_LIST) {
     const all = results.filter((r) => r.arm === arm)
     const ok = all.filter((r) => !r.void)
@@ -195,8 +201,8 @@ function main() {
   const results = RESUME && existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, "utf8")) : []
   const done = new Set(results.map((r) => r.trial))
   const provenance = readBundleProvenance(BUNDLE)
-  writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
-  console.log(`[codebench] split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
+  writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
+  console.log(`[codebench] suite=${SUITE} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
   console.log(`[codebench] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)} commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}`)
   for (let i = 0; i < K; i++) {
     for (const task of TASKS) {
@@ -205,7 +211,7 @@ function main() {
         const trial = setupTrial(arm, task, i)
         const turns = []
         let sid = null
-        for (const turn of TURNS) {
+        for (const turn of turnsFor(task)) {
           const t = runTurnWithRetry(trial, turn, sid)
           sid = t.sessionId || sid
           turns.push(t)
@@ -223,7 +229,7 @@ function main() {
           cascade: trial.def.plugin ? readCascadeLevel(trial.home) : null,
           void: reason || null,
         }
-        if (!reason) record.pass = gradeTask(trial.proj, task).pass
+        if (!reason) record.pass = grade(trial.proj, task).pass
         results.push(record)
         writeFileSync(resultsPath, JSON.stringify(results, null, 2))
         console.log(`${trial.name.padEnd(40)} ${reason ? "VOID " + reason : record.pass ? "pass" : "fail"}  ${Math.round(record.wallMs / 1000)}s` +
