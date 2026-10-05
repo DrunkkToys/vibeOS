@@ -15,6 +15,7 @@ export const ARM_DEFS = {
   vibeultrax: { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "on", VIBEOS_ROUTER_ONLY: "0" } },
   "vibeultrax-novote": { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "off", VIBEOS_ROUTER_ONLY: "0" } },
   "router-only": { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1" } },
+  cascade: { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1", VIBEOS_CASCADE: "1" } },
 }
 
 // The arms differ only in env, so an arm whose env did not reach the session is a
