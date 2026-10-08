@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-import { loadPolyglot, writeExercise, gradeExercise, turnsForExercise } from "../scripts/e2e/codebench/polyglot.mjs"
+import { loadPolyglot, writeExercise, gradeExercise, turnsForExercise, hiddenTurn, feedbackTurn } from "../scripts/e2e/codebench/polyglot.mjs"
 
 const STUB = "def add(a, b):\n    pass\n"
 const EXAMPLE = "def add(a, b):\n    return a + b\n"
@@ -141,4 +141,31 @@ test("cpp gradeExercise fails the stub and passes the reference, in a project di
   writeFileSync(join(proj, "two_fer.cpp"), CPP_EXAMPLE)
   writeFileSync(join(proj, "two_fer_test.cpp"), "int main() { return 1; }\n")
   assert.equal(gradeExercise(proj, ex).pass, true)
+})
+
+test("hidden-tests mode gives the agent the stub and instructions but no test file, as in Aider's protocol", () => {
+  const [ex] = loadPolyglot(fixture())
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex, { hideTests: true })
+  assert.ok(existsSync(join(proj, "adder.py")))
+  assert.ok(existsSync(join(proj, "INSTRUCTIONS.md")))
+  assert.ok(!existsSync(join(proj, "adder_test.py")))
+  assert.equal(gradeExercise(proj, ex).pass, false)
+  writeFileSync(join(proj, "adder.py"), EXAMPLE)
+  assert.equal(gradeExercise(proj, ex).pass, true)
+})
+
+test("hidden-tests turns: the first never mentions a test command, the retry carries the failing output", () => {
+  const [ex] = loadPolyglot(fixture())
+  const first = hiddenTurn(ex)
+  assert.match(first.prompt, /INSTRUCTIONS\.md/)
+  assert.match(first.prompt, /adder\.py/)
+  assert.doesNotMatch(first.prompt, /unittest|adder_test/)
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex, { hideTests: true })
+  const g = gradeExercise(proj, ex, { tail: 4000 })
+  const retry = feedbackTurn(ex, g.error)
+  assert.equal(retry.id, "fix")
+  assert.ok(retry.prompt.includes(g.error.trim().slice(-200)))
+  assert.ok(g.error.length > 0)
 })

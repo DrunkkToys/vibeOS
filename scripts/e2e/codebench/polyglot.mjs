@@ -39,8 +39,9 @@ function copyPristine(ex, dest) {
   }
 }
 
-export function writeExercise(proj, ex) {
+export function writeExercise(proj, ex, { hideTests = false } = {}) {
   copyPristine(ex, proj)
+  if (hideTests) for (const f of ex.tests) rmSync(join(proj, f), { force: true })
   for (const f of ex.solution) {
     if (existsSync(join(ex.dir, f))) copyFileSync(join(ex.dir, f), join(proj, f))
   }
@@ -64,7 +65,15 @@ export function turnsForExercise(ex) {
   ]
 }
 
-export function gradeExercise(proj, ex, { timeoutMs = ex.language === "cpp" ? 180000 : 60000 } = {}) {
+export function hiddenTurn(ex) {
+  return { id: "implement", prompt: `Read INSTRUCTIONS.md and implement ${ex.solution.join(", ")}. Use only the standard library. Keep the existing function and class names; they are tested.` }
+}
+
+export function feedbackTurn(ex, output) {
+  return { id: "fix", prompt: `The hidden tests failed with this output:\n\n${output}\n\nThe tests are correct. Fix the code in ${ex.solution.join(", ")} to resolve the errors.` }
+}
+
+export function gradeExercise(proj, ex, { timeoutMs = ex.language === "cpp" ? 180000 : 60000, tail = 400 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "polyglot-grade-"))
   try {
     copyPristine(ex, dir)
@@ -75,7 +84,7 @@ export function gradeExercise(proj, ex, { timeoutMs = ex.language === "cpp" ? 18
     const r = ex.language === "cpp"
       ? spawnSync("sh", ["-c", CPP_TEST_CMD], { cwd: dir, timeout: timeoutMs, killSignal: "SIGKILL", encoding: "utf8" })
       : spawnSync(python(), ["-m", "unittest", ...ex.tests.map((f) => f.replace(/\.py$/, ""))], { cwd: dir, timeout: timeoutMs, killSignal: "SIGKILL", encoding: "utf8" })
-    return { pass: r.status === 0, status: r.status, error: ((r.stderr || "") + (r.stdout || "")).slice(-400) }
+    return { pass: r.status === 0, status: r.status, error: ((r.stderr || "") + (r.stdout || "")).slice(-tail) }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
