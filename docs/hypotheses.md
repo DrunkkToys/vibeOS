@@ -4,6 +4,8 @@ Written before any benchmark run. A hypothesis passes only on the holdout half o
 
 Benchmark: Aider polyglot, Python exercises (34 available; JavaScript needs jest from npm and is left out), 30 by seeded selection (`codebench-1`), split into 15 dev and 15 holdout. The agent sees the stub, the tests and the instructions; grading runs a pristine copy of the tests against the agent's solution files only. k=2 runs per exercise per arm. Statistics: paired bootstrap 95% CI over exercises and an exact sign test (`scripts/e2e/codebench/stats.mjs`). HumanEval (`--suite humaneval`) is kept as a second suite.
 
+Added 2026-10-08, before any C++ run: on the Python dev split every free weak model passed every scored exercise (nemotron-3-ultra 14/14, ling-3.1-flash 19/19, nemotron-3.5-lightning 6/6), so Gate 1 failed there. The C++ track (`--language cpp`) is the next benchmark: 24 exercises (gigasecond and meetup need Boost and are left out), all selected by `codebench-1`, split into 12 dev and 12 holdout. The agent runs `make test` (cmake build plus Catch2), which the cascade counts as a test command. Grading builds a pristine copy of the tests against the agent's solution files; all 24 reference solutions pass and all 24 stubs fail. Same Gate 1, hypotheses and statistics as above.
+
 ## Gate 1: the benchmark separates models
 
 Plain weak vs plain strong: the bootstrap 95% CI of the pass-rate difference excludes 0. If it does not, the benchmark cannot judge anything and no hypothesis below is tested on it.

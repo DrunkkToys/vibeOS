@@ -26,6 +26,7 @@ const flag = (name, fallback) => {
 const SUITE = flag("--suite", "humaneval")
 const DATA = resolve(flag("--data", SUITE === "polyglot" ? "" : join(ROOT, "..", "theog-frontier-extract", "evaluation", "humaneval", "HumanEval.jsonl.gz")))
 const SPLIT = flag("--split", "dev")
+const LANGUAGE = flag("--language", "python")
 const SEED = flag("--seed", "codebench-1")
 const K = Number(flag("--k", "2"))
 const OUT = resolve(ROOT, flag("--out", join(ROOT, ".codebench-out")))
@@ -46,11 +47,11 @@ if (!RESUME) rmSync(OUT, { recursive: true, force: true })
 mkdirSync(join(OUT, "logs"), { recursive: true })
 mkdirSync(join(OUT, "trials"), { recursive: true })
 
-const ALL = SUITE === "polyglot" ? loadPolyglot(DATA) : loadTasks(DATA)
+const ALL = SUITE === "polyglot" ? loadPolyglot(DATA, { language: LANGUAGE }) : loadTasks(DATA)
 const write = SUITE === "polyglot" ? writeExercise : writeTask
 const grade = SUITE === "polyglot" ? gradeExercise : gradeTask
 const turnsFor = SUITE === "polyglot" ? turnsForExercise : () => TURNS
-const SUBSET = selectSubset(ALL, { n: 30, seed: SEED })
+const SUBSET = selectSubset(ALL, { n: Math.min(30, ALL.length), seed: SEED })
 const IDS = LIMIT ? SUBSET[SPLIT].slice(0, LIMIT) : SUBSET[SPLIT]
 const TASKS = IDS.map((id) => ALL.find((t) => t.task_id === id))
 
@@ -201,8 +202,8 @@ function main() {
   const results = RESUME && existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, "utf8")) : []
   const done = new Set(results.map((r) => r.trial))
   const provenance = readBundleProvenance(BUNDLE)
-  writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
-  console.log(`[codebench] suite=${SUITE} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
+  writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, language: SUITE === "polyglot" ? LANGUAGE : null, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
+  console.log(`[codebench] suite=${SUITE}${SUITE === "polyglot" ? `/${LANGUAGE}` : ""} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
   console.log(`[codebench] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)} commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}`)
   for (let i = 0; i < K; i++) {
     for (const task of TASKS) {

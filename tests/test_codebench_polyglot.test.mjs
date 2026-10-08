@@ -81,3 +81,64 @@ test("every arm gets the same two turns; both name the test command and the seco
   assert.match(turns[0].prompt, /INSTRUCTIONS\.md/)
   assert.match(turns[1].prompt, /fix/i)
 })
+
+const CPP_CMAKE = "get_filename_component(exercise ${CMAKE_CURRENT_SOURCE_DIR} NAME)\ncmake_minimum_required(VERSION 3.5.1)\nproject(${exercise} CXX)\nstring(REPLACE \"-\" \"_\" file ${exercise})\nadd_executable(${exercise} ${file}_test.cpp ${file}.cpp ${file}.h)\nadd_custom_target(test_${exercise} ALL DEPENDS ${exercise} COMMAND ${exercise})\n"
+const CPP_HEADER = "#pragma once\nint add(int a, int b);\n"
+const CPP_STUB = "#include \"two_fer.h\"\nint add(int a, int b) { return 0; }\n"
+const CPP_EXAMPLE = "#include \"two_fer.h\"\nint add(int a, int b) { return a + b; }\n"
+const CPP_TEST = "#include \"two_fer.h\"\n#include \"test/check.h\"\nint main() { return check(add(2, 3) == 5) && check(add(-1, 1) == 0) ? 0 : 1; }\n"
+
+function cppFixture(names = ["two-fer"]) {
+  const root = mkdtempSync(join(tmpdir(), "polyglot-cpp-"))
+  for (const name of names) {
+    const dir = join(root, "cpp", "exercises", "practice", name)
+    mkdirSync(join(dir, ".meta"), { recursive: true })
+    mkdirSync(join(dir, ".docs"), { recursive: true })
+    mkdirSync(join(dir, "test"), { recursive: true })
+    writeFileSync(join(dir, "CMakeLists.txt"), CPP_CMAKE)
+    writeFileSync(join(dir, "two_fer.h"), CPP_HEADER)
+    writeFileSync(join(dir, "two_fer.cpp"), CPP_STUB)
+    writeFileSync(join(dir, "two_fer_test.cpp"), CPP_TEST)
+    writeFileSync(join(dir, "test", "check.h"), "#pragma once\ninline bool check(bool ok) { return ok; }\n")
+    writeFileSync(join(dir, ".meta", "example.cpp"), CPP_EXAMPLE)
+    writeFileSync(join(dir, ".meta", "config.json"), JSON.stringify({ files: { solution: ["two_fer.cpp", "two_fer.h"], test: ["two_fer_test.cpp"], example: [".meta/example.cpp"] } }))
+    writeFileSync(join(dir, ".docs", "instructions.md"), "# Two fer\n\nAdd two numbers.\n")
+  }
+  return root
+}
+
+test("loadPolyglot reads the cpp track and skips the exercises that need Boost", () => {
+  const ex = loadPolyglot(cppFixture(["two-fer", "gigasecond", "meetup"]), { language: "cpp" })
+  assert.deepEqual(ex.map((e) => e.task_id), ["cpp/two-fer"])
+  assert.equal(ex[0].language, "cpp")
+  assert.deepEqual(loadPolyglot(fixture()).map((e) => e.language), ["python"])
+})
+
+test("cpp writeExercise copies the test directory, pins the exercise name in CMakeLists and adds a make test target", () => {
+  const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex)
+  assert.ok(existsSync(join(proj, "test", "check.h")))
+  assert.match(readFileSync(join(proj, "CMakeLists.txt"), "utf8"), /^set\(exercise two-fer\)/)
+  assert.match(readFileSync(join(proj, "Makefile"), "utf8"), /^test:/m)
+  assert.ok(!existsSync(join(proj, ".meta")))
+})
+
+test("cpp turns tell the agent to run make test, which the cascade counts as a test command", async () => {
+  const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
+  const { isTestCommand } = await import("../src/lib/router-only.js").catch(() => import("../dist-ts/lib/router-only.js"))
+  for (const t of turnsForExercise(ex)) {
+    assert.match(t.prompt, /`make test`/)
+    assert.ok(isTestCommand("make test"))
+  }
+})
+
+test("cpp gradeExercise fails the stub and passes the reference, in a project dir with any name", { skip: !process.env.PATH.split(":").some((p) => existsSync(join(p, "cmake"))) }, () => {
+  const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex)
+  assert.equal(gradeExercise(proj, ex).pass, false)
+  writeFileSync(join(proj, "two_fer.cpp"), CPP_EXAMPLE)
+  writeFileSync(join(proj, "two_fer_test.cpp"), "int main() { return 1; }\n")
+  assert.equal(gradeExercise(proj, ex).pass, true)
+})
