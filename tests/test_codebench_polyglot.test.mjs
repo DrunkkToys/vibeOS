@@ -161,6 +161,8 @@ test("hidden-tests turns: the first never mentions a test command, the retry car
   assert.match(first.prompt, /INSTRUCTIONS\.md/)
   assert.match(first.prompt, /adder\.py/)
   assert.doesNotMatch(first.prompt, /unittest|adder_test/)
+  assert.match(first.prompt, /hidden/)
+  assert.match(first.prompt, /outside this directory/)
   const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
   writeExercise(proj, ex, { hideTests: true })
   const g = gradeExercise(proj, ex, { tail: 4000 })

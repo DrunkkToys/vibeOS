@@ -66,7 +66,7 @@ export function turnsForExercise(ex) {
 }
 
 export function hiddenTurn(ex) {
-  return { id: "implement", prompt: `Read INSTRUCTIONS.md and implement ${ex.solution.join(", ")}. Use only the standard library. Keep the existing function and class names; they are tested.` }
+  return { id: "implement", prompt: `Read INSTRUCTIONS.md and implement ${ex.solution.join(", ")}. Use only the standard library. Keep the existing function and class names; they are tested. The tests are hidden: they are not in this directory, not elsewhere on this machine and not to be fetched online. Work only inside this directory and do not search outside this directory or the web.` }
 }
 
 export function feedbackTurn(ex, output) {

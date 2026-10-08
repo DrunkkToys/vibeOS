@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 import { execSync, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { cliModelArgs, entryModel, retryDecision, voidReason } from "../ml-task/score.mjs"
@@ -11,6 +12,7 @@ import { hashTree, treeChangedBetween } from "../ml-task/tree-hash.mjs"
 import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
 import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
+import { ISOLATION_PERMISSION, leakedAccess } from "./isolation.mjs"
 import { feedbackTurn, gradeExercise, hiddenTurn, loadPolyglot, turnsForExercise, writeExercise } from "./polyglot.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
@@ -60,11 +62,13 @@ const TASKS = IDS.map((id) => ALL.find((t) => t.task_id === id))
 
 function setupTrial(arm, task, index) {
   const name = `${arm}-${task.task_id.replace(/\W+/g, "_")}-${index}`
-  const proj = join(OUT, "trials", name, "proj")
-  const home = join(OUT, "trials", name, "home")
-  rmSync(join(OUT, "trials", name), { recursive: true, force: true })
+  const base = HIDE_TESTS ? realpathSync(mkdtempSync(join(tmpdir(), "codebench-"))) : join(OUT, "trials", name)
+  const proj = join(base, "proj")
+  const home = join(base, "home")
+  rmSync(base, { recursive: true, force: true })
   mkdirSync(proj, { recursive: true })
   mkdirSync(home, { recursive: true })
+  if (HIDE_TESTS) execSync("git init -q", { cwd: proj })
   const { def } = ARMS[arm]
   const { model, tiers } = armTiers(arm, MODELS)
   write(proj, task, { hideTests: HIDE_TESTS })
@@ -78,6 +82,7 @@ function setupTrial(arm, task, index) {
       selection: { enabled: true, optimization_mode: def.mode, requested_optimization_mode: def.mode, active_pipeline: def.pipeline, active_slot: def.entry, entry_slot: def.entry, slot_locked: false, axis_overrides: {} },
     }, null, 2))
   }
+  if (HIDE_TESTS) config.permission = ISOLATION_PERMISSION
   writeFileSync(join(proj, "opencode.json"), JSON.stringify(config, null, 2))
   return { name, arm, task, index, proj, home, def, model }
 }
@@ -244,7 +249,8 @@ function main() {
         }
         const homeFiles = existsSync(trial.home) ? readdirSync(trial.home).filter((f) => f !== "oc-home") : []
         const execution = readExecution(sid)
-        const reason = voidReason(trial.def === ARMS.cascade.def ? "cascade" : "raw", turns, { homeFiles }, execution)
+        const leaks = HIDE_TESTS ? turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), trial.proj)) : []
+        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(trial.def === ARMS.cascade.def ? "cascade" : "raw", turns, { homeFiles }, execution)
         const record = {
           trial: trial.name, arm, task: task.task_id, index: i, sessionId: sid,
           turns: turns.map((t) => ({ id: t.id, status: t.status, elapsedMs: t.elapsedMs, toolCalls: t.toolCalls, attempts: t.attempts })),
@@ -255,6 +261,7 @@ function main() {
           tokensByModel: execution?.rows?.map((r) => ({ model: r.model, input: r.input, output: r.output, reasoning: r.reasoning, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite })) || null,
           cascade: trial.def.plugin ? readCascadeLevel(trial.home) : null,
           void: reason || null,
+          leaks: leaks.length ? leaks : undefined,
           passFirst,
         }
         if (!reason) record.pass = grade(trial.proj, task).pass
