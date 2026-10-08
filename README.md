@@ -5,7 +5,7 @@
 
 A quality-first control plane for AI-assisted coding.
 
-When AI coding is cheap, you use more of it. That is the upside of the current moment -- the marginal cost of a code suggestion has collapsed. But volume does not equal quality. The more you delegate to AI, the more often a mediocre suggestion slips through: a half-implemented fix, a fabricated API call, a test that passes only because the assertions are stubs. The quality problem gets worse as the cost problem gets better. vibeOS exists to solve the quality problem. The savings are a side effect.
+When AI coding is cheap, you use more of it. That is the upside of the current moment -- the marginal cost of a code suggestion has collapsed. But volume does not equal quality. The more you delegate to AI, the more often a mediocre suggestion slips through: a half-implemented fix, a fabricated API call, a test that passes only because the assertions are stubs. The quality problem gets worse as the cost problem gets better.
 
 OpenCode Desktop gives you access to the most capable language models ever created -- Opus, Sonnet, DeepSeek v4 Pro -- but running them on every single turn adds up fast. More importantly, routing every turn through the most expensive model does not guarantee the best output. vibeOS keeps one primary `vibe` agent in the dropdown, lets same-provider tier changes swap in-thread, and delegates cross-provider tier work to tier subagents without rewriting the active agent every turn.
 
@@ -23,20 +23,20 @@ The first thing you notice is the footer. A single line at the bottom of every a
 The dashboard now opens on an executive Home summary instead of a dense table, so you can see the active session, project, mode, stress, savings, blackbox state, open TODOs, and next action at a glance.
 
 ```text
-— brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
+— brain | DeepSeek | v4-flash -> RFNE | VibeUltraX . Quality >>> | guarded | _
 ```
 
 When you write code, the system routes implementation work to cheaper tiers automatically if the brain is reserved for strategy. You never see a block screen. You never get a cost warning interrupting your flow. The enforcement happens transparently -- the work gets done, just on the right tier.
 
-The VibeBoX decision engine watches how you work. Are you exploring a new codebase? It keeps the cheap model active and stays out of your way. Are you converging on a solution? It quietly upgrades to full quality mode with strict enforcement. Are you stuck in a loop fixing the same test? It detects the frustration pattern and escalates before you ask. You never configure any of this. It just adapts.
+The VibeBoX decision engine watches how you work. Are you exploring a new codebase? It keeps the cheap model active and stays out of your way. Are you converging on a solution? It quietly upgrades to full quality mode with strict enforcement. Are you stuck in a loop fixing the same test? It detects the repeated-failure pattern and escalates.
 
-The stress detector reads your messages for signs of frustration -- repeated failures, urgency, abrupt tone. When it senses stress above a threshold, it upgrades your model tier automatically. You get the best possible assistance while you are in the weeds, and you never had to ask.
+The stress detector reads your messages for signs of frustration -- repeated failures, urgency, abrupt tone. When it senses stress above a threshold, it upgrades your model tier automatically.
 
 The lie detector flags when the assistant claims success without evidence. The laziness detector catches short outputs, TODO placeholders, and skipped delegation on brain tier. The reward engine rolls those signals into one quality score so the UI stays simple. You forget vibeOS is even running. That is the point.
 
 ## The Cascade Engine
 
-vibeOS uses a single primary `vibe` agent plus three tier subagents to route every turn through the cheapest model that can produce a quality result.
+vibeOS uses a single primary `vibe` agent plus three tier subagents to route turns between a cheap, a medium and a brain model.
 
 ### How It Works
 
@@ -46,7 +46,22 @@ vibeOS uses a single primary `vibe` agent plus three tier subagents to route eve
 
 Not every turn goes through all three stages. The cascade router estimates input difficulty and routes simple queries directly to the cheap tier. Complex reasoning, multi-file edits, and ambiguous instructions escalate to medium or brain. The router learns from session outcomes and calibrates its thresholds over time.
 
-Benchmarked at **107% of raw brain quality at 58% of cost**. Local inference is free; only the Flash and Pro stages incur API costs. This is the first routing strategy that Pareto-dominates the raw brain baseline -- better quality, lower cost, without per-turn agent churn.
+### Measured results
+
+These are the only measurements behind vibeOS. No mode has been shown to match the strong model's quality at a lower cost.
+
+ml-task benchmark, free OpenCode models, k=3 per arm (correctness of the final code, 0 to 1):
+
+| Arm | Model | Correctness |
+|-----|-------|-------------|
+| Plain OpenCode | nemotron-3-ultra (weak) | 0.750 (2 scored, 1 void) |
+| vibeOS router-only (default) | nemotron-3-ultra (weak) | 0.767 |
+| vibeOS test-verified cascade | weak, escalating to strong | 0.800 |
+| Plain OpenCode | muse-spark-1.3 (strong) | 0.967 |
+
+The ml-task benchmark cannot tell setups apart reliably: 3 of its 5 measures were constant across every trial, and its visible tests pass on the broken starting code, so the cascade's trigger (a failed test run) never fired.
+
+Aider polyglot benchmark, Python dev split (15 exercises), free models, 2026-10: every scored trial of every free weak model passed (nemotron-3-ultra 14/14, ling-3.1-flash 19/19, nemotron-3.5-lightning 6/6, with 9 timeouts). The weak models never failed a test, so the cascade never escalated and no comparison with the strong model was possible. The pre-registered rules are in `docs/hypotheses.md`; the rig is `scripts/e2e/codebench/run.mjs`.
 
 ### Research Foundation
 
@@ -149,7 +164,7 @@ The stress gauge in the footer is also derived from **real signals** — tool fa
 
 ### Model Tiers
 
-Benchmarked on the DeepSeek v4 family. Prices based on 700 input + 300 output tokens per turn.
+List prices for the DeepSeek v4 family, based on 700 input + 300 output tokens per turn.
 
 | Slot | Model | API ID | Per Turn | Per 1K Turns | Tier |
 |------|-------|--------|----------|--------------|------|
@@ -162,23 +177,25 @@ DeepSeek Chat costs $0/turn when routed through the Direct DeepSeek provider (no
 
 ### Optimization Modes
 
-| Policy | Quality vs Brain | Cost vs Brain | Savings | Method |
-|--------|-----------------|--------------|---------|--------|
-| VibeUltraX | 107% | 0.58x | 42% | vibe primary + tier subagents |
-| VibeQMaX | ~100% | 0.50x | 50% | same model, framework optimizations |
-| VibeMaX | ~75% | 0.18x | 82% | trained cascade (conservative escalate) |
-| VibeLiteX | ~40% | 0.00x | 100% | direct cheap routing |
-| Budget | ~40% | 0.00x | 100% | direct routing |
+Quality and cost of these modes relative to the brain model have not been measured; see Measured results.
 
-**VibeUltraX** -- Default mode. The unified `vibe` primary starts on cheap, medium and brain run as subagents, and same-provider escalations stay in-thread. 107% quality at 58% cost.
+| Policy | Method |
+|--------|--------|
+| VibeUltraX | vibe primary + tier subagents |
+| VibeQMaX | same model, framework optimizations |
+| VibeMaX | trained cascade (conservative escalate) |
+| VibeLiteX | direct cheap routing |
+| Budget | direct routing |
 
-**VibeQMaX** -- Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit delegated per enforcement rules. Blended cost ~$0.00029/turn (50% of brain baseline).
+**VibeUltraX** -- Default mode. The unified `vibe` primary starts on cheap, medium and brain run as subagents, and same-provider escalations stay in-thread.
 
-**VibeMaX** -- ML-optimized medium mode. Routes through v4 Flash with a random forest classifier (29 trees, gini-split, trained on telemetry) that decides each turn. ~75% quality at 18% cost.
+**VibeQMaX** -- Routes strategic turns through v4 Pro with full thinking, strict enforcement, strict flow checks, and quality TDD. Write/edit delegated per enforcement rules.
+
+**VibeMaX** -- ML-optimized medium mode. Routes through v4 Flash with a random forest classifier (29 trees, gini-split, trained on telemetry) that decides each turn.
 
 **VibeLiteX** -- Cheap direct routing with relaxed enforcement. Ideal for exploration and Q&A.
 
-**Budget** -- DeepSeek Chat. Direct routing. ~40% quality at zero cost.
+**Budget** -- DeepSeek Chat. Direct routing.
 
 ### Mode Configuration
 
@@ -421,7 +438,7 @@ Remote API (api.vibetheog.com) enables: bootstrap token exchange, advanced VibeB
 The footer is the primary status line, appended to every assistant response. It surfaces model assignment, savings, mode, alerts, and session metrics in a single line.
 
 ```text
-— brain | DeepSeek | v4-flash -> RFNE | $198.93 saved | VibeUltraX . Quality >>> | guarded | _
+— brain | DeepSeek | v4-flash -> RFNE | VibeUltraX . Quality >>> | guarded | _
 ```
 
 #### Tier Icons
@@ -518,7 +535,7 @@ This table is the single source of truth — `buildFooterAlert()` must match it 
 | Tier icon + slot | icon tier | 🧠 brain | Active model slot |
 | Provider + model | provider modelName | DeepSeek / v4-flash | Current model |
 | Regime | regimeIcon regimeTag | -> RFNE | Current sub-regime classification |
-| Savings | $X saved | $198.93 saved | Lifetime savings |
+| Savings | $X saved | $0.00 saved | Lifetime savings |
 | Flash icon | flashIcon | ⚡ | API connected indicator |
 | Brand + mode label | VibeBrand . modeLabel | VibeUltraX . Quality | Requested mode + regime-derived label |
 | Cascade icon | >>> or >> | >>> | VibeUltraX cascade depth >= 3 |
