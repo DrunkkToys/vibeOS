@@ -9,7 +9,7 @@ import { readExecution } from "../ml-task/execution.mjs"
 import { readBundleProvenance } from "../ml-task/provenance.mjs"
 import { hashTree, treeChangedBetween } from "../ml-task/tree-hash.mjs"
 import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
-import { ARMS, TURNS, armTiers, gradeTask, loadTasks, selectSubset, strongShare, writeTask } from "./tasks.mjs"
+import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
 import { gradeExercise, loadPolyglot, turnsForExercise, writeExercise } from "./polyglot.mjs"
 
@@ -35,6 +35,7 @@ const LIMIT = Number(flag("--limit", "0"))
 const MODELS = { weak: flag("--weak", ""), strong: flag("--strong", "") }
 const ARM_LIST = flag("--arms", "raw-weak,raw-strong,cascade").split(",").map((s) => s.trim()).filter((a) => ARMS[a])
 const RESUME = argv.includes("--resume")
+const BUDGET_TOKENS = Number(flag("--budget-tokens", "0"))
 
 if (!MODELS.weak || !MODELS.strong) { console.error("[codebench] FATAL: --weak and --strong are required"); process.exit(1) }
 if (!["humaneval", "polyglot"].includes(SUITE)) { console.error("[codebench] FATAL: --suite must be humaneval or polyglot"); process.exit(1) }
@@ -205,10 +206,15 @@ function main() {
   writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, language: SUITE === "polyglot" ? LANGUAGE : null, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
   console.log(`[codebench] suite=${SUITE}${SUITE === "polyglot" ? `/${LANGUAGE}` : ""} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
   console.log(`[codebench] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)} commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}`)
-  for (let i = 0; i < K; i++) {
+  run: for (let i = 0; i < K; i++) {
     for (const task of TASKS) {
       for (const arm of ARM_LIST) {
         if (done.has(`${arm}-${task.task_id.replace(/\W+/g, "_")}-${i}`)) continue
+        const budget = budgetLeft(results, BUDGET_TOKENS)
+        if (budget.stop) {
+          console.log(`[codebench] STOP: token budget reached, ${budget.spent} of ${BUDGET_TOKENS} tokens spent`)
+          break run
+        }
         const trial = setupTrial(arm, task, i)
         const turns = []
         let sid = null
@@ -227,6 +233,8 @@ function main() {
           wallMs: turns.reduce((s, t) => s + t.elapsedMs, 0),
           models: execution?.rows?.map((r) => ({ model: r.model, messages: r.messages })) || null,
           strongShare: strongShare(execution, MODELS.strong),
+          tokens: sessionTokens(execution),
+          tokensByModel: execution?.rows?.map((r) => ({ model: r.model, input: r.input, output: r.output, reasoning: r.reasoning, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite })) || null,
           cascade: trial.def.plugin ? readCascadeLevel(trial.home) : null,
           void: reason || null,
         }
@@ -234,7 +242,8 @@ function main() {
         results.push(record)
         writeFileSync(resultsPath, JSON.stringify(results, null, 2))
         console.log(`${trial.name.padEnd(40)} ${reason ? "VOID " + reason : record.pass ? "pass" : "fail"}  ${Math.round(record.wallMs / 1000)}s` +
-          (record.strongShare !== null ? `  strong=${record.strongShare.toFixed(2)}` : ""))
+          (record.strongShare !== null ? `  strong=${record.strongShare.toFixed(2)}` : "") +
+          `  tokens=${record.tokens ?? "?"}  total=${budgetLeft(results, BUDGET_TOKENS).spent}`)
       }
     }
   }
