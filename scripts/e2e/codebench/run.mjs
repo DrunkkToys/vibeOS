@@ -3,7 +3,7 @@
 import { execSync, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { cliModelArgs, entryModel, retryDecision, voidReason } from "../ml-task/score.mjs"
 import { readExecution } from "../ml-task/execution.mjs"
@@ -249,7 +249,7 @@ function main() {
         }
         const homeFiles = existsSync(trial.home) ? readdirSync(trial.home).filter((f) => f !== "oc-home") : []
         const execution = readExecution(sid)
-        const leaks = HIDE_TESTS ? turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), trial.proj)) : []
+        const leaks = HIDE_TESTS ? turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), { proj: trial.proj, sensitive: [ROOT, DATA], testFiles: task.tests.map((f) => basename(f)), home: process.env.HOME || "" })) : []
         const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(trial.def === ARMS.cascade.def ? "cascade" : "raw", turns, { homeFiles }, execution)
         const record = {
           trial: trial.name, arm, task: task.task_id, index: i, sessionId: sid,
