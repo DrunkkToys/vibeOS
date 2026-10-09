@@ -97,3 +97,17 @@ export function strongShare(execution, strongModel) {
   const strong = execution.rows.filter((r) => r.model === id).reduce((s, r) => s + (r.messages || 0), 0)
   return strong / total
 }
+
+export function sessionTokens(execution) {
+  if (!execution || execution.error || !execution.totals) return null
+  const t = execution.totals
+  const reasoning = (execution.rows || []).reduce((s, r) => s + (r.reasoning || 0), 0)
+  return t.input + t.output + t.cacheRead + t.cacheWrite + reasoning
+}
+
+export function budgetLeft(results, cap) {
+  const spent = results.reduce((s, r) => s + (r.tokens || 0), 0)
+  if (!cap) return { spent, stop: false }
+  const unmetered = results.some((r) => r.tokens == null && r.sessionId)
+  return { spent, stop: unmetered || spent >= cap }
+}
