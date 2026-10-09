@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { spawnSync } from "node:child_process"
-import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { python } from "./python.mjs"
@@ -84,7 +84,8 @@ export function gradeExercise(proj, ex, { timeoutMs = ex.language === "cpp" ? 18
     const r = ex.language === "cpp"
       ? spawnSync("sh", ["-c", CPP_TEST_CMD], { cwd: dir, timeout: timeoutMs, killSignal: "SIGKILL", encoding: "utf8" })
       : spawnSync(python(), ["-m", "unittest", ...ex.tests.map((f) => f.replace(/\.py$/, ""))], { cwd: dir, timeout: timeoutMs, killSignal: "SIGKILL", encoding: "utf8" })
-    return { pass: r.status === 0, status: r.status, error: ((r.stderr || "") + (r.stdout || "")).slice(-tail) }
+    const out = [realpathSync(dir), dir].reduce((s, d) => s.split(d + "/").join(""), (r.stderr || "") + (r.stdout || ""))
+    return { pass: r.status === 0, status: r.status, error: out.slice(-tail) }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -171,3 +171,13 @@ test("hidden-tests turns: the first never mentions a test command, the retry car
   assert.ok(retry.prompt.includes(g.error.trim().slice(-200)))
   assert.ok(g.error.length > 0)
 })
+
+test("grader feedback names test files relative to the exercise, never the grader's temp path", () => {
+  const [ex] = loadPolyglot(fixture())
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex, { hideTests: true })
+  const g = gradeExercise(proj, ex, { tail: 4000 })
+  assert.equal(g.pass, false)
+  assert.doesNotMatch(g.error, /polyglot-grade-/)
+  assert.match(g.error, /adder_test\.py/)
+})
