@@ -11,6 +11,7 @@ type PlanSession = { trivial: boolean; todos: Todo[]; sent: number; lastSent: st
 const MAX_CONTINUATIONS = 3
 const WRITE_TOOLS = new Set(["write", "edit", "patch", "multiedit", "apply_patch", "notebookedit"])
 const VERIFY_STEP = /\b(verif|test|check|validat|run)/i
+const TEST_PROGRAM = /(^|[\s;&|(])(\.\/[\w./-]*test[\w.-]*|ctest|make check)(\s|$)/i
 const sessions = new Map<string, PlanSession>()
 
 export const PLAN_DIRECTIVE = [
@@ -78,7 +79,8 @@ export function planGateAfterTool(sessionID: string | undefined, tool: unknown, 
   if (WRITE_TOOLS.has(name)) { s.editedSinceTest = true; return }
   if (name !== "bash") return
   const exit = (metadata as { exit?: unknown })?.exit
-  if (typeof exit !== "number" || !isTestCommand(String((args as { command?: unknown })?.command || ""))) return
+  const command = String((args as { command?: unknown })?.command || "")
+  if (typeof exit !== "number" || !(isTestCommand(command) || TEST_PROGRAM.test(command))) return
   s.lastTest = exit === 0 ? "pass" : "fail"
   s.editedSinceTest = false
 }

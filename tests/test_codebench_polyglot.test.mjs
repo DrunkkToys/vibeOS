@@ -124,6 +124,14 @@ test("cpp writeExercise copies the test directory, pins the exercise name in CMa
   assert.ok(!existsSync(join(proj, ".meta")))
 })
 
+test("cpp hidden-tests mode adds no make test target, since its test file is hidden and it can only fail", () => {
+  const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex, { hideTests: true })
+  assert.ok(!existsSync(join(proj, "Makefile")))
+  assert.ok(!existsSync(join(proj, "two_fer_test.cpp")))
+})
+
 test("cpp turns tell the agent to run make test, which the cascade counts as a test command", async () => {
   const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
   const { isTestCommand } = await import("../src/lib/router-only.js").catch(() => import("../dist-ts/lib/router-only.js"))

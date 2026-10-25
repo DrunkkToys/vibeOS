@@ -106,6 +106,20 @@ test("a verify step marked done without a passing test run continues; with one i
   assert.equal(sent.length, 1)
 })
 
+test("a passing run of a self-built test program counts as verification", async () => {
+  const { h, sent } = await setup()
+  await user(h, "pg-bin", TASK)
+  await todos(h, "pg-bin", [td("Implement zipper", "completed"), td("Verify with a test program", "completed")])
+  await edit(h, "pg-bin")
+  await bash(h, "pg-bin", "g++ -std=c++17 -o test_zipper test_zipper.cpp zipper.cpp && ./test_zipper", 0)
+  await idle(h, "pg-bin")
+  assert.equal(sent.length, 0)
+  await bash(h, "pg-bin", "ls -la", 0)
+  await bash(h, "pg-bin", "cat test_zipper.cpp", 0)
+  await idle(h, "pg-bin")
+  assert.equal(sent.length, 0)
+})
+
 test("a failing test run after the verify step is done also continues", async () => {
   const { h, sent } = await setup()
   await user(h, "pg-6", TASK)
