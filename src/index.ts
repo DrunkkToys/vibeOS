@@ -36,7 +36,8 @@ import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
-import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
+import { recordSessionAgent, isVibeAgentSession, getSessionAgent } from "./lib/agent-gate.js"
+import { PLAN_DIRECTIVE, planGateAfterTool, planGateBeforeTool, planGateContinuation, planGateEnabled, planGateOnTodos, planGateOnUserMessage, planGateWantsDirective } from "./vibeOS-lib/plan-gate.js"
 import { recordToolResult, routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
@@ -1454,10 +1455,25 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const pluginHooks = {
     "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
+      if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateOnUserMessage(input?.sessionID, output?.parts)
       if (routerOnlyEnabled() && input?.agent === "vibe" && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
     },
+    event: async ({ event } = {}) => {
+      const sid = event?.properties?.sessionID
+      if (!sid || !planGateEnabled() || !_gateOpen(sid)) return
+      if (event.type === "todo.updated") return planGateOnTodos(sid, event.properties.todos)
+      if (event.type !== "session.idle") return
+      const text = planGateContinuation(sid)
+      if (!text || typeof client?.session?.promptAsync !== "function") return
+      const agent = getSessionAgent(sid)
+      try {
+        await client.session.promptAsync({ path: { id: sid }, body: { ...(agent ? { agent } : {}), parts: [{ type: "text", text }] } })
+      } catch { }
+    },
     "tool.execute.before": async (input, output) => {
-      if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
+      if (!_gateOpen(input?.sessionID)) return
+      if (planGateEnabled()) planGateBeforeTool(input?.sessionID, input?.tool)
+      if (routerOnlyEnabled()) return
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1477,6 +1493,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
+      if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateAfterTool(input?.sessionID, input?.tool, input?.args, output?.metadata)
       if (routerOnlyEnabled()) {
         if (_gateOpen(input?.sessionID)) recordToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata)
         return
@@ -1525,7 +1542,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onSessionCompacting(_input, output)
     },
     "experimental.chat.system.transform": async (_input, output) => {
-      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
+      if (!_gateOpen(_input?.sessionID)) return
+      if (planGateEnabled() && planGateWantsDirective(_input?.sessionID) && Array.isArray(output?.system)) output.system.push(PLAN_DIRECTIVE)
+      if (routerOnlyEnabled()) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {

@@ -103,6 +103,30 @@ test("sessions do not share escalation", async () => {
   assert.deepEqual(await send(h, "s-b"), CHEAP)
 })
 
+const CPP_FAIL = "The hidden tests failed with this output:\n\nzipper_test.cpp:41:12: error: no member named 'set_value' in 'zipper::zipper'\nmake[2]: *** [CMakeFiles/zipper.dir/zipper_test.cpp.o] Error 1"
+const PY_FAIL = "still failing:\n\nTraceback (most recent call last):\n  File \"react_test.py\", line 9, in test_x\nAssertionError: 3 != 4\n\nFAILED (failures=1)"
+
+test("a follow-up message carrying failure output escalates one slot", async () => {
+  const h = await hooks()
+  assert.deepEqual(await send(h, "s-paste"), CHEAP)
+  assert.deepEqual(await send(h, "s-paste", CPP_FAIL), MEDIUM)
+  assert.deepEqual(await send(h, "s-paste", PY_FAIL), BRAIN)
+  assert.deepEqual(await send(h, "s-paste", PY_FAIL), BRAIN)
+})
+
+test("plain follow-ups and tasks that only mention failing tests do not escalate", async () => {
+  const h = await hooks()
+  await send(h, "s-plain")
+  assert.deepEqual(await send(h, "s-plain"), CHEAP)
+  assert.deepEqual(await send(h, "s-plain", "thanks, now add a docstring to parse()"), CHEAP)
+  assert.deepEqual(await send(h, "s-plain", "the error handling should log to stderr"), CHEAP)
+})
+
+test("failure output in the first message of a session starts on the cheap slot", async () => {
+  const h = await hooks()
+  assert.deepEqual(await send(h, "s-first", PY_FAIL), CHEAP)
+})
+
 test("cascade leaves non-vibe agents on their chosen model", async () => {
   const h = await hooks()
   assert.deepEqual(await send(h, "s-build", TASK, "build"), CHOSEN)

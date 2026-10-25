@@ -345,9 +345,14 @@
 - **Module**: `src/lib/router-only.ts`
 
 ### 9.11 Test-Verified Cascade (opt-in)
-- **Contract**: With `VIBEOS_CASCADE=1` in router-only mode, every message of a primary `vibe` session starts on the cheap slot. `tool.execute.after` records the exit code of each `bash` test command (pytest, npm/pnpm/yarn/bun test, node --test, jest, vitest, go test, cargo test and similar); the last test run of a turn decides. If it failed, the next message moves up one slot (cheap, then medium, then brain); a passing run or a non-test command does not. Escalation is never undone within a session. State is kept per session in `$VIBEOS_HOME/cascade-state.json`, so it survives one `opencode run` process per turn. Non-vibe agents keep their own model. Verified live on OpenCode 1.18.34: turn 1 ran on the cheap slot, `npm test` exited 254, turn 2 ran on the medium slot.
+- **Contract**: With `VIBEOS_CASCADE=1` in router-only mode, every message of a primary `vibe` session starts on the cheap slot. `tool.execute.after` records the exit code of each `bash` test command (pytest, npm/pnpm/yarn/bun test, node --test, jest, vitest, go test, cargo test and similar); the last test run of a turn decides. If it failed, the next message moves up one slot (cheap, then medium, then brain); a passing run or a non-test command does not. Escalation is never undone within a session. State is kept per session in `$VIBEOS_HOME/cascade-state.json`, so it survives one `opencode run` process per turn. Non-vibe agents keep their own model. Verified live on OpenCode 1.18.34: turn 1 ran on the cheap slot, `npm test` exited 254, turn 2 ran on the medium slot. A user message after the first one of a session that carries failure output (traceback, compiler `error:` line, `FAILED`, `N failed`, `XxxError:`, `make: ***`, "still failing") also moves up one slot; a task that only mentions failing tests does not.
 - **Test**: `tests/test_cascade_escalation.test.mjs`
 - **Module**: `src/lib/router-only.ts`
+
+### 9.12 Flow Plan Gate (opt-in)
+- **Contract**: Off by default. `vibe flow gate on|off` writes `selection.plan_gate` in `model-tiers.json`; `VIBEOS_PLAN_GATE=1|0` overrides it. When on, for a session that passes the agent gate and whose last user message is not clearly trivial: the system prompt gets a plan directive (todo plan ending with a verify step); `tool.execute.before` throws on `write`/`edit`/`patch` until a todo list exists; on `session.idle` with `pending` todos, `client.session.promptAsync` sends one message naming the next pending step; when no step is pending but a completed step names verify/test/check and no passing test command ran after the last edit, it sends a message asking for a test run. At most 3 such messages per real user message; its own messages do not reset the count. `in_progress`, `cancelled` and unknown statuses never trigger. Works in router-only mode and the full plugin. Uninstalled or non-vibe sessions are untouched. Todos come from the `todo.updated` event and `todowrite` results.
+- **Test**: `tests/test_plan_gate.test.mjs`
+- **Module**: `src/vibeOS-lib/plan-gate.ts`
 
 ---
 

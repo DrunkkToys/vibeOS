@@ -8,6 +8,7 @@ import { safeJsonParse } from "../utils/fs-helpers.js"
 type Slot = "cheap" | "medium" | "brain"
 const LADDER: Slot[] = ["cheap", "medium", "brain"]
 const TEST_COMMAND = /(^|[\s;&|(])(pytest|py\.test|tox|jest|vitest|mocha|rspec|phpunit|(npm|pnpm|yarn|bun)( run)? test|node --test|go test|cargo test|mvn test|gradle test|make test|python3? -m (pytest|unittest))(\s|$)/
+const FAILURE_OUTPUT = /Traceback \(most recent call last\)|^\s*FAILED\b|\bFAILED \(|\b\d+ (failed|failures?)\b|\b[A-Z]\w*(Error|Exception): |:\d+(:\d+)?: (fatal )?error:|make(\[\d+\])?: \*\*\*|undefined reference to|Segmentation fault|\b(tests?|build) failed\b|\bstill (failing|fails|broken|not working)\b/im
 type CascadeSession = { level: number; lastTest: "pass" | "fail" | null }
 
 export function routerOnlyEnabled(): boolean {
@@ -22,6 +23,10 @@ export function isTestCommand(command: string): boolean {
   const c = String(command || "").trim()
   if (/^(grep|rg|cat|ls|find|echo)\b/.test(c)) return false
   return TEST_COMMAND.test(c)
+}
+
+export function reportsFailure(text: string): boolean {
+  return FAILURE_OUTPUT.test(String(text || ""))
 }
 
 export function clearlyTrivial(text: string): boolean {
@@ -42,8 +47,10 @@ export function routeUserMessage(sessionID: string | undefined, message: UserMes
   let slot: Slot = "cheap"
   if (cascadeEnabled()) {
     const states = readCascade()
-    const cur = states[sessionID] || { level: 0, lastTest: null }
-    const level = Math.min(cur.lastTest === "fail" ? cur.level + 1 : cur.level, LADDER.length - 1)
+    const prior = states[sessionID]
+    const cur = prior || { level: 0, lastTest: null }
+    const failed = cur.lastTest === "fail" || (!!prior && reportsFailure(text))
+    const level = Math.min(failed ? cur.level + 1 : cur.level, LADDER.length - 1)
     states[sessionID] = { level, lastTest: null }
     writeCascade(states)
     slot = LADDER[level]
