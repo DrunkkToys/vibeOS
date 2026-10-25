@@ -13,6 +13,7 @@ import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
 import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
 import { ISOLATION_PERMISSION, leakedAccess } from "./isolation.mjs"
+import { continuationCount, serverApi, startServer, toolEventLines, waitIdle } from "./serve.mjs"
 import { feedbackTurn, gradeExercise, hiddenTurn, loadPolyglot, turnsForExercise, writeExercise } from "./polyglot.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
@@ -39,6 +40,7 @@ const ARM_LIST = flag("--arms", "raw-weak,raw-strong,cascade").split(",").map((s
 const RESUME = argv.includes("--resume")
 const BUDGET_TOKENS = Number(flag("--budget-tokens", "0"))
 const HIDE_TESTS = argv.includes("--hide-tests")
+const SERVE = argv.includes("--serve")
 
 if (!MODELS.weak || !MODELS.strong) { console.error("[codebench] FATAL: --weak and --strong are required"); process.exit(1) }
 if (!["humaneval", "polyglot"].includes(SUITE)) { console.error("[codebench] FATAL: --suite must be humaneval or polyglot"); process.exit(1) }
@@ -87,11 +89,11 @@ function setupTrial(arm, task, index) {
   return { name, arm, task, index, proj, home, def, model }
 }
 
-function runTurn(trial, turn, sessionId) {
+function trialEnv(trial) {
   const realHome = process.env.HOME || ""
   const isoHome = join(trial.home, "oc-home")
   mkdirSync(isoHome, { recursive: true })
-  const env = {
+  return {
     ...process.env,
     HOME: isoHome,
     XDG_DATA_HOME: process.env.XDG_DATA_HOME || join(realHome, ".local", "share"),
@@ -104,8 +106,13 @@ function runTurn(trial, turn, sessionId) {
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     ...(trial.def.env || {}),
   }
-  const args = ["run", "--dir", trial.proj, "--format", "json", "--auto", ...cliModelArgs(trial.def, trial.model), "--agent", trial.def.agent]
-  if (trial.def.pure) args.push("--pure")
+}
+
+function runTurn(trial, turn, sessionId) {
+  const env = trialEnv(trial)
+  const attach = trial.server ? ["--attach", trial.server.url] : []
+  const args = ["run", ...attach, "--dir", trial.proj, "--format", "json", "--auto", ...cliModelArgs(trial.def, trial.model), "--agent", trial.def.agent]
+  if (trial.def.pure && !trial.server) args.push("--pure")
   if (sessionId) args.push("-s", sessionId)
   args.push(turn.prompt)
   const started = Date.now()
@@ -148,10 +155,16 @@ function runTurn(trial, turn, sessionId) {
   }
 }
 
-function runTurnWithRetry(trial, turn, sessionId) {
+async function runTurnWithRetry(trial, turn, sessionId) {
   for (let attempt = 0; ; attempt++) {
     const before = hashTree(trial.proj)
     const result = runTurn(trial, turn, sessionId)
+    if (trial.server && result.sessionId) {
+      const api = serverApi(trial.server.url, trial.proj)
+      const w = await waitIdle(() => api.status(), result.sessionId, { timeoutMs: Math.max(TURN_TIMEOUT - result.elapsedMs, 60000) })
+      result.elapsedMs += w.elapsedMs
+      if (!w.idle) { await api.abort(result.sessionId); result.timedOut = true }
+    }
     result.treeChanged = treeChangedBetween(before, hashTree(trial.proj))
     result.attempts = attempt + 1
     const decision = retryDecision(result, attempt)
@@ -196,6 +209,8 @@ function report(results) {
   cmp("raw-strong", "raw-weak")
   cmp("cascade", "raw-strong")
   cmp("cascade", "raw-weak")
+  cmp("flow", "raw-weak")
+  cmp("flow-cascade", "raw-weak")
   if (arms["raw-strong"] && arms["raw-weak"]) {
     const g = pairedBootstrap(arms["raw-strong"], arms["raw-weak"], { iterations: 10000, seed: 1 })
     lines.push(`Gate 1 (strong vs weak CI excludes 0): ${g.lo > 0 || g.hi < 0 ? "PASS" : "FAIL"}`)
@@ -205,12 +220,13 @@ function report(results) {
   writeFileSync(join(OUT, "report.txt"), text + "\n")
 }
 
-function main() {
+async function main() {
   const resultsPath = join(OUT, "results.json")
   const results = RESUME && existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, "utf8")) : []
   const done = new Set(results.map((r) => r.trial))
   const provenance = readBundleProvenance(BUNDLE)
   writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, hideTests: HIDE_TESTS, language: SUITE === "polyglot" ? LANGUAGE : null, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
+  if (SERVE) console.log("[codebench] serve mode: one opencode server per trial, turns attach to it, each turn waits for the session to go idle")
   console.log(`[codebench] suite=${SUITE}${SUITE === "polyglot" ? `/${LANGUAGE}` : ""} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
   console.log(`[codebench] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)} commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}`)
   run: for (let i = 0; i < K; i++) {
@@ -223,34 +239,53 @@ function main() {
           break run
         }
         const trial = setupTrial(arm, task, i)
+        if (SERVE) trial.server = await startServer(OPENCODE, { cwd: trial.proj, env: trialEnv(trial), pure: trial.def.pure })
         const turns = []
+        const sent = []
         let sid = null
         let passFirst = null
         if (HIDE_TESTS) {
-          const first = runTurnWithRetry(trial, hiddenTurn(task), sid)
+          sent.push(hiddenTurn(task).prompt)
+          const first = await runTurnWithRetry(trial, hiddenTurn(task), sid)
           sid = first.sessionId || sid
           turns.push(first)
           if (first.status === 0) {
             const g = grade(trial.proj, task, { tail: 3000 })
             passFirst = g.pass
             if (!g.pass) {
-              const t = runTurnWithRetry(trial, feedbackTurn(task, g.error), sid)
+              sent.push(feedbackTurn(task, g.error).prompt)
+              const t = await runTurnWithRetry(trial, feedbackTurn(task, g.error), sid)
               sid = t.sessionId || sid
               turns.push(t)
             }
           }
         } else {
           for (const turn of turnsFor(task)) {
-            const t = runTurnWithRetry(trial, turn, sid)
+            sent.push(turn.prompt)
+            const t = await runTurnWithRetry(trial, turn, sid)
             sid = t.sessionId || sid
             turns.push(t)
             if (t.status !== 0) break
           }
         }
+        let sessionLog = null
+        let continuations = null
+        if (trial.server) {
+          try {
+            const msgs = sid ? await serverApi(trial.server.url, trial.proj).messages(sid) : []
+            sessionLog = toolEventLines(msgs)
+            continuations = continuationCount(msgs, sent)
+            writeFileSync(join(OUT, "logs", `${trial.name}-session.jsonl`), sessionLog)
+          } catch {}
+          trial.server.stop()
+        }
         const homeFiles = existsSync(trial.home) ? readdirSync(trial.home).filter((f) => f !== "oc-home") : []
         const execution = readExecution(sid)
-        const leaks = HIDE_TESTS ? turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), { proj: trial.proj, sensitive: [ROOT, DATA], testFiles: task.tests.map((f) => basename(f)), home: process.env.HOME || "" })) : []
-        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(trial.def === ARMS.cascade.def ? "cascade" : "raw", turns, { homeFiles }, execution)
+        const leakCtx = { proj: trial.proj, sensitive: [ROOT, DATA], testFiles: task.tests.map((f) => basename(f)), home: process.env.HOME || "" }
+        const leaks = !HIDE_TESTS ? [] : trial.server
+          ? (sessionLog === null ? ["no session log from the server"] : leakedAccess(sessionLog, leakCtx))
+          : turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), leakCtx))
+        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(ARMS[arm].defName, turns, { homeFiles }, execution)
         const record = {
           trial: trial.name, arm, task: task.task_id, index: i, sessionId: sid,
           turns: turns.map((t) => ({ id: t.id, status: t.status, elapsedMs: t.elapsedMs, toolCalls: t.toolCalls, attempts: t.attempts })),
@@ -263,12 +298,14 @@ function main() {
           void: reason || null,
           leaks: leaks.length ? leaks : undefined,
           passFirst,
+          continuations,
         }
         if (!reason) record.pass = grade(trial.proj, task).pass
         results.push(record)
         writeFileSync(resultsPath, JSON.stringify(results, null, 2))
         console.log(`${trial.name.padEnd(40)} ${reason ? "VOID " + reason : record.pass ? "pass" : "fail"}  ${Math.round(record.wallMs / 1000)}s` +
           (passFirst !== null ? `  first=${passFirst ? "pass" : "fail"}` : "") +
+          (continuations !== null ? `  cont=${continuations}` : "") +
           (record.strongShare !== null ? `  strong=${record.strongShare.toFixed(2)}` : "") +
           `  tokens=${record.tokens ?? "?"}  total=${budgetLeft(results, BUDGET_TOKENS).spent}`)
       }
@@ -277,4 +314,4 @@ function main() {
   report(results)
 }
 
-main()
+await main()

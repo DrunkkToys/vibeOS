@@ -83,7 +83,18 @@ test("every arm gets the same two turns, and the second asks for a test run", ()
   assert.equal(TURNS.length, 2)
   assert.match(TURNS[0].prompt, /solution\.py/)
   assert.match(TURNS[1].prompt, /python3 -m unittest/)
-  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "raw-strong", "raw-weak"])
+  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "flow", "flow-cascade", "raw-strong", "raw-weak"])
+})
+
+test("the flow arms run the plan gate on the weak model, flow-cascade adds the cascade", () => {
+  const m = { weak: "p/weak", strong: "p/strong" }
+  assert.equal(armTiers("flow", m).model, "p/weak")
+  assert.equal(ARMS.flow.def.env.VIBEOS_PLAN_GATE, "1")
+  assert.equal(ARMS.flow.def.env.VIBEOS_CASCADE, undefined)
+  assert.equal(ARMS["flow-cascade"].def.env.VIBEOS_PLAN_GATE, "1")
+  assert.equal(ARMS["flow-cascade"].def.env.VIBEOS_CASCADE, "1")
+  assert.equal(ARMS.flow.defName, "flow")
+  assert.equal(ARMS["raw-weak"].defName, "raw")
 })
 
 test("arm tiers: raw arms pin one model, the cascade starts weak and escalates to strong", () => {

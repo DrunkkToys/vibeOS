@@ -13,9 +13,11 @@ export const TURNS = [
 ]
 
 export const ARMS = {
-  "raw-weak": { def: ARM_DEFS.raw, model: "weak" },
-  "raw-strong": { def: ARM_DEFS.raw, model: "strong" },
-  cascade: { def: ARM_DEFS.cascade, model: "weak" },
+  "raw-weak": { def: ARM_DEFS.raw, defName: "raw", model: "weak" },
+  "raw-strong": { def: ARM_DEFS.raw, defName: "raw", model: "strong" },
+  cascade: { def: ARM_DEFS.cascade, defName: "cascade", model: "weak" },
+  flow: { def: ARM_DEFS.flow, defName: "flow", model: "weak" },
+  "flow-cascade": { def: ARM_DEFS["flow-cascade"], defName: "flow-cascade", model: "weak" },
 }
 
 export function armTiers(arm, models) {
