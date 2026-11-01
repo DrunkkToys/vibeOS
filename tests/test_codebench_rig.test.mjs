@@ -83,7 +83,7 @@ test("every arm gets the same two turns, and the second asks for a test run", ()
   assert.equal(TURNS.length, 2)
   assert.match(TURNS[0].prompt, /solution\.py/)
   assert.match(TURNS[1].prompt, /python3 -m unittest/)
-  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "flow", "flow-cascade", "raw-strong", "raw-weak"])
+  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "flow", "flow-cascade", "raw-strong", "raw-weak", "vibeultrax"])
 })
 
 test("the flow arms run the plan gate on the weak model, flow-cascade adds the cascade", () => {
@@ -105,6 +105,20 @@ test("arm tiers: raw arms pin one model, the cascade starts weak and escalates t
   assert.deepEqual(c.tiers, { cheap: "p/weak", medium: "p/strong", brain: "p/strong" })
   assert.equal(ARMS.cascade.def.env.VIBEOS_CASCADE, "1")
   assert.equal(ARMS["raw-weak"].def.plugin, false)
+})
+
+test("the vibeultrax arm is the README cascade: cheap proposes, medium reviews, brain polishes", () => {
+  const m = { cheap: "ollama/magicoder:7b", weak: "deepseek/flash", strong: "deepseek/pro" }
+  const v = armTiers("vibeultrax", m)
+  assert.deepEqual(v.tiers, { cheap: "ollama/magicoder:7b", medium: "deepseek/flash", brain: "deepseek/pro" })
+  assert.equal(ARMS.vibeultrax.defName, "vibeultrax")
+  assert.equal(ARMS.vibeultrax.def.entry, "cheap")
+  assert.equal(ARMS.vibeultrax.def.mode, "vibeultrax")
+  assert.equal(armTiers("raw-strong", m).model, "deepseek/pro")
+})
+
+test("without a cheap model the tiers stay as before", () => {
+  assert.deepEqual(armTiers("cascade", { weak: "p/weak", strong: "p/strong" }).tiers, { cheap: "p/weak", medium: "p/strong", brain: "p/strong" })
 })
 
 test("strongShare counts assistant messages on the strong model from opencode.db rows", () => {

@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { cliModelArgs, entryModel, retryDecision, voidReason } from "../ml-task/score.mjs"
+import { cliModelArgs, entryModel, providerErrors, retryDecision, voidReason } from "../ml-task/score.mjs"
 import { readExecution } from "../ml-task/execution.mjs"
 import { readBundleProvenance } from "../ml-task/provenance.mjs"
 import { hashTree, treeChangedBetween } from "../ml-task/tree-hash.mjs"
@@ -35,7 +35,7 @@ const K = Number(flag("--k", "2"))
 const OUT = resolve(ROOT, flag("--out", join(ROOT, ".codebench-out")))
 const TURN_TIMEOUT = Number(flag("--turn-timeout", "900000"))
 const LIMIT = Number(flag("--limit", "0"))
-const MODELS = { weak: flag("--weak", ""), strong: flag("--strong", "") }
+const MODELS = { weak: flag("--weak", ""), strong: flag("--strong", ""), cheap: flag("--cheap", "") }
 const ARM_LIST = flag("--arms", "raw-weak,raw-strong,cascade").split(",").map((s) => s.trim()).filter((a) => ARMS[a])
 const RESUME = argv.includes("--resume")
 const BUDGET_TOKENS = Number(flag("--budget-tokens", "0"))
@@ -227,7 +227,7 @@ async function main() {
   const provenance = readBundleProvenance(BUNDLE)
   writeFileSync(join(OUT, "provenance.json"), JSON.stringify({ ...provenance, suite: SUITE, hideTests: HIDE_TESTS, language: SUITE === "polyglot" ? LANGUAGE : null, data: DATA, split: SPLIT, seed: SEED, tasks: IDS, models: MODELS }, null, 2))
   if (SERVE) console.log("[codebench] serve mode: one opencode server per trial, turns attach to it, each turn waits for the session to go idle")
-  console.log(`[codebench] suite=${SUITE}${SUITE === "polyglot" ? `/${LANGUAGE}` : ""} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}`)
+  console.log(`[codebench] suite=${SUITE}${SUITE === "polyglot" ? `/${LANGUAGE}` : ""} split=${SPLIT} tasks=${IDS.length} k=${K} arms=${ARM_LIST.join(",")} weak=${MODELS.weak} strong=${MODELS.strong}${MODELS.cheap ? ` cheap=${MODELS.cheap}` : ""}`)
   console.log(`[codebench] bundle ${(provenance.sha256 || provenance.error || "?").slice(0, 12)} commit=${(provenance.commit || "none").slice(0, 8)}${provenance.dirty ? " DIRTY" : ""}`)
   run: for (let i = 0; i < K; i++) {
     for (const task of TASKS) {
@@ -285,7 +285,7 @@ async function main() {
         const leaks = !HIDE_TESTS ? [] : trial.server
           ? (sessionLog === null ? ["no session log from the server"] : leakedAccess(sessionLog, leakCtx))
           : turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), leakCtx))
-        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(ARMS[arm].defName, turns, { homeFiles }, execution)
+        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(ARMS[arm].defName, turns, { homeFiles, providerErrors: turns.flatMap((t) => providerErrors(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"))) }, execution)
         const record = {
           trial: trial.name, arm, task: task.task_id, index: i, sessionId: sid,
           turns: turns.map((t) => ({ id: t.id, status: t.status, elapsedMs: t.elapsedMs, toolCalls: t.toolCalls, attempts: t.attempts })),

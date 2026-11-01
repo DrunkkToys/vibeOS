@@ -32,6 +32,14 @@ test("continuations are user messages after the first that the rig did not send"
   assert.equal(continuationCount(messages, ["Read INSTRUCTIONS.md", "The hidden tests failed with this output"]), 1)
 })
 
+test("rig prompts that opencode run --attach stored wrapped in quotes are not continuations", () => {
+  const messages = [
+    msg("user", [text('"Read INSTRUCTIONS.md and implement x"')]),
+    msg("user", [text('"The hidden tests failed with this output:\n\nerr"')]),
+  ]
+  assert.equal(continuationCount(messages, ["Read INSTRUCTIONS.md and implement x", "The hidden tests failed with this output:\n\nerr"]), 0)
+})
+
 test("waitIdle returns once the session stays idle for the quiet period", async () => {
   const states = ["busy", "busy", "idle", "busy", "idle", "idle", "idle"]
   let i = 0

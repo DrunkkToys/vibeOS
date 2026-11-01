@@ -62,7 +62,7 @@ export function toolEventLines(messages) {
 export function continuationCount(messages, sentPrompts) {
   const keys = sentPrompts.map((p) => String(p).slice(0, 40))
   return (messages || []).filter((m) => m?.info?.role === "user").filter((m) => {
-    const t = (m.parts || []).filter((p) => p?.type === "text").map((p) => p.text).join("\n")
+    const t = (m.parts || []).filter((p) => p?.type === "text").map((p) => p.text).join("\n").replace(/^["'\s]+/, "")
     return !keys.some((k) => t.startsWith(k))
   }).length
 }

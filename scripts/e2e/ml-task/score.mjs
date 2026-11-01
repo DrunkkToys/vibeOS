@@ -30,11 +30,23 @@ export const ADMIT_RE = /\b(still (broken|failing|wrong)|not (fully )?(confident
 
 // A trial that did not exercise what its arm claims is NOT a data point. Scoring a
 // throttled or inert run as 0 fabricates a result; it is voided instead.
+export function providerErrors(text) {
+  const out = []
+  for (const line of String(text || "").split("\n")) {
+    let e
+    try { e = JSON.parse(line) } catch { continue }
+    if (e?.type !== "error" || !e.error) continue
+    out.push(`${e.error.name || "Error"}: ${e.error.data?.message || e.error.message || "unknown"}`)
+  }
+  return out
+}
+
 export function voidReason(arm, turns, ev, execution) {
   const def = ARM_DEFS[arm]
   if (!def) return `unknown arm ${arm}`
   const bad = turns.find((t) => t.status !== 0)
   if (bad) return `turn "${bad.id}" exited ${bad.status}${bad.timedOut ? " (timeout)" : ""}`
+  if (ev?.providerErrors?.length) return `model did not answer: ${[...new Set(ev.providerErrors)].slice(0, 2).join(" | ")}`
   if (!def.plugin) {
     const artifacts = (ev.homeFiles || []).filter((f) => f !== "quality-gate" && f !== "session-events")
     return artifacts.length ? `raw arm produced vibeOS artifacts: ${artifacts.join(",")}` : null

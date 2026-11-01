@@ -18,13 +18,14 @@ export const ARMS = {
   cascade: { def: ARM_DEFS.cascade, defName: "cascade", model: "weak" },
   flow: { def: ARM_DEFS.flow, defName: "flow", model: "weak" },
   "flow-cascade": { def: ARM_DEFS["flow-cascade"], defName: "flow-cascade", model: "weak" },
+  vibeultrax: { def: ARM_DEFS.vibeultrax, defName: "vibeultrax", model: "weak" },
 }
 
 export function armTiers(arm, models) {
   const a = ARMS[arm]
   return {
     model: models[a.model],
-    tiers: { cheap: models.weak, medium: models.strong, brain: models.strong },
+    tiers: models.cheap ? { cheap: models.cheap, medium: models.weak, brain: models.strong } : { cheap: models.weak, medium: models.strong, brain: models.strong },
   }
 }
 
