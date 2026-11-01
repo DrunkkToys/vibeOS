@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { getVibeOSHome } from "../lib/state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
-import { clearlyTrivial, isTestCommand } from "../lib/router-only.js"
+import { clearlyTrivial, isTestCommand, TEST_PROGRAM } from "../lib/router-only.js"
 
 type Todo = { content?: string; status?: string }
 type PlanSession = { trivial: boolean; todos: Todo[]; sent: number; lastSent: string; lastTest: "pass" | "fail" | null; editedSinceTest: boolean }
@@ -11,7 +11,6 @@ type PlanSession = { trivial: boolean; todos: Todo[]; sent: number; lastSent: st
 const MAX_CONTINUATIONS = 3
 const WRITE_TOOLS = new Set(["write", "edit", "patch", "multiedit", "apply_patch", "notebookedit"])
 const VERIFY_STEP = /\b(verif|test|check|validat|run)/i
-const TEST_PROGRAM = /(^|[\s;&|(])(\.\/[\w./-]*test[\w.-]*|ctest|make check)(\s|$)/i
 const sessions = new Map<string, PlanSession>()
 
 export const PLAN_DIRECTIVE = [

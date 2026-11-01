@@ -9,8 +9,10 @@ import { loadSelection, loadSessionSlot, writeSelection, writeSessionSlot } from
 type Slot = "cheap" | "medium" | "brain"
 const LADDER: Slot[] = ["cheap", "medium", "brain"]
 const TEST_COMMAND = /(^|[\s;&|(])(pytest|py\.test|tox|jest|vitest|mocha|rspec|phpunit|(npm|pnpm|yarn|bun)( run)? test|node --test|go test|cargo test|mvn test|gradle test|make test|python3? -m (pytest|unittest))(\s|$)/
+export const TEST_PROGRAM = /(^|[\s;&|(])(\.\/[\w./-]*test[\w.-]*|ctest|make check)(\s|$)/i
 const FAILURE_OUTPUT = /Traceback \(most recent call last\)|^\s*FAILED\b|\bFAILED \(|\b\d+ (failed|failures?)\b|\b[A-Z]\w*(Error|Exception): |:\d+(:\d+)?: (fatal )?error:|make(\[\d+\])?: \*\*\*|undefined reference to|Segmentation fault|\b(tests?|build) failed\b|\bstill (failing|fails|broken|not working)\b/im
 type CascadeSession = { level: number; lastTest: "pass" | "fail" | null }
+const ultraTests = new Map<string, { fail: boolean; output: string }>()
 
 export function routerOnlyEnabled(): boolean {
   return process.env.VIBEOS_ROUTER_ONLY !== "0"
@@ -64,11 +66,7 @@ export function routeUserMessage(sessionID: string | undefined, message: UserMes
 
 export function routeUltraXUserMessage(sessionID: string | undefined, message: UserMessage, parts: unknown): Slot | null {
   if (!sessionID || !message || !message.model || !Array.isArray(parts)) return null
-  const sel = loadSelection() || {}
-  if (String(sel.optimization_mode || "").trim().toLowerCase() !== "vibeultrax") return null
-  if (sel.slot_locked === true) return null
-  const pinned = sel.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides.tier : null
-  if (LADDER.includes(pinned)) return null
+  if (!ultraXRoutable()) return null
   const text = parts
     .filter((p) => p?.type === "text" && typeof p?.text === "string" && !p?.synthetic)
     .map((p) => p.text)
@@ -88,6 +86,33 @@ export function routeUltraXUserMessage(sessionID: string | undefined, message: U
   writeSessionSlot(sessionID, slot)
   writeSelection("active_slot", slot)
   return slot
+}
+
+function ultraXRoutable(): boolean {
+  const sel = loadSelection() || {}
+  if (String(sel.optimization_mode || "").trim().toLowerCase() !== "vibeultrax") return false
+  if (sel.slot_locked === true) return false
+  const pinned = sel.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides.tier : null
+  return !LADDER.includes(pinned)
+}
+
+export function recordUltraXToolResult(sessionID: string | undefined, tool: unknown, args: unknown, metadata: unknown, output: unknown): void {
+  if (!sessionID || tool !== "bash") return
+  const command = String((args as { command?: unknown })?.command || "")
+  const exit = (metadata as { exit?: unknown })?.exit
+  if (typeof exit !== "number" || !(isTestCommand(command) || TEST_PROGRAM.test(command))) return
+  ultraTests.set(sessionID, { fail: exit !== 0, output: String(output || "") })
+}
+
+export function ultraXEscalation(sessionID: string | undefined): string | null {
+  if (!sessionID) return null
+  const last = ultraTests.get(sessionID)
+  if (!last?.fail || !ultraXRoutable()) return null
+  const prior = LADDER.indexOf(loadSessionSlot(sessionID) as Slot)
+  if (prior < 0 || prior >= LADDER.length - 1) return null
+  ultraTests.delete(sessionID)
+  const tail = last.output.split("\n").slice(-40).join("\n").slice(-4000).trim()
+  return `Tests failed. Fix the code so that they pass, then run them again.${tail ? `\n\n${tail}` : ""}`
 }
 
 export function recordToolResult(sessionID: string | undefined, tool: unknown, args: unknown, metadata: unknown): void {
