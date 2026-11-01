@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { gzipSync } from "node:zlib"
 
-import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare } from "../scripts/e2e/codebench/tasks.mjs"
+import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare, sessionTokens, budgetLeft } from "../scripts/e2e/codebench/tasks.mjs"
 
 const TASK = {
   task_id: "HumanEval/0",
@@ -100,4 +100,23 @@ test("strongShare counts assistant messages on the strong model from opencode.db
   const execution = { rows: [{ model: "strong", messages: 3 }, { model: "weak", messages: 9 }] }
   assert.equal(strongShare(execution, "p/strong"), 0.25)
   assert.equal(strongShare({ error: "x" }, "p/strong"), null)
+})
+
+test("sessionTokens sums input, output, reasoning and cache tokens from opencode.db, null when unreadable", () => {
+  const execution = { totals: { messages: 4, input: 1000, output: 200, cacheRead: 5000, cacheWrite: 300 }, rows: [{ reasoning: 50 }, { reasoning: null }] }
+  assert.equal(sessionTokens(execution), 6550)
+  assert.equal(sessionTokens({ error: "locked" }), null)
+  assert.equal(sessionTokens(null), null)
+})
+
+test("budgetLeft stops the run once recorded tokens reach the cap, and never stops without a cap", () => {
+  const results = [{ tokens: 400 }, { tokens: 500 }, { tokens: null }]
+  assert.deepEqual(budgetLeft(results, 0), { spent: 900, stop: false })
+  assert.deepEqual(budgetLeft(results, 1000), { spent: 900, stop: false })
+  assert.deepEqual(budgetLeft(results, 900), { spent: 900, stop: true })
+})
+
+test("budgetLeft stops when a trial's tokens could not be read, so an unreadable database never runs unmetered", () => {
+  assert.equal(budgetLeft([{ tokens: 10 }, { tokens: null, sessionId: "ses_x" }], 1000).stop, true)
+  assert.equal(budgetLeft([{ tokens: null, sessionId: "ses_x" }], 0).stop, false)
 })
