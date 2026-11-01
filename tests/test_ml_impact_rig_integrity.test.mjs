@@ -169,13 +169,14 @@ test("the two vibeultrax arms differ only in the vote, and both declare it expli
 test("the cascade void guard follows the mode, not the arm name", async () => {
   const { voidReason } = await import("../scripts/e2e/ml-task/score.mjs")
   const turns = [{ id: "diagnose", status: 0 }]
-  const inert = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap"] }
+  const claimed = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap", "brain"] }
+  const oneModel = { distinctModels: 1, models: ["cheap-model"], totals: { messages: 3 } }
   for (const arm of ["vibeultrax", "vibeultrax-novote"]) {
-    assert.match(String(voidReason(arm, turns, inert)), /cascade did not cascade/,
-      `${arm} must void when the cascade never left one slot`)
+    assert.match(String(voidReason(arm, turns, claimed, oneModel)), /cascade did not cascade/,
+      `${arm} must void when it claims a cascade the database did not run`)
   }
-  const ok = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap", "brain"] }
-  assert.equal(voidReason("vibeultrax-novote", turns, ok), null)
+  const single = { chatParamsRows: 1, modes: ["vibeultrax"], slots: ["cheap"] }
+  assert.equal(voidReason("vibeultrax-novote", turns, single, oneModel), null)
 })
 
 // ── the vote must be observably present, or absent, in the arm that claims it ──

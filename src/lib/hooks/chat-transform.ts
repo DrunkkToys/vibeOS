@@ -848,6 +848,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // the same confidence/level thresholds tool-execute.ts uses for the Task
     // path, so a low-confidence or "moderate" read leaves the slot where it is.
     let ultraTarget: string | null = null
+    let ultraHold: string | null = null
     if (isUltraX) {
       try {
         // Verdict sources, strongest first. `resolved_tier` is the explicit tier
@@ -857,7 +858,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         // `tier_bias` is deliberately NOT a source: normalizeBackendDecision forces
         // it to "cheap" for vibeultrax, so reading it would pin the slot forever.
         let verdict: string | null =
-          strongestTierVerdict(cv.resolved_tier, cv.regime_tier) ||
+          normalizeSlot(cv.resolved_tier) ||
           normalizeSlot(routePath.length > 1 ? routePath[routePath.length - 1] : null) ||
           normalizeSlot(cv.selected_slot)
         if (!verdict && latestUserIntent) {
@@ -869,6 +870,14 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
           verdict,
           durablePipeline,
         )
+        if (!ultraTarget) {
+          const held = ultraXPrimarySlot(
+            { ...currentSel, active_slot: null, optimization_mode: cv.optimization_mode || userOptMode },
+            verdict,
+            durablePipeline,
+          )
+          if (held && held === normalizeSlot(currentSel.active_slot)) ultraHold = held
+        }
       } catch (ultraErr) {
         console.error("[vibeOS] ultrax primary escalation failed (non-fatal):", ultraErr?.message || ultraErr)
       }
@@ -881,7 +890,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // wins -- otherwise vibeultrax re-enters at cheap every turn and reverts the
     // escalation the gate just made. Consumed here, so it applies to exactly one
     // turn and de-escalation still works.
-    const promptSlot = ultraTarget || entrySlot
+    const promptSlot = ultraTarget || ultraHold || entrySlot
     const pendingGateSlot = slotLocked ? null : takePendingGateEscalation(sid)
     const gateOutranksPrompt = !!pendingGateSlot &&
       (SLOT_RANK[pendingGateSlot] ?? -1) > (SLOT_RANK[promptSlot] ?? -1)

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { computeDifficulty } from "../vibeOS-lib/ml-router.js"
 import { getVibeOSHome } from "./state.js"
 import { safeJsonParse } from "../utils/fs-helpers.js"
+import { loadSelection, loadSessionSlot, writeSelection, writeSessionSlot } from "./selection-manager.js"
 
 type Slot = "cheap" | "medium" | "brain"
 const LADDER: Slot[] = ["cheap", "medium", "brain"]
@@ -59,6 +60,34 @@ export function routeUserMessage(sessionID: string | undefined, message: UserMes
   const i = full.indexOf("/")
   if (i <= 0) return
   message.model = { ...message.model, providerID: full.slice(0, i), modelID: full.slice(i + 1) }
+}
+
+export function routeUltraXUserMessage(sessionID: string | undefined, message: UserMessage, parts: unknown): Slot | null {
+  if (!sessionID || !message || !message.model || !Array.isArray(parts)) return null
+  const sel = loadSelection() || {}
+  if (String(sel.optimization_mode || "").trim().toLowerCase() !== "vibeultrax") return null
+  if (sel.slot_locked === true) return null
+  const pinned = sel.axis_overrides && typeof sel.axis_overrides === "object" ? sel.axis_overrides.tier : null
+  if (LADDER.includes(pinned)) return null
+  const text = parts
+    .filter((p) => p?.type === "text" && typeof p?.text === "string" && !p?.synthetic)
+    .map((p) => p.text)
+    .join("\n")
+    .trim()
+  if (!text) return null
+  const d = computeDifficulty(text)
+  let rank = d.confidence >= 0.6 && d.level !== "moderate" ? LADDER.indexOf(d.suggestedTier) : 0
+  const prior = LADDER.indexOf(loadSessionSlot(sessionID) as Slot)
+  if (prior >= 0 && reportsFailure(text)) rank = Math.max(rank, Math.min(prior + 1, LADDER.length - 1))
+  let slot: Slot | null = null
+  for (let r = Math.max(rank, 0); r < LADDER.length && !slot; r++) if (slotModel(LADDER[r]).indexOf("/") > 0) slot = LADDER[r]
+  if (!slot) return null
+  const full = slotModel(slot)
+  const i = full.indexOf("/")
+  message.model = { ...message.model, providerID: full.slice(0, i), modelID: full.slice(i + 1) }
+  writeSessionSlot(sessionID, slot)
+  writeSelection("active_slot", slot)
+  return slot
 }
 
 export function recordToolResult(sessionID: string | undefined, tool: unknown, args: unknown, metadata: unknown): void {

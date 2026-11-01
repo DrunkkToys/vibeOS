@@ -70,10 +70,8 @@ export function voidReason(arm, turns, ev, execution) {
     // and zero assistant rows means the session was not found, not that it ran
     // a single model.
     const ran = execution && !execution.error && (execution.distinctModels || 0) > 0 ? execution : null
-    if (ran) {
-      if (ran.distinctModels < 2) return `cascade did not cascade — opencode.db ran one model: ${(ran.models || []).join(",")}`
-    } else if ((ev.slots || []).length < 2) {
-      return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
+    if (ran && (ev.slots || []).length >= 2 && ran.distinctModels < 2) {
+      return `cascade did not cascade — audit claims ${(ev.slots || []).join(",")}, opencode.db ran one model: ${(ran.models || []).join(",")}`
     }
   }
   // The two vibeultrax arms differ only in VIBEOS_TURN_VOTE. A no-vote arm that

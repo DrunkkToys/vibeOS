@@ -10,7 +10,7 @@ import { readExecution } from "../ml-task/execution.mjs"
 import { readBundleProvenance } from "../ml-task/provenance.mjs"
 import { hashTree, treeChangedBetween } from "../ml-task/tree-hash.mjs"
 import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
-import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
+import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, pluginEvidence, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
 import { ISOLATION_PERMISSION, leakedAccess } from "./isolation.mjs"
 import { continuationCount, serverApi, startServer, toolEventLines, waitIdle } from "./serve.mjs"
@@ -285,7 +285,7 @@ async function main() {
         const leaks = !HIDE_TESTS ? [] : trial.server
           ? (sessionLog === null ? ["no session log from the server"] : leakedAccess(sessionLog, leakCtx))
           : turns.flatMap((t) => leakedAccess(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"), leakCtx))
-        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(ARMS[arm].defName, turns, { homeFiles, providerErrors: turns.flatMap((t) => providerErrors(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"))) }, execution)
+        const reason = leaks.length ? `leak: ${leaks.slice(0, 3).join(" | ")}` : voidReason(ARMS[arm].defName, turns, pluginEvidence(trial.home, { homeFiles, providerErrors: turns.flatMap((t) => providerErrors(readFileSync(join(OUT, "logs", `${trial.name}-${t.id}.stdout`), "utf8"))) }), execution)
         const record = {
           trial: trial.name, arm, task: task.task_id, index: i, sessionId: sid,
           turns: turns.map((t) => ({ id: t.id, status: t.status, elapsedMs: t.elapsedMs, toolCalls: t.toolCalls, attempts: t.attempts })),

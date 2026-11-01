@@ -5,8 +5,10 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { gzipSync } from "node:zlib"
+import { mkdirSync } from "node:fs"
+import { voidReason } from "../scripts/e2e/ml-task/score.mjs"
 
-import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare, sessionTokens, budgetLeft } from "../scripts/e2e/codebench/tasks.mjs"
+import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare, sessionTokens, budgetLeft, pluginEvidence } from "../scripts/e2e/codebench/tasks.mjs"
 
 const TASK = {
   task_id: "HumanEval/0",
@@ -144,4 +146,23 @@ test("budgetLeft stops the run once recorded tokens reach the cap, and never sto
 test("budgetLeft stops when a trial's tokens could not be read, so an unreadable database never runs unmetered", () => {
   assert.equal(budgetLeft([{ tokens: 10 }, { tokens: null, sessionId: "ses_x" }], 1000).stop, true)
   assert.equal(budgetLeft([{ tokens: null, sessionId: "ses_x" }], 0).stop, false)
+})
+
+test("a vibeultrax trial is voided only on the plugin's own audit, not because codebench forgot to read it", () => {
+  const home = mkdtempSync(join(tmpdir(), "codebench-ev-"))
+  mkdirSync(join(home, "cascade-audit"), { recursive: true })
+  const rows = [
+    { source: "chat-params", slot: "cheap", optimizationMode: "vibeultrax" },
+    { source: "chat-params", slot: "cheap", optimizationMode: "vibeultrax" },
+    { source: "turn-vote", voted: false },
+  ]
+  writeFileSync(join(home, "cascade-audit", "cascade-audit.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n")
+  const ev = pluginEvidence(home, { homeFiles: ["cascade-audit"], providerErrors: [] })
+  assert.equal(ev.chatParamsRows, 2)
+  assert.deepEqual(ev.slots, ["cheap"])
+  assert.deepEqual(ev.modes, ["vibeultrax"])
+  assert.equal(ev.internalErrors, 0)
+  const execution = { models: ["cheap-model"], distinctModels: 1 }
+  assert.equal(voidReason(ARMS.vibeultrax.defName, [{ id: "t1", status: 0 }], ev, execution), null)
+  assert.match(voidReason(ARMS.vibeultrax.defName, [{ id: "t1", status: 0 }], pluginEvidence(join(home, "missing")), execution), /never engaged/)
 })

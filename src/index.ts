@@ -38,7 +38,7 @@ import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSU
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
 import { recordSessionAgent, isVibeAgentSession, getSessionAgent } from "./lib/agent-gate.js"
 import { PLAN_DIRECTIVE, planGateAfterTool, planGateBeforeTool, planGateContinuation, planGateEnabled, planGateOnTodos, planGateOnUserMessage, planGateWantsDirective } from "./vibeOS-lib/plan-gate.js"
-import { recordToolResult, routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
+import { recordToolResult, routerOnlyEnabled, routeUltraXUserMessage, routeUserMessage } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -1457,6 +1457,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       recordSessionAgent(input?.sessionID, input?.agent)
       if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateOnUserMessage(input?.sessionID, output?.parts)
       if (routerOnlyEnabled() && input?.agent === "vibe" && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
+      else if (!routerOnlyEnabled() && (input?.agent === "vibe" || !input?.agent) && _gateOpen(input?.sessionID)) routeUltraXUserMessage(input?.sessionID, output?.message, output?.parts)
     },
     event: async ({ event } = {}) => {
       const sid = event?.properties?.sessionID

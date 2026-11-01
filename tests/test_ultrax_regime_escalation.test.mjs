@@ -129,14 +129,14 @@ const CV = {
 const readSlot = () =>
   JSON.parse(readFileSync(join(sandbox, ".claude", "model-tiers.json"), "utf-8")).selection.active_slot
 
-test("a brain regime moves the primary even though the prompt scorer said medium", async () => {
+test("the vibeultrax primary follows the difficulty verdict, not a brain regime", async () => {
   seed()
   const mod = await import("../src/lib/hooks/chat-transform.js?regime-wire=" + Date.now())
   mod.syncControlSettings(
     { ...CV, resolved_tier: "medium", regime_tier: "brain" },
     { authoritative: true },
   )
-  assert.equal(readSlot(), "brain", "the regime verdict must reach the primary, not stop at medium")
+  assert.equal(readSlot(), "medium", "a coding regime alone must not send vibeultrax to brain")
 })
 
 test("an EXPLORING regime still de-escalates — vibeultrax must keep saving", async () => {

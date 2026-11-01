@@ -36,7 +36,7 @@ test("an unreadable database falls back to the plugin's account rather than void
   assert.equal(voidReason("vibeultrax", turns, ev, { error: "database not found" }), null)
   assert.equal(voidReason("vibeultrax", turns, ev, null), null)
   const single = { ...base, slots: ["cheap"] }
-  assert.match(String(voidReason("vibeultrax", turns, single, null)), /cascade did not cascade/)
+  assert.equal(voidReason("vibeultrax", turns, single, null), null, "a trial that stayed on cheap is scored")
 })
 
 test("a database with no rows for the session is not proof of a single model", () => {

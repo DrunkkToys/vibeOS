@@ -161,9 +161,8 @@ test("an inert plugin voids the trial instead of scoring it 0", () => {
   assert.match(reason, /never engaged/)
 })
 
-test("vibeultrax with a single slot is voided — the cascade did not cascade", () => {
-  const reason = score.voidReason("vibeultrax", okTurns, { chatParamsRows: 5, slots: ["brain"], modes: ["vibeultrax"] })
-  assert.match(reason, /did not cascade/)
+test("vibeultrax that stayed on one slot is scored, not voided", () => {
+  assert.equal(score.voidReason("vibeultrax", okTurns, { chatParamsRows: 5, slots: ["cheap"], modes: ["vibeultrax"] }), null)
   assert.equal(score.voidReason("vibeultrax", okTurns, { chatParamsRows: 5, slots: ["cheap", "brain"], modes: ["vibeultrax"] }), null)
 })
 
