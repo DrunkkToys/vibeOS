@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -69,10 +69,11 @@ function withSandbox(name) {
   }
 }
 
-test("vibeultrax sync installs the unified vibe primary agent plus tier subagents in all OpenCode configs", async () => {
+test("vibeultrax sync writes no OpenCode config file during a turn", async () => {
   const ctx = withSandbox("vibeos-tier-agents-")
   try {
     const mod = await import("../src/lib/hooks/chat-transform.js?tier-agents=" + Date.now())
+    const dotBefore = readFileSync(ctx.dotConfig, "utf8")
     const result = mod.syncControlSettings({
       optimization_mode: "vibeultrax",
       tier_bias: "cheap",
@@ -86,21 +87,8 @@ test("vibeultrax sync installs the unified vibe primary agent plus tier subagent
       thinking_mode: "full",
     }, { authoritative: true, directory: ctx.sandbox })
 
-    // Single global source of truth: ~/.opencode only, plus the project's own
-    // opencode.json — .config/opencode and the desktop sidecar home are no
-    // longer install targets (see src/lib/state.ts resolveOpenCodeHomes()).
-    for (const configPath of [ctx.dotConfig, ctx.projectConfig]) {
-      const oc = JSON.parse(readFileSync(configPath, "utf8"))
-      assert.equal(oc.agent.vibe.mode, "primary", configPath)
-      assert.equal(oc.agent.vibe.model, undefined, configPath)
-      assert.equal(oc.agent["vibe-cheap"].mode, "subagent", configPath)
-      assert.equal(oc.agent["vibe-cheap"].model, "opencode/big-pickle", configPath)
-      assert.equal(oc.agent["vibe-medium"].mode, "subagent", configPath)
-      assert.equal(oc.agent["vibe-medium"].model, "opencode-go/mimo-v2.5", configPath)
-      assert.equal(oc.agent["vibe-brain"].mode, "subagent", configPath)
-      assert.equal(oc.agent["vibe-brain"].model, "deepseek/deepseek-v4-flash", configPath)
-      assert.equal(oc.default_agent, undefined, configPath)
-    }
+    assert.equal(readFileSync(ctx.dotConfig, "utf8"), dotBefore, "OpenCode watches its config: a mid-turn write aborts the turn")
+    assert.equal(existsSync(ctx.projectConfig), false, "a turn must not create the project's opencode.json")
     const selection = JSON.parse(readFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), "utf8")).selection
     assert.equal(selection.entry_slot || selection.active_slot, "cheap")
     assert.equal(selection.worker_slot || selection.selected_slot, "brain")
@@ -111,7 +99,7 @@ test("vibeultrax sync installs the unified vibe primary agent plus tier subagent
   }
 })
 
-test("vibeultrax sync does not rewrite default_agent when the active slot changes", async () => {
+test("vibeultrax sync does not write the OpenCode config when the active slot changes", async () => {
   const ctx = withSandbox("vibeos-tier-default-agent-")
   try {
     const mod = await import("../src/lib/hooks/chat-transform.js?tier-default-agent=" + Date.now())
@@ -128,8 +116,7 @@ test("vibeultrax sync does not rewrite default_agent when the active slot change
       thinking_mode: "off",
     }, { authoritative: true, directory: ctx.sandbox })
 
-    const initial = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
-    assert.equal(initial.default_agent, undefined)
+    assert.equal(existsSync(ctx.projectConfig), false)
     assert.equal(first.selected_slot, "cheap")
 
     const second = mod.syncControlSettings({
@@ -145,12 +132,7 @@ test("vibeultrax sync does not rewrite default_agent when the active slot change
       thinking_mode: "full",
     }, { authoritative: true, directory: ctx.sandbox })
 
-    const after = JSON.parse(readFileSync(ctx.projectConfig, "utf8"))
-    assert.equal(after.default_agent, undefined, "per-turn slot changes must not churn the OpenCode default agent")
-    assert.equal(after.agent.vibe.mode, "primary")
-    assert.equal(after.agent.vibe.model, undefined)
-    assert.equal(after.agent["vibe-cheap"].mode, "subagent")
-    assert.equal(after.agent["vibe-brain"].mode, "subagent")
+    assert.equal(existsSync(ctx.projectConfig), false, "per-turn slot changes must not write the OpenCode config")
     assert.equal(second.selected_slot, "brain")
     assert.equal(second.entry_slot, "cheap")
     assert.equal(second.worker_slot, "brain")

@@ -63,7 +63,6 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeTierAgents } from "../runtime-config.js"
 import { voteModelPool, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
 import { runDirectVote } from "../../vibeOS-lib/direct-vote.js"
 import {
@@ -146,33 +145,6 @@ function modelForSlot(slot: string | null): string | null {
 
 function getRuntimeProjectDirectory(): string {
   return String((onSystemTransform as unknown)?._directory || process.cwd?.() || "")
-}
-
-// Memoizes the last (directory, slot, trinity) signature this process has already
-// installed, so repeated calls within the same turn — or from a duplicate plugin
-// instance, since OpenCode can load this plugin both globally and per-project in
-// the same server process — skip the file read/parse entirely instead of re-checking
-// on every chat.system.transform call.
-let _lastVibeTierAgentsSignature = ""
-
-function ensureVibeUltraXSubagents(activeSlot: string | null = null, projectDir = ""): boolean {
-  try { loadTrinitySlotsFromTiersFile() } catch {}
-  const directory = projectDir || getRuntimeProjectDirectory()
-  const signature = `${directory}|${activeSlot}|${TRINITY_CHEAP}|${TRINITY_MEDIUM}|${TRINITY_BRAIN}`
-  if (signature === _lastVibeTierAgentsSignature) return false
-  // Scoped to this project's own opencode.json only (never the global homes): the
-  // desktop app runs ONE server process shared across every open project tab, and a
-  // write here landing on a shared global config races that process's other live
-  // turns/tabs. Global homes already get the same agent install at deploy/setup time
-  // (scripts/deploy.mjs, scripts/build-bundle.mjs, bin/setup.js) — a rare, explicit,
-  // single-process operation, not a per-turn hook running inside a shared server.
-  const result = installVibeTierAgents(directory, {
-    cheap: { oc: TRINITY_CHEAP },
-    medium: { oc: TRINITY_MEDIUM },
-    brain: { oc: TRINITY_BRAIN },
-  }, activeSlot, { includeGlobalHomes: false })
-  _lastVibeTierAgentsSignature = signature
-  return result.changed.length > 0
 }
 
 let latestUserIntent = null
@@ -743,11 +715,6 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("enabled", true)
     writeIf("route_path", routePath)
     if (isUltraX) {
-      // Best-effort: registering the tier subagents is a convenience, while the
-      // slot writes below are the actual routing decision. A failure here used to
-      // throw out of syncControlSettings into its catch, which returns the
-      // PREVIOUS state -- so the backend's tier choice was dropped every turn.
-      try { ensureVibeUltraXSubagents(null, syncDirectory) } catch {}
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
     }
