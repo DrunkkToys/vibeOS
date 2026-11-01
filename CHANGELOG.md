@@ -1,3 +1,94 @@
+## 0.28.0
+- feat: C++ track and a token budget for codebench runs (#582)
+- feat: HumanEval A/B rig with pre-registered pass/fail rules (#578)
+- feat: opt-in test-verified cascade that escalates after a failed test run (#576)
+- feat: router-only is the default; the full plugin is opt-in (#572)
+- feat: router-only mode routes per message and injects nothing (#569)
+- feat: read the gate verdicts the plugin already writes (#564)
+- feat: record which build the run measured (#560)
+- feat: add the dsforge dataset-build scenario (#546)
+- feat: make the A/B workload a scenario directory (#545)
+- feat: sample the cheap tier instead of guessing it once (#540)
+- feat: live A/B rig for the ML orchestrator quality claim (#535)
+- feat: TDD gate off by default, auto-ON on coding; vibe gate tdd on|off|auto
+- fix: stop rewriting the project's opencode.json every turn; plan gate; bench fixes (#583)
+- fix: run each trial's OpenCode with an isolated HOME so ~/.opencode plugins do not leak into the arms (#577)
+- fix: stop setting or overwriting the user's OpenCode default_agent (#575)
+- fix: pin the full-plugin arms to the full plugin and add a router-only arm (#574)
+- fix: only downgrade clearly trivial messages; keep the chosen model otherwise (#573)
+- fix: switch the model through the user message, the only path OpenCode honors (#571)
+- fix: deploy no longer edits the user's crontab unless asked (#570)
+- fix: keep the system prefix stable by default, and stop dropping turn-state directives (#568)
+- fix: stop building and deploying from installing things nobody asked for (#567)
+- fix: retry a killed turn only when the project is unchanged (#565)
+- fix: retry a turn that hit the timeout without running (#561)
+- fix: judge criterion 1 by the database, not by the plugin's own slots (#559)
+- fix: void a trial that logged internal errors instead of scoring it (#558)
+- fix: stop the rig guard leaking a live opencode run (#556)
+- fix: stop reporting every callback error as lock contention (#554)
+- fix: stop the prefix moving, and stop sending the tool schema twice (#553)
+- fix: stop paying the retry ladder once the server is unreachable (#552)
+- fix: let the answer-derived verdict outrank the prompt-derived guess (#551)
+- fix: bind the seven identifiers that were never defined (#550)
+- fix: surface the internal errors nothing was reading (#549)
+- fix: stop pinning the model on plugin arms (#548)
+- fix: give vibeultrax the regime tier it was built to read (#547)
+- fix: make the turn vote opt-in (#544)
+- fix: let the regime escalate vibeultrax past the prompt-text scorer (#543)
+- fix: stop the A/B rig reporting a confident number from a dead metric (#542)
+- fix: latch the fallback breaker; escalate the tier on gate evidence (#539)
+- fix: make vibeultrax actually cascade, and stop the prompt injections breaking the cache (#538)
+- fix: reject relative VIBEOS_HOME and repair the ml-impact A/B harness (#537)
+- fix: make the ml-impact rig survive the free tier (#536)
+- fix: stop the live harnesses measuring a disabled plugin (#534)
+- fix: make a duplicate vibeOS instance structurally impossible (#533)
+- fix: make the ML routing decision actually reach the running model (#532)
+- fix: stop the suite polluting the repo root with tmp and undefined dirs (#531)
+- fix: ML routing reaches the orchestrator in every mode, not just vibeultrax (#530)
+- fix: stop per-turn transform hook from writing watched opencode.json on model drift (#529)
+- fix: orchestrator run forwards to backend instead of a local stub (#528)
+- fix: scope vibeOS to the vibe agent and finish the uninstall (#526)
+- fix: make uninstall actually remove everything, add live damage report
+- fix: loop-guard no longer echoes its own directive text as a command
+- fix: loop-guard poll counter now keys on target, not just shape
+- fix: resolveOpenCodeHomes returns single ~/.opencode home, not dual
+- fix: make uninstall actually remove everything
+- fix: 401 must keep fallback active (flash hidden) until next success
+- fix: decouple vibeOS from ~/.claude — own home is ~/.vibeos
+- fix: integration audit — lock/atomic all state writers, dedupe prompts, gate-before-footer
+- docs: replace unmeasured quality and cost claims with the measured results (#579)
+- docs: correct the killed-turn inference and record run24 (#566)
+- docs: record run23 — the silent hang is the provider's, not the plugin's (#563)
+- docs: record run22, which produced no comparison at all (#562)
+- docs: record the A/B runs, including the ones that failed (#555)
+- docs: document v0.27.5 fixes (decouple ~/.claude, 401 fallback) + E2E hardening
+- docs: plan the six-phase architectural audit
+- test: record what OpenCode ran, not what the plugin decided to run (#557)
+- test: make two E2E scenarios robust to model/API variance
+- test: update auth-rejection contract to verify real self-heal (401 keeps fallback until next success)
+- test: impact harness — measures what the plugin does to output
+- test: full-workflow-live E2E + build:dist script
+- chore: bump v0.27.4 — architectural audit + impact harness
+- chore: reconcile CHANGELOG for released v0.27.3 (single section, drop duplicate)
+Revert "docs(readme): replace unmeasured quality and cost claims with the measured results (#579)" (#581)
+Merge pull request #525 from DrunkkToys/fix/uninstall-complete-cleanup
+Merge branch 'master' into fix/uninstall-complete-cleanup
+Merge pull request #524 from DrunkkToys/fix/uninstall-complete-cleanup
+Merge pull request #523 from DrunkkToys/fix/e2e-robustness-changelog
+Merge pull request #522 from DrunkkToys/fix/401-fallback-persistence
+Merge pull request #521 from DrunkkToys/fix/decouple-claude-home
+Merge pull request #520 from DrunkkToys/release/v0.27.4
+Merge pull request #519 from DrunkkToys/feat/impact-harness
+Merge pull request #518 from DrunkkToys/feat/long-e2e-build-dist
+Merge pull request #517 from DrunkkToys/feat/arch-audit-c
+audit C (perf): debounce footer hot path to ~1/sec, dedup claim evidence
+Merge pull request #516 from DrunkkToys/feat/arch-audit-bda
+audit B+D+A: un-mute vibeOS errors, harden token files, break cascade cycle, drop dead code
+Merge pull request #515 from DrunkkToys/feat/architecture-audit
+Merge pull request #514 from DrunkkToys/fix/integration-audit
+Merge pull request #513 from DrunkkToys/feat/gate-tdd-auto
+
+
 ## 0.27.6
 - feat: TDD gate off by default, auto-ON on coding; vibe gate tdd on|off|auto
 - fix: skip footer telemetry post when no routing decision exists
