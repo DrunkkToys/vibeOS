@@ -16,6 +16,8 @@ export const ARM_DEFS = {
   "vibeultrax-novote": { plugin: true, pure: false, agent: "vibe", mode: "vibeultrax", pipeline: ["cheap", "medium", "brain"], entry: "cheap", env: { VIBEOS_TURN_VOTE: "off", VIBEOS_ROUTER_ONLY: "0" } },
   "router-only": { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1" } },
   cascade: { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1", VIBEOS_CASCADE: "1" } },
+  flow: { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1", VIBEOS_PLAN_GATE: "1" } },
+  "flow-cascade": { plugin: true, pure: false, agent: "vibe", mode: null, pipeline: null, entry: null, env: { VIBEOS_ROUTER_ONLY: "1", VIBEOS_PLAN_GATE: "1", VIBEOS_CASCADE: "1" } },
 }
 
 // The arms differ only in env, so an arm whose env did not reach the session is a
@@ -28,11 +30,23 @@ export const ADMIT_RE = /\b(still (broken|failing|wrong)|not (fully )?(confident
 
 // A trial that did not exercise what its arm claims is NOT a data point. Scoring a
 // throttled or inert run as 0 fabricates a result; it is voided instead.
+export function providerErrors(text) {
+  const out = []
+  for (const line of String(text || "").split("\n")) {
+    let e
+    try { e = JSON.parse(line) } catch { continue }
+    if (e?.type !== "error" || !e.error) continue
+    out.push(`${e.error.name || "Error"}: ${e.error.data?.message || e.error.message || "unknown"}`)
+  }
+  return out
+}
+
 export function voidReason(arm, turns, ev, execution) {
   const def = ARM_DEFS[arm]
   if (!def) return `unknown arm ${arm}`
   const bad = turns.find((t) => t.status !== 0)
   if (bad) return `turn "${bad.id}" exited ${bad.status}${bad.timedOut ? " (timeout)" : ""}`
+  if (ev?.providerErrors?.length) return `model did not answer: ${[...new Set(ev.providerErrors)].slice(0, 2).join(" | ")}`
   if (!def.plugin) {
     const artifacts = (ev.homeFiles || []).filter((f) => f !== "quality-gate" && f !== "session-events")
     return artifacts.length ? `raw arm produced vibeOS artifacts: ${artifacts.join(",")}` : null
@@ -56,10 +70,8 @@ export function voidReason(arm, turns, ev, execution) {
     // and zero assistant rows means the session was not found, not that it ran
     // a single model.
     const ran = execution && !execution.error && (execution.distinctModels || 0) > 0 ? execution : null
-    if (ran) {
-      if (ran.distinctModels < 2) return `cascade did not cascade — opencode.db ran one model: ${(ran.models || []).join(",")}`
-    } else if ((ev.slots || []).length < 2) {
-      return `cascade did not cascade — single slot ${(ev.slots || []).join(",") || "none"}`
+    if (ran && (ev.slots || []).length >= 2 && ran.distinctModels < 2) {
+      return `cascade did not cascade — audit claims ${(ev.slots || []).join(",")}, opencode.db ran one model: ${(ran.models || []).join(",")}`
     }
   }
   // The two vibeultrax arms differ only in VIBEOS_TURN_VOTE. A no-vote arm that

@@ -45,7 +45,7 @@ export function writeExercise(proj, ex, { hideTests = false } = {}) {
   for (const f of ex.solution) {
     if (existsSync(join(ex.dir, f))) copyFileSync(join(ex.dir, f), join(proj, f))
   }
-  if (ex.language === "cpp") writeFileSync(join(proj, "Makefile"), `.PHONY: test\ntest:\n\t${CPP_TEST_CMD}\n`)
+  if (ex.language === "cpp" && !hideTests) writeFileSync(join(proj, "Makefile"), `.PHONY: test\ntest:\n\t${CPP_TEST_CMD}\n`)
   const docs = ["instructions.md", "instructions.append.md"]
     .map((f) => join(ex.dir, ".docs", f))
     .filter(existsSync)

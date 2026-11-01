@@ -266,7 +266,18 @@ Everything described in the rest of this README (footer, VibeBoX, stress routing
 
 ### Opt-in: test-verified cascade
 
-With `VIBEOS_CASCADE=1`, a `vibe` session starts on the cheap slot. When the last test command of a turn (pytest, `npm test`, `node --test`, `go test`, `cargo test` and similar) fails, the next message moves up one slot: cheap, then medium, then brain. It never moves back down within a session. Passing tests and other commands change nothing.
+With `VIBEOS_CASCADE=1`, a `vibe` session starts on the cheap slot. When the last test command of a turn (pytest, `npm test`, `node --test`, `go test`, `cargo test` and similar) fails, the next message moves up one slot: cheap, then medium, then brain. It never moves back down within a session. Passing tests and other commands change nothing. A follow-up message that carries failure output (a traceback, a compiler `error:` line, `FAILED`, `AssertionError:`, "still failing") also moves it up one slot; the first message of a session never does.
+
+### Opt-in: flow plan gate
+
+`vibe flow gate on` (or `VIBEOS_PLAN_GATE=1`) makes a `vibe` session on a non-trivial task plan before it edits and finish what it planned. It works in router-only mode too.
+
+- The system prompt asks for a todo plan whose last step verifies the work.
+- `write` and `edit` are refused until a plan exists.
+- When the session goes idle with `pending` steps, vibeOS sends a message naming the next step. It sends at most 3 per user message; `in_progress` and `cancelled` steps never trigger it.
+- When a verify or test step is marked completed but no passing test command ran after the last edit, vibeOS sends a message asking for a test run.
+
+The idle continuation needs a running OpenCode server (the TUI, `opencode serve`, or `opencode run --attach`). A bare `opencode run` exits at idle before the reply.
 
 ### Scoped to the vibe agent
 
@@ -355,6 +366,7 @@ Coverage: the correction loop (FAIL → fix → PASS, ≤1 note, real-signal str
 | `vibe lock on|off` | Freeze model for session |
 | `vibe flow on|off` | Toggle flow enforcer |
 | `vibe flow enforce on|off` | Toggle auto-extract TODOs |
+| `vibe flow gate on|off` | Toggle the plan gate: plan first, finish pending steps, verify with tests |
 | `vibe tdd on|off` | Toggle TDD skeleton generation |
 | `vibe tdd strict on|off` | Toggle strict failing TODO test templates |
 | `vibe tdd quality on|off` | Toggle quality assertion stubs |
@@ -539,6 +551,7 @@ Controls: `vibe status` for full state, `vibe enable/disable` to toggle. Persist
 | VIBEOS_API_BOOTSTRAP_TOKEN | unset | Bootstrap exchange |
 | VIBEOS_ROUTER_ONLY | unset (router-only) | `0` turns on the full plugin (footer, directives, enforcement, all tools) |
 | VIBEOS_CASCADE | unset (off) | `1` starts each message of a `vibe` session on the cheap slot and moves up one slot after a failed test run (router-only mode) |
+| VIBEOS_PLAN_GATE | unset (uses `vibe flow gate`) | `1` forces the flow plan gate on, `0` forces it off |
 | VIBEOS_AGENT_GATE | unset | `off` runs vibeOS under every agent instead of only the `vibe` dropdown selection |
 | VIBEOS_MCP_PORT | 3001 | MCP server port |
 | VIBEOS_BUILD_CHANNEL | alpha | Build channel for API client |

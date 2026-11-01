@@ -387,7 +387,7 @@ export function createTrinityTool(deps) {
       "Call this when the user says things like 'switch to medium', 'use cheap model', 'disable plugin', 'vibe status' (or the legacy 'trinity status').",
     args: {
       action: deps.tool.schema.enum(["status", "enable", "disable", "set", "mode", "thinking", "flow", "tdd", "setup", "project", "patterns", "dashboard", "gui", "rebuild", "diagnose", "help", "enforce", "repair-state", "blackbox", "report", "guard", "reality-check", "api-token", "api-bootstrap-token", "verify-claims", "todo", "todo-done", "todo-sync", "axis", "lock", "uninstall", "gate"]).optional(),
-      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch", "reset"]).optional(),
+      slot: deps.tool.schema.enum(["brain", "medium", "cheap", "budget", "quality", "speed", "longrun", "auto", "balanced", "audit", "forensic", "vibeultrax", "vibeqmax", "vibemax", "vibelitex", "raw", "on", "off", "enforce", "strict", "preview", "apply", "clear", "savings", "cascade", "enforcement", "flow", "tdd", "tier", "thinking", "context7_urgency", "wbp_verbosity", "websearch", "reset", "gate"]).optional(),
       level: deps.tool.schema.enum(["full", "brief", "off", "on"]).optional(),
       model: deps.tool.schema.string().optional(),
       token: deps.tool.schema.string().optional(),
@@ -823,6 +823,13 @@ export function createTrinityTool(deps) {
           if (ok) writeAxisOverride("flow", slot)
           return ok
             ? `\u2705 Flow enforcer ${slot === "on" ? "ENABLED" : "DISABLED"}`
+            : `\u274c Failed to write model-tiers.json`
+        }
+        if (slot === "gate") {
+          if (level !== "on" && level !== "off") return "\u274c Provide level on|off for \`vibe flow gate\`"
+          const ok = deps.writeSelection("plan_gate", level === "on")
+          return ok
+            ? `\u2705 Flow plan gate ${level === "on" ? "ENABLED (plan first, finish pending steps, verify with tests)" : "DISABLED"}`
             : `\u274c Failed to write model-tiers.json`
         }
         if (slot === "enforce") {

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { gunzipSync } from "node:zlib"
 import { ARM_DEFS } from "../ml-task/score.mjs"
 import { python } from "./python.mjs"
+import { readInternalErrors } from "../ml-task/internal-errors.mjs"
 
 export const TURNS = [
   { id: "implement", prompt: "Implement the function in solution.py so it is correct for all inputs its docstring describes, not only the examples. Then run the tests with `python3 -m unittest` and fix any failures." },
@@ -13,16 +14,19 @@ export const TURNS = [
 ]
 
 export const ARMS = {
-  "raw-weak": { def: ARM_DEFS.raw, model: "weak" },
-  "raw-strong": { def: ARM_DEFS.raw, model: "strong" },
-  cascade: { def: ARM_DEFS.cascade, model: "weak" },
+  "raw-weak": { def: ARM_DEFS.raw, defName: "raw", model: "weak" },
+  "raw-strong": { def: ARM_DEFS.raw, defName: "raw", model: "strong" },
+  cascade: { def: ARM_DEFS.cascade, defName: "cascade", model: "weak" },
+  flow: { def: ARM_DEFS.flow, defName: "flow", model: "weak" },
+  "flow-cascade": { def: ARM_DEFS["flow-cascade"], defName: "flow-cascade", model: "weak" },
+  vibeultrax: { def: ARM_DEFS.vibeultrax, defName: "vibeultrax", model: "weak" },
 }
 
 export function armTiers(arm, models) {
   const a = ARMS[arm]
   return {
     model: models[a.model],
-    tiers: { cheap: models.weak, medium: models.strong, brain: models.strong },
+    tiers: models.cheap ? { cheap: models.cheap, medium: models.weak, brain: models.strong } : { cheap: models.weak, medium: models.strong, brain: models.strong },
   }
 }
 
@@ -110,4 +114,22 @@ export function budgetLeft(results, cap) {
   if (!cap) return { spent, stop: false }
   const unmetered = results.some((r) => r.tokens == null && r.sessionId)
   return { spent, stop: unmetered || spent >= cap }
+}
+
+export function pluginEvidence(home, extra = {}) {
+  const auditPath = join(home || "", "cascade-audit", "cascade-audit.jsonl")
+  const audit = existsSync(auditPath)
+    ? readFileSync(auditPath, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    : []
+  const chatParams = audit.filter((r) => r.source === "chat-params")
+  const internal = readInternalErrors(home)
+  return {
+    ...extra,
+    chatParamsRows: chatParams.length,
+    slots: [...new Set(chatParams.map((r) => r.slot).filter(Boolean))],
+    modes: [...new Set(chatParams.map((r) => r.optimizationMode).filter(Boolean))],
+    votesCast: audit.filter((r) => r.source === "turn-vote" && r.voted === true).length,
+    internalErrors: internal.count,
+    internalErrorMessages: internal.messages.slice(0, 6),
+  }
 }

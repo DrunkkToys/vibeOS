@@ -106,3 +106,21 @@ test("the rig attaches the execution table to every trial record", async () => {
   // Shorthand or not: the record must carry the key, the syntax is not the contract.
   assert.match(rig, /\n\s*execution[,:]/, "the trial record must carry an execution key")
 })
+
+test("a tier subagent's child session counts as part of the trial", { skip: !hasSqlite }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "exec-table-child-"))
+  try {
+    const db = buildDb(dir, [
+      { sid: "ses_root", data: assistant("cheap-model", "p", 10, 1, 100) },
+      { sid: "ses_child", data: assistant("brain-model", "q", 20, 2, 200) },
+      { sid: "ses_unrelated", data: assistant("noise-model", "p", 999, 999, 999) },
+    ])
+    execFileSync("sqlite3", [db, "create table session (id text, parent_id text); insert into session values ('ses_root', null), ('ses_child', 'ses_root'), ('ses_unrelated', null);"])
+    const res = readExecution("ses_root", { db })
+    assert.equal(res.error, undefined, res.error)
+    assert.deepEqual([...res.models].sort(), ["brain-model", "cheap-model"])
+    assert.equal(res.totals.input, 30)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

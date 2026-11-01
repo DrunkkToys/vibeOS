@@ -36,8 +36,9 @@ import { onShellEnv, setShellDirectory } from "./lib/hooks/shell-env.js"
 import { setTddDirectory } from "./lib/tdd-enforcer.js"
 import { installVibeTierAgents, readDefaultAgent, isVibeOSUninstalled, isVibeOSUninstalledCached } from "./lib/runtime-config.js"
 import { claimInstance, getInstanceOwner } from "./lib/instance-guard.js"
-import { recordSessionAgent, isVibeAgentSession } from "./lib/agent-gate.js"
-import { recordToolResult, routerOnlyEnabled, routeUserMessage } from "./lib/router-only.js"
+import { recordSessionAgent, isVibeAgentSession, getSessionAgent } from "./lib/agent-gate.js"
+import { PLAN_DIRECTIVE, planGateAfterTool, planGateBeforeTool, planGateContinuation, planGateEnabled, planGateOnTodos, planGateOnUserMessage, planGateWantsDirective } from "./vibeOS-lib/plan-gate.js"
+import { recordToolResult, recordUltraXToolResult, routerOnlyEnabled, routeUltraXUserMessage, routeUserMessage, ultraXEscalation } from "./lib/router-only.js"
 import { getOpenCodeHome, getVibeOSHome, recentToolEvents, _handleStateCorruption } from "./lib/state.js"
 import { resetTurnClassifyRuntimeState } from "./lib/cascade.js"
 import { getTiersFile, getReportsDir, readPublishedMcpRuntime, publishMcpRuntime } from "./lib/bootstrap-paths.js"
@@ -239,7 +240,7 @@ function _escalateOnGateFailure(verdict, selection, sessionId?) {
       writeSessionSlot(sid, target)
       writePendingGateEscalation(sid, target)
     }
-    console.error(`[vibeOS] quality gate failed on ${from} — escalating to ${target} for the next turn`)
+    console.warn(`[vibeOS] quality gate rejected ${from} — escalating to ${target} for the next turn`)
   } catch {}
 }
 
@@ -1454,10 +1455,28 @@ export async function DelegationEnforcer({ client, directory } = {}) {
   const pluginHooks = {
     "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
+      if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateOnUserMessage(input?.sessionID, output?.parts)
       if (routerOnlyEnabled() && input?.agent === "vibe" && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
+      else if (!routerOnlyEnabled() && (input?.agent === "vibe" || !input?.agent) && _gateOpen(input?.sessionID)) routeUltraXUserMessage(input?.sessionID, output?.message, output?.parts)
+    },
+    event: async ({ event } = {}) => {
+      const sid = event?.properties?.sessionID
+      if (!sid || !_gateOpen(sid)) return
+      const gate = planGateEnabled()
+      if (event.type === "todo.updated") return gate ? planGateOnTodos(sid, event.properties.todos) : undefined
+      if (event.type !== "session.idle") return
+      const agent = getSessionAgent(sid)
+      const ultra = !routerOnlyEnabled() && (!agent || agent === "vibe") ? ultraXEscalation(sid) : null
+      const text = ultra || (gate ? planGateContinuation(sid) : null)
+      if (!text || typeof client?.session?.promptAsync !== "function") return
+      try {
+        await client.session.promptAsync({ path: { id: sid }, body: { ...(agent ? { agent } : {}), parts: [{ type: "text", text }] } })
+      } catch { }
     },
     "tool.execute.before": async (input, output) => {
-      if (routerOnlyEnabled() || !_gateOpen(input?.sessionID)) return
+      if (!_gateOpen(input?.sessionID)) return
+      if (planGateEnabled()) planGateBeforeTool(input?.sessionID, input?.tool)
+      if (routerOnlyEnabled()) return
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1477,11 +1496,13 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onToolExecuteBefore(input, output)
     },
     "tool.execute.after": async (input, output) => {
+      if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateAfterTool(input?.sessionID, input?.tool, input?.args, output?.metadata)
       if (routerOnlyEnabled()) {
         if (_gateOpen(input?.sessionID)) recordToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata)
         return
       }
       if (!_gateOpen(input?.sessionID)) return
+      recordUltraXToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata, output?.output)
       if (input?.sessionID) setCurrentSessionId(input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {
@@ -1525,7 +1546,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       return onSessionCompacting(_input, output)
     },
     "experimental.chat.system.transform": async (_input, output) => {
-      if (routerOnlyEnabled() || !_gateOpen(_input?.sessionID)) return
+      if (!_gateOpen(_input?.sessionID)) return
+      if (planGateEnabled() && planGateWantsDirective(_input?.sessionID) && Array.isArray(output?.system)) output.system.push(PLAN_DIRECTIVE)
+      if (routerOnlyEnabled()) return
       if (_input?.sessionID) setCurrentSessionId(_input.sessionID)
       setVibeOSHomeContext(hookVibeHome)
       if (hookFp) {

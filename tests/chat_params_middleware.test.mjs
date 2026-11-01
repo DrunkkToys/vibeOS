@@ -120,3 +120,15 @@ test("onChatParams appends a persistent audit trail entry for the primary-sessio
   assert.equal(entry.canApply, true)
   assert.equal(entry.overridden, true)
 })
+
+test("OpenCode's real chat.params model shape { id, providerID } is read, so a coherent turn is not overridden", async () => {
+  setup("cheap", "openrouter/cheap-model")
+  const { onChatParams, resolveIntendedModel } = await fresh()
+  const real = { id: "cheap-model", providerID: "openrouter", api: { id: "cheap-model", url: "", npm: "" }, name: "Cheap" }
+  const r = resolveIntendedModel(sandbox, real)
+  assert.equal(r.input_full, "openrouter/cheap-model")
+  assert.equal(r.already_correct, true)
+  const output = { options: {} }
+  await onChatParams({ _directory: sandbox, model: real }, output)
+  assert.equal(output.options.model, undefined)
+})

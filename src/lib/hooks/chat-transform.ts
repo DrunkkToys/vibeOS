@@ -53,7 +53,7 @@ import {
   BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode,
 } from "../cascade.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
-import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected, isApiFallback, VibeOSNetworkError } from "../api-client.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, writeSessionOptMode, takePendingGateEscalation } from "../selection-manager.js"
@@ -63,7 +63,6 @@ import { saveSessionStress } from "../index-helpers.js"
 import { COMPRESS_THRESHOLD, KEEP_HOT, COMPRESS_MARKER, PROTOCOL_MARKER, PROTOCOL_TEXT } from "../constants.js"
 import { TEMPLATES, DEFAULT_TEMPLATE, resolveTemplate, shouldInjectTemplate, resolveSessionTemplateDefinition } from "../templates.js"
 import { getRealityCheckView } from "../../vibeOS-lib/flow-enforcer.js"
-import { installVibeTierAgents } from "../runtime-config.js"
 import { voteModelPool, MIN_VOTERS } from "../../vibeOS-lib/model-vote.js"
 import { runDirectVote } from "../../vibeOS-lib/direct-vote.js"
 import {
@@ -146,33 +145,6 @@ function modelForSlot(slot: string | null): string | null {
 
 function getRuntimeProjectDirectory(): string {
   return String((onSystemTransform as unknown)?._directory || process.cwd?.() || "")
-}
-
-// Memoizes the last (directory, slot, trinity) signature this process has already
-// installed, so repeated calls within the same turn — or from a duplicate plugin
-// instance, since OpenCode can load this plugin both globally and per-project in
-// the same server process — skip the file read/parse entirely instead of re-checking
-// on every chat.system.transform call.
-let _lastVibeTierAgentsSignature = ""
-
-function ensureVibeUltraXSubagents(activeSlot: string | null = null, projectDir = ""): boolean {
-  try { loadTrinitySlotsFromTiersFile() } catch {}
-  const directory = projectDir || getRuntimeProjectDirectory()
-  const signature = `${directory}|${activeSlot}|${TRINITY_CHEAP}|${TRINITY_MEDIUM}|${TRINITY_BRAIN}`
-  if (signature === _lastVibeTierAgentsSignature) return false
-  // Scoped to this project's own opencode.json only (never the global homes): the
-  // desktop app runs ONE server process shared across every open project tab, and a
-  // write here landing on a shared global config races that process's other live
-  // turns/tabs. Global homes already get the same agent install at deploy/setup time
-  // (scripts/deploy.mjs, scripts/build-bundle.mjs, bin/setup.js) — a rare, explicit,
-  // single-process operation, not a per-turn hook running inside a shared server.
-  const result = installVibeTierAgents(directory, {
-    cheap: { oc: TRINITY_CHEAP },
-    medium: { oc: TRINITY_MEDIUM },
-    brain: { oc: TRINITY_BRAIN },
-  }, activeSlot, { includeGlobalHomes: false })
-  _lastVibeTierAgentsSignature = signature
-  return result.changed.length > 0
 }
 
 let latestUserIntent = null
@@ -743,11 +715,6 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     writeIf("enabled", true)
     writeIf("route_path", routePath)
     if (isUltraX) {
-      // Best-effort: registering the tier subagents is a convenience, while the
-      // slot writes below are the actual routing decision. A failure here used to
-      // throw out of syncControlSettings into its catch, which returns the
-      // PREVIOUS state -- so the backend's tier choice was dropped every turn.
-      try { ensureVibeUltraXSubagents(null, syncDirectory) } catch {}
       writeIf("cheap_first_degraded", false)
       writeIf("cheap_first_reason", null)
     }
@@ -881,6 +848,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // the same confidence/level thresholds tool-execute.ts uses for the Task
     // path, so a low-confidence or "moderate" read leaves the slot where it is.
     let ultraTarget: string | null = null
+    let ultraHold: string | null = null
     if (isUltraX) {
       try {
         // Verdict sources, strongest first. `resolved_tier` is the explicit tier
@@ -890,7 +858,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
         // `tier_bias` is deliberately NOT a source: normalizeBackendDecision forces
         // it to "cheap" for vibeultrax, so reading it would pin the slot forever.
         let verdict: string | null =
-          strongestTierVerdict(cv.resolved_tier, cv.regime_tier) ||
+          normalizeSlot(cv.resolved_tier) ||
           normalizeSlot(routePath.length > 1 ? routePath[routePath.length - 1] : null) ||
           normalizeSlot(cv.selected_slot)
         if (!verdict && latestUserIntent) {
@@ -902,6 +870,14 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
           verdict,
           durablePipeline,
         )
+        if (!ultraTarget) {
+          const held = ultraXPrimarySlot(
+            { ...currentSel, active_slot: null, optimization_mode: cv.optimization_mode || userOptMode },
+            verdict,
+            durablePipeline,
+          )
+          if (held && held === normalizeSlot(currentSel.active_slot)) ultraHold = held
+        }
       } catch (ultraErr) {
         console.error("[vibeOS] ultrax primary escalation failed (non-fatal):", ultraErr?.message || ultraErr)
       }
@@ -914,7 +890,7 @@ export function syncControlSettings(cv: unknown, options: { persistOptimizationM
     // wins -- otherwise vibeultrax re-enters at cheap every turn and reverts the
     // escalation the gate just made. Consumed here, so it applies to exactly one
     // turn and de-escalation still works.
-    const promptSlot = ultraTarget || entrySlot
+    const promptSlot = ultraTarget || ultraHold || entrySlot
     const pendingGateSlot = slotLocked ? null : takePendingGateEscalation(sid)
     const gateOutranksPrompt = !!pendingGateSlot &&
       (SLOT_RANK[pendingGateSlot] ?? -1) > (SLOT_RANK[promptSlot] ?? -1)
@@ -1853,7 +1829,8 @@ export const onSystemTransform = async (_input, output) => {
           }
         }
       } catch (classifyErr) {
-        console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
+        if (classifyErr instanceof VibeOSNetworkError) console.warn("[vibeOS] cascade classify unavailable:", classifyErr.message)
+        else console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
       }
     }
     if (latestUserIntent && !resolvedTierThisTurn) {

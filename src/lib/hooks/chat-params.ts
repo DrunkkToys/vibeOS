@@ -78,7 +78,7 @@ export function resolveIntendedModel(projectDir, inputModel) {
   const intendedFull = state.intended_model || state.ran_model || ""
   const intended = parseModelId(intendedFull)
   const inProvider = String(inputModel?.providerID || "").trim()
-  const inModel = String(inputModel?.modelID || "").trim()
+  const inModel = String(inputModel?.modelID || inputModel?.id || "").trim()
   const inFull = inProvider ? `${inProvider}/${inModel}` : inModel
   const matches = !!intendedFull && inFull === intendedFull
   const crossProvider = !!intended.providerID && !!inProvider && intended.providerID !== inProvider

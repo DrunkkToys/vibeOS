@@ -5,8 +5,10 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { gzipSync } from "node:zlib"
+import { mkdirSync } from "node:fs"
+import { voidReason } from "../scripts/e2e/ml-task/score.mjs"
 
-import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare, sessionTokens, budgetLeft } from "../scripts/e2e/codebench/tasks.mjs"
+import { loadTasks, selectSubset, writeTask, gradeTask, TURNS, ARMS, armTiers, strongShare, sessionTokens, budgetLeft, pluginEvidence } from "../scripts/e2e/codebench/tasks.mjs"
 
 const TASK = {
   task_id: "HumanEval/0",
@@ -83,7 +85,18 @@ test("every arm gets the same two turns, and the second asks for a test run", ()
   assert.equal(TURNS.length, 2)
   assert.match(TURNS[0].prompt, /solution\.py/)
   assert.match(TURNS[1].prompt, /python3 -m unittest/)
-  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "raw-strong", "raw-weak"])
+  assert.deepEqual(Object.keys(ARMS).sort(), ["cascade", "flow", "flow-cascade", "raw-strong", "raw-weak", "vibeultrax"])
+})
+
+test("the flow arms run the plan gate on the weak model, flow-cascade adds the cascade", () => {
+  const m = { weak: "p/weak", strong: "p/strong" }
+  assert.equal(armTiers("flow", m).model, "p/weak")
+  assert.equal(ARMS.flow.def.env.VIBEOS_PLAN_GATE, "1")
+  assert.equal(ARMS.flow.def.env.VIBEOS_CASCADE, undefined)
+  assert.equal(ARMS["flow-cascade"].def.env.VIBEOS_PLAN_GATE, "1")
+  assert.equal(ARMS["flow-cascade"].def.env.VIBEOS_CASCADE, "1")
+  assert.equal(ARMS.flow.defName, "flow")
+  assert.equal(ARMS["raw-weak"].defName, "raw")
 })
 
 test("arm tiers: raw arms pin one model, the cascade starts weak and escalates to strong", () => {
@@ -94,6 +107,20 @@ test("arm tiers: raw arms pin one model, the cascade starts weak and escalates t
   assert.deepEqual(c.tiers, { cheap: "p/weak", medium: "p/strong", brain: "p/strong" })
   assert.equal(ARMS.cascade.def.env.VIBEOS_CASCADE, "1")
   assert.equal(ARMS["raw-weak"].def.plugin, false)
+})
+
+test("the vibeultrax arm is the README cascade: cheap proposes, medium reviews, brain polishes", () => {
+  const m = { cheap: "ollama/magicoder:7b", weak: "deepseek/flash", strong: "deepseek/pro" }
+  const v = armTiers("vibeultrax", m)
+  assert.deepEqual(v.tiers, { cheap: "ollama/magicoder:7b", medium: "deepseek/flash", brain: "deepseek/pro" })
+  assert.equal(ARMS.vibeultrax.defName, "vibeultrax")
+  assert.equal(ARMS.vibeultrax.def.entry, "cheap")
+  assert.equal(ARMS.vibeultrax.def.mode, "vibeultrax")
+  assert.equal(armTiers("raw-strong", m).model, "deepseek/pro")
+})
+
+test("without a cheap model the tiers stay as before", () => {
+  assert.deepEqual(armTiers("cascade", { weak: "p/weak", strong: "p/strong" }).tiers, { cheap: "p/weak", medium: "p/strong", brain: "p/strong" })
 })
 
 test("strongShare counts assistant messages on the strong model from opencode.db rows", () => {
@@ -119,4 +146,23 @@ test("budgetLeft stops the run once recorded tokens reach the cap, and never sto
 test("budgetLeft stops when a trial's tokens could not be read, so an unreadable database never runs unmetered", () => {
   assert.equal(budgetLeft([{ tokens: 10 }, { tokens: null, sessionId: "ses_x" }], 1000).stop, true)
   assert.equal(budgetLeft([{ tokens: null, sessionId: "ses_x" }], 0).stop, false)
+})
+
+test("a vibeultrax trial is voided only on the plugin's own audit, not because codebench forgot to read it", () => {
+  const home = mkdtempSync(join(tmpdir(), "codebench-ev-"))
+  mkdirSync(join(home, "cascade-audit"), { recursive: true })
+  const rows = [
+    { source: "chat-params", slot: "cheap", optimizationMode: "vibeultrax" },
+    { source: "chat-params", slot: "cheap", optimizationMode: "vibeultrax" },
+    { source: "turn-vote", voted: false },
+  ]
+  writeFileSync(join(home, "cascade-audit", "cascade-audit.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n")
+  const ev = pluginEvidence(home, { homeFiles: ["cascade-audit"], providerErrors: [] })
+  assert.equal(ev.chatParamsRows, 2)
+  assert.deepEqual(ev.slots, ["cheap"])
+  assert.deepEqual(ev.modes, ["vibeultrax"])
+  assert.equal(ev.internalErrors, 0)
+  const execution = { models: ["cheap-model"], distinctModels: 1 }
+  assert.equal(voidReason(ARMS.vibeultrax.defName, [{ id: "t1", status: 0 }], ev, execution), null)
+  assert.match(voidReason(ARMS.vibeultrax.defName, [{ id: "t1", status: 0 }], pluginEvidence(join(home, "missing")), execution), /never engaged/)
 })

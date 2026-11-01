@@ -21,7 +21,11 @@ export function readExecution(sessionId, opts = {}) {
   if (!sessionId) return null
   const db = opts.db || defaultDbPath()
   if (!existsSync(db)) return { source: db, error: "database not found" }
-  const sql =
+  const id = "'" + String(sessionId).replace(/'/g, "''") + "'"
+  const scope = (withChildren) => withChildren
+    ? " from message where (session_id=" + id + " or session_id in (select id from session where parent_id=" + id + "))"
+    : " from message where session_id=" + id
+  const sqlFor = (withChildren) =>
     "select json_extract(data,'$.modelID') as model," +
     " json_extract(data,'$.providerID') as provider," +
     " count(*) as messages," +
@@ -30,12 +34,14 @@ export function readExecution(sessionId, opts = {}) {
     " sum(json_extract(data,'$.tokens.reasoning')) as reasoning," +
     " sum(json_extract(data,'$.tokens.cache.read')) as cacheRead," +
     " sum(json_extract(data,'$.tokens.cache.write')) as cacheWrite" +
-    " from message where session_id='" + String(sessionId).replace(/'/g, "''") + "'" +
+    scope(withChildren) +
     " and json_extract(data,'$.role')='assistant'" +
     " group by model, provider order by messages desc;"
+  const query = (withChildren) => execFileSync("sqlite3", ["-json", "-readonly", db, sqlFor(withChildren)],
+    { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "pipe"] })
   try {
-    const out = execFileSync("sqlite3", ["-json", "-readonly", db, sql],
-      { encoding: "utf8", timeout: 20000 })
+    let out
+    try { out = query(true) } catch { out = query(false) }
     const rows = out.trim() ? JSON.parse(out) : []
     return {
       source: db,
