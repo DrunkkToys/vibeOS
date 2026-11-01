@@ -53,7 +53,7 @@ import {
   BRANDED_MODES, RUNTIME_MODES, MODE_TABLE, normalizeLegacyMode,
 } from "../cascade.js"
 import { addCacheEntry, extractRecentCacheOutputs } from "../../vibeOS-lib/smart-cache.js"
-import { getApiClient, remoteCall, isApiConnected, isApiFallback } from "../api-client.js"
+import { getApiClient, remoteCall, isApiConnected, isApiFallback, VibeOSNetworkError } from "../api-client.js"
 import { computeDifficulty } from "../../vibeOS-lib/ml-router.js"
 import { loadCredit } from "../credit-api.js"
 import { loadSessionOptMode, loadSessionSlot, writeSessionSlot, writeSessionOptMode, takePendingGateEscalation } from "../selection-manager.js"
@@ -1829,7 +1829,8 @@ export const onSystemTransform = async (_input, output) => {
           }
         }
       } catch (classifyErr) {
-        console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
+        if (classifyErr instanceof VibeOSNetworkError) console.warn("[vibeOS] cascade classify unavailable:", classifyErr.message)
+        else console.error("[vibeOS] cascade classify failed:", classifyErr?.message || classifyErr)
       }
     }
     if (latestUserIntent && !resolvedTierThisTurn) {

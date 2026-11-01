@@ -256,7 +256,7 @@ export class VibeOSApiClient {
       _apiFallbackSince = Date.now()
       if (!_apiFallbackMode) {
         _apiFallbackMode = true
-        console.error("[vibeOS] API fallback activated (" + path + "): " + (lastError ? lastError.message : "unreachable"))
+        console.warn("[vibeOS] API fallback activated (" + path + "): " + (lastError ? lastError.message : "unreachable"))
       }
     }
     throw new VibeOSNetworkError("Failed to reach API: " + (lastError ? lastError.message : "unknown error"))

@@ -240,7 +240,7 @@ function _escalateOnGateFailure(verdict, selection, sessionId?) {
       writeSessionSlot(sid, target)
       writePendingGateEscalation(sid, target)
     }
-    console.error(`[vibeOS] quality gate failed on ${from} — escalating to ${target} for the next turn`)
+    console.warn(`[vibeOS] quality gate rejected ${from} — escalating to ${target} for the next turn`)
   } catch {}
 }
 
