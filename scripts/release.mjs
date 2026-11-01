@@ -336,6 +336,7 @@ log("")
 log(`${BOLD}📦 Publishing to npm...${RESET}`)
 const npmToken = process.env.NPM_TOKEN || process.env.NODE_AUTH_TOKEN || ""
 const npmrcDir = npmToken ? mkdtempSync(join(tmpdir(), "vibetheog-npmrc-")) : null
+let npmPublished = false
 try {
   if (npmrcDir) {
     const npmrcPath = join(npmrcDir, ".npmrc")
@@ -347,6 +348,7 @@ try {
   }
   sh(`npm publish`, npmrcDir ? { env: { ...process.env, npm_config_userconfig: join(npmrcDir, ".npmrc") } } : {})
   log(`${GREEN}✓${RESET} v${newVer} published to npm`)
+  npmPublished = true
 
   // ── RE-ESTABLISH GLOBAL LINK ─────────────────────────────────────
   try {
@@ -358,6 +360,7 @@ try {
 } catch (e) {
   log(`${YELLOW}⚠${RESET}  npm publish failed: ${e.message}`)
   log(`   run manually: npm publish`)
+  process.exitCode = 1
 } finally {
   if (npmrcDir) {
     rmSync(npmrcDir, { recursive: true, force: true })
@@ -410,6 +413,7 @@ if (process.argv.includes("--ci")) {
 // ── DONE ───────────────────────────────────────────────────────
 
 log("")
-log(`${GREEN}${BOLD}✅ v${newVer} released${RESET}`)
+if (npmPublished) log(`${GREEN}${BOLD}✅ v${newVer} released${RESET}`)
+else log(`${YELLOW}${BOLD}⚠ v${newVer} released on GitHub only; npm publish failed${RESET}`)
 log(`   ${CYAN}https://github.com/DrunkkToys/vibeOS/releases/tag/v${newVer}${RESET}`)
 log("")
