@@ -1,7 +1,7 @@
-# vibeOS for OpenCode -- The Corners of the Mouth v0.27.5
+# vibeOS for OpenCode -- The Corners of the Mouth v0.28.1
 
-> **VIBEOS_HOME** = `/Users/drunkktoys/Library/Application Support/ai.opencode.desktop/vibeOS/`
-> All runtime state files live under `$VIBEOS_HOME` (set via `VIBEOS_HOME` env var on this machine).
+> **VIBEOS_HOME** = `$VIBEOS_HOME` if set, otherwise `~/.vibeos`.
+> All runtime state files live under `$VIBEOS_HOME`.
 
 A quality-first control plane for AI-assisted coding.
 
