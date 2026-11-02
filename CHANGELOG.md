@@ -1,3 +1,9 @@
+## 0.28.1
+- fix: fail the release when npm publish fails instead of reporting success (#584)
+- docs: current version in the title; no dev-machine path (#585)
+Merge pull request #586 from DrunkkToys/release/v0.28.0
+
+
 ## 0.28.0
 - feat: C++ track and a token budget for codebench runs (#582)
 - feat: HumanEval A/B rig with pre-registered pass/fail rules (#578)
