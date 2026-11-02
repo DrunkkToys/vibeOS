@@ -87,6 +87,7 @@ export function gradeExercise(proj, ex, { timeoutMs = ex.language === "cpp" ? 18
     const out = [realpathSync(dir), dir].reduce((s, d) => s.split(d + "/").join(""), (r.stderr || "") + (r.stdout || ""))
     return { pass: r.status === 0, status: r.status, error: out.slice(-tail) }
   } finally {
+    for (const d of new Set([dir, realpathSync(dir)])) spawnSync("pkill", ["-9", "-f", d])
     rmSync(dir, { recursive: true, force: true })
   }
 }
