@@ -6,8 +6,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export function startServer(opencode, { cwd, env, pure = false, timeoutMs = 60000 }) {
   const args = ["serve", "--port", "0"]
   if (pure) args.push("--pure")
-  const child = spawn(opencode, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] })
-  const stop = () => { try { child.kill("SIGKILL") } catch {} }
+  const t = tethered(opencode, args)
+  const child = spawn(t.command, t.args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] })
+  const stop = () => { try { child.kill("SIGTERM") } catch {} }
   return new Promise((resolve, reject) => {
     let buf = ""
     const timer = setTimeout(() => { stop(); reject(new Error("opencode serve did not start")) }, timeoutMs)
@@ -65,4 +66,16 @@ export function continuationCount(messages, sentPrompts) {
     const t = (m.parts || []).filter((p) => p?.type === "text").map((p) => p.text).join("\n").replace(/^["'\s]+/, "")
     return !keys.some((k) => t.startsWith(k))
   }).length
+}
+
+const TETHER = `"$0" "$@" & c=$!
+trap 'kill -9 $c 2>/dev/null; exit 143' TERM INT HUP
+while kill -0 $c 2>/dev/null; do
+  kill -0 $TETHER_PARENT 2>/dev/null || { kill -9 $c 2>/dev/null; exit 137; }
+  sleep 1 & wait $!
+done
+wait $c`
+
+export function tethered(command, args, parentPid = process.pid) {
+  return { command: "/bin/sh", args: ["-c", TETHER.replace("$TETHER_PARENT", String(parentPid)), command, ...args] }
 }
