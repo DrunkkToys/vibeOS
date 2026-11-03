@@ -78,3 +78,14 @@ describe("session-record initializers stamp started/session_started_at on first 
     assert.equal(ses.session_started_at, ses.started)
   })
 })
+
+describe("a session record created without tool_counts still takes savings", () => {
+  it("recordCacheSaving counts the tool on a session another writer created", async () => {
+    const state = await import("../src/lib/state.js")
+    const { mkdirSync, writeFileSync } = await import("node:fs")
+    mkdirSync(getVibeOSHome(), { recursive: true })
+    writeFileSync(join(getVibeOSHome(), "delegation-state.json"), JSON.stringify({ sessions: { [_OC_SID]: { started: new Date().toISOString(), warns: [] } } }))
+    state.recordCacheSaving("read", 0.01)
+    assert.equal(readSession().tool_counts?.read, 1)
+  })
+})
