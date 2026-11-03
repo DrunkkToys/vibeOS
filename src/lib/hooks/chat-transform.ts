@@ -132,8 +132,7 @@ function vibeUltraXSubagentForSlot(slot: string | null): string | null {
 }
 
 function taskSubagentTypeForSlot(slot: string | null): string | null {
-  if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
-  return null
+  return vibeUltraXSubagentForSlot(slot)
 }
 
 function modelForSlot(slot: string | null): string | null {

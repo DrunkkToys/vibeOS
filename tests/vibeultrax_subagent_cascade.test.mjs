@@ -141,7 +141,7 @@ test("vibeultrax sync does not write the OpenCode config when the active slot ch
   }
 })
 
-test("vibeultrax task routing normalizes task subagent_type to general", async () => {
+test("vibeultrax task routing sends the task to the tier agent that pins the model", async () => {
   const ctx = withSandbox("vibeos-tier-task-")
   try {
     const mod = await import("../src/index.js?tier-task=" + Date.now())
@@ -171,7 +171,7 @@ test("vibeultrax task routing normalizes task subagent_type to general", async (
     }
     await hooks["tool.execute.before"]({ tool: "task" }, { args })
 
-    assert.equal(args.subagent_type, "general")
+    assert.equal(args.subagent_type, "vibe-brain")
     assert.equal(args.model, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
@@ -317,7 +317,7 @@ test("vibeultrax task routing ignores stale lower-tier worker_model for brain ro
 
     await hooks["tool.execute.before"]({ tool: "task" }, { args })
 
-    assert.equal(args.subagent_type, "general")
+    assert.equal(args.subagent_type, "vibe-brain")
     assert.equal(args.model, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelID, "deepseek/deepseek-v4-flash")
     assert.equal(args.modelId, "deepseek/deepseek-v4-flash")
@@ -361,7 +361,7 @@ test("delegation hard block requires coherent brain tier agent binding", async (
   }
 })
 
-test("vibeultrax medium route delegates a Task to the general subagent at the medium model", async () => {
+test("vibeultrax medium route delegates a Task to the vibe-medium agent, which runs the medium model", async () => {
   // Was asserted against resolveCascadeRouteDecision, which never routed a
   // Task and never shipped. Driven through the production hook instead.
   const ctx = withSandbox("vibeos-tier-route-")
@@ -399,8 +399,8 @@ test("vibeultrax medium route delegates a Task to the general subagent at the me
     await mod.onToolExecuteBefore({ tool: "task", mlEnabled: false }, { args })
 
     assert.equal(args.model, "opencode-go/mimo-v2.5")
-    assert.equal(args.subagent_type, "general")
-    assert.equal(mod.taskSubagentTypeForSlot("medium"), "general")
+    assert.equal(args.subagent_type, "vibe-medium")
+    assert.equal(mod.taskSubagentTypeForSlot("medium"), "vibe-medium")
   } finally {
     ctx.cleanup()
   }

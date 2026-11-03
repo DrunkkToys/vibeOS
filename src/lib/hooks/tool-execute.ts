@@ -59,7 +59,7 @@ import { buildTestReminder, enforceTestFile } from "../tdd-enforcer.js"
 import { setActiveJobFromTaskPrompt, observeToolPattern, compressText, recordSaving } from "../index-helpers.js"
 import { buildTurnId, getLatestRouteEvent, recordTurnRoute, CASCADE_ROUTE_RECENCY_MS } from "../turn-ledger.js"
 import { SAVE_EST, WARN_ON_DIRECT, SOFT_QUOTA, FREE, MONITOR } from "../constants.js"
-import { runtimeTierCoherence } from "../runtime-config.js"
+import { runtimeTierCoherence, tierAgentForSlot } from "../runtime-config.js"
 import { ToolLoopGuard } from "../loop-guard.js"
 
 const _warnCounts: Record<string, number> = {}
@@ -332,8 +332,7 @@ function _modelForSlot(slot: string | null, trinityCheap: string | null, trinity
 }
 
 export function taskSubagentTypeForSlot(slot: string | null): string | null {
-  if (slot === "brain" || slot === "medium" || slot === "cheap") return "general"
-  return null
+  return tierAgentForSlot(slot)
 }
 
 // rawCascadeDepth reflects the last-recorded ROUTE PLAN (blackbox control
