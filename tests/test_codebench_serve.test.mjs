@@ -58,3 +58,24 @@ test("waitIdle gives up at the timeout", async () => {
   const r = await waitIdle(async () => ({ s1: { type: "busy" } }), "s1", { pollMs: 2, quietPolls: 2, timeoutMs: 20 })
   assert.equal(r.idle, false)
 })
+
+test("a bench child dies with the bench when the bench is killed", async () => {
+  const { tethered } = await import("../scripts/e2e/codebench/serve.mjs")
+  const { spawn, spawnSync } = await import("node:child_process")
+  const secs = `300.${process.pid}`
+  const marker = `sleep ${secs}`
+  const parent = spawn(process.execPath, ["-e", `
+    const { spawnSync } = require("node:child_process")
+    import(${JSON.stringify(new URL("../scripts/e2e/codebench/serve.mjs", import.meta.url).href)}).then(({ tethered }) => {
+      const t = tethered("/bin/sleep", [${JSON.stringify(secs)}], process.pid)
+      spawnSync(t.command, t.args, { stdio: "ignore" })
+    })
+  `], { stdio: "ignore" })
+  const running = () => spawnSync("pgrep", ["-f", marker]).stdout.toString().trim()
+  for (let i = 0; i < 50 && !running(); i++) await new Promise((r) => setTimeout(r, 100))
+  assert.ok(running(), "child started")
+  parent.kill("SIGKILL")
+  for (let i = 0; i < 80 && running(); i++) await new Promise((r) => setTimeout(r, 100))
+  assert.equal(running(), "")
+  spawnSync("pkill", ["-9", "-f", marker])
+})
