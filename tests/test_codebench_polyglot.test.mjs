@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { spawnSync } from "node:child_process"
 
 import { loadPolyglot, writeExercise, gradeExercise, turnsForExercise, hiddenTurn, feedbackTurn } from "../scripts/e2e/codebench/polyglot.mjs"
 
@@ -149,6 +150,17 @@ test("cpp gradeExercise fails the stub and passes the reference, in a project di
   writeFileSync(join(proj, "two_fer.cpp"), CPP_EXAMPLE)
   writeFileSync(join(proj, "two_fer_test.cpp"), "int main() { return 1; }\n")
   assert.equal(gradeExercise(proj, ex).pass, true)
+})
+
+test("cpp gradeExercise leaves no test binary running when a solution spins forever", { skip: !process.env.PATH.split(":").some((p) => existsSync(join(p, "cmake"))) }, () => {
+  const [ex] = loadPolyglot(cppFixture(), { language: "cpp" })
+  const proj = mkdtempSync(join(tmpdir(), "polyglot-proj-"))
+  writeExercise(proj, ex)
+  writeFileSync(join(proj, "two_fer.cpp"), "#include \"two_fer.h\"\nint add(int a, int b) { volatile int x = 0; for (;;) x = x + 1; return a + b; }\n")
+  assert.equal(gradeExercise(proj, ex, { timeoutMs: 15000 }).pass, false)
+  const left = spawnSync("pgrep", ["-f", "build/two-fer"], { encoding: "utf8" }).stdout.trim()
+  if (left) spawnSync("pkill", ["-9", "-f", "build/two-fer"])
+  assert.equal(left, "")
 })
 
 test("hidden-tests mode gives the agent the stub and instructions but no test file, as in Aider's protocol", () => {
