@@ -2225,6 +2225,7 @@ function recordCacheSaving(tool: string, saveEst: number, meta: unknown = {}): u
       if (currentProjectFingerprint && !s.sessions[sid].project_fingerprint) s.sessions[sid].project_fingerprint = currentProjectFingerprint
       if (currentProjectName && !s.sessions[sid].project_name) s.sessions[sid].project_name = currentProjectName
       s.sessions[sid].session_cache_dir = getSessionScratchpadDir()
+      s.sessions[sid].tool_counts ??= {}
       s.sessions[sid].tool_counts[tool] = (s.sessions[sid].tool_counts[tool] || 0) + 1
       if (meta?.hash) {
         s.sessions[sid].cache_hits ??= []

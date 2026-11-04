@@ -12,7 +12,7 @@ process.env.VIBEOS_HOME = join(sandbox, "state")
 process.env.VIBEOS_API_URL = "http://127.0.0.1:9"
 mkdirSync(process.env.VIBEOS_HOME, { recursive: true })
 writeFileSync(join(process.env.VIBEOS_HOME, "model-tiers.json"), JSON.stringify({
-  selection: { enabled: true, active_slot: "brain", optimization_mode: "vibeultrax" },
+  selection: { enabled: true, active_slot: "brain", optimization_mode: null },
   trinity: {
     brain: { oc: "google/gemini-3.6-flash" },
     medium: { oc: "google/gemini-3.5-flash" },
@@ -126,6 +126,20 @@ test("the full plugin keeps all its tools", async () => {
   assert.ok(Object.keys(h.tool).includes("trinity"))
   assert.ok(Object.keys(h.tool).includes("report-save"))
 })
+
+test("router-only with vibeultrax selected starts on cheap and moves up a tier on a failure follow-up", async () => {
+  const file = join(process.env.VIBEOS_HOME, "model-tiers.json")
+  const tiers = { brain: { oc: "google/gemini-3.6-flash" }, medium: { oc: "google/gemini-3.5-flash" }, cheap: { oc: "google/gemini-3.5-flash-lite" } }
+  writeFileSync(file, JSON.stringify({ selection: { enabled: true, active_slot: "cheap", optimization_mode: "vibeultrax" }, trinity: tiers }))
+  try {
+    const h = await hooks(null)
+    assert.equal((await turn(h, "s-ultrax", "say ok")).message.model.modelID, "gemini-3.5-flash-lite")
+    assert.equal((await turn(h, "s-ultrax", "The tests failed:\nx_test.cpp:12: error: 'ability' was not declared in this scope\nmake: *** [Makefile:8: test] Error 1")).message.model.modelID, "gemini-3.5-flash")
+  } finally {
+    writeFileSync(file, JSON.stringify({ selection: { enabled: true, active_slot: "brain", optimization_mode: null }, trinity: tiers }))
+  }
+})
+
 
 test("cleanup", () => {
   for (const [k, v] of Object.entries(prev)) {

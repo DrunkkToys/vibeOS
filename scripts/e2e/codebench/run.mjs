@@ -13,7 +13,7 @@ import { installVibeTierAgentsInConfig } from "../../lib/vibe-tier-agents.mjs"
 import { ARMS, TURNS, armTiers, gradeTask, loadTasks, budgetLeft, pluginEvidence, selectSubset, sessionTokens, strongShare, writeTask } from "./tasks.mjs"
 import { pairedBootstrap, passRate, signTest } from "./stats.mjs"
 import { ISOLATION_PERMISSION, leakedAccess } from "./isolation.mjs"
-import { continuationCount, serverApi, startServer, toolEventLines, waitIdle } from "./serve.mjs"
+import { continuationCount, serverApi, startServer, tethered, toolEventLines, waitIdle } from "./serve.mjs"
 import { feedbackTurn, gradeExercise, hiddenTurn, loadPolyglot, turnsForExercise, writeExercise } from "./polyglot.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
@@ -124,7 +124,8 @@ function runTurn(trial, turn, sessionId) {
   try {
     outFd = openSync(outPath, "w")
     errFd = openSync(errPath, "w")
-    res = spawnSync(OPENCODE, args, { timeout: TURN_TIMEOUT, killSignal: "SIGKILL", stdio: ["ignore", outFd, errFd], env })
+    const t = tethered(OPENCODE, args)
+    res = spawnSync(t.command, t.args, { timeout: TURN_TIMEOUT, killSignal: "SIGTERM", stdio: ["ignore", outFd, errFd], env })
   } catch (e) {
     res = { status: e.status ?? -1 }
   } finally {
@@ -146,7 +147,7 @@ function runTurn(trial, turn, sessionId) {
   return {
     id: turn.id,
     status: res.status ?? -1,
-    timedOut: res.status === null || res.signal === "SIGKILL" || res.signal === "SIGTERM",
+    timedOut: res.status === null || res.signal === "SIGKILL" || res.signal === "SIGTERM" || res.error?.code === "ETIMEDOUT",
     elapsedMs: Date.now() - started,
     sessionId: sid,
     toolCalls,

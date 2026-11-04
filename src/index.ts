@@ -1456,8 +1456,8 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     "chat.message": async (input, output) => {
       recordSessionAgent(input?.sessionID, input?.agent)
       if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateOnUserMessage(input?.sessionID, output?.parts)
+      if ((input?.agent === "vibe" || !input?.agent) && _gateOpen(input?.sessionID) && routeUltraXUserMessage(input?.sessionID, output?.message, output?.parts)) return
       if (routerOnlyEnabled() && input?.agent === "vibe" && _gateOpen(input?.sessionID)) routeUserMessage(input?.sessionID, output?.message, output?.parts)
-      else if (!routerOnlyEnabled() && (input?.agent === "vibe" || !input?.agent) && _gateOpen(input?.sessionID)) routeUltraXUserMessage(input?.sessionID, output?.message, output?.parts)
     },
     event: async ({ event } = {}) => {
       const sid = event?.properties?.sessionID
@@ -1466,7 +1466,7 @@ export async function DelegationEnforcer({ client, directory } = {}) {
       if (event.type === "todo.updated") return gate ? planGateOnTodos(sid, event.properties.todos) : undefined
       if (event.type !== "session.idle") return
       const agent = getSessionAgent(sid)
-      const ultra = !routerOnlyEnabled() && (!agent || agent === "vibe") ? ultraXEscalation(sid) : null
+      const ultra = !agent || agent === "vibe" ? ultraXEscalation(sid) : null
       const text = ultra || (gate ? planGateContinuation(sid) : null)
       if (!text || typeof client?.session?.promptAsync !== "function") return
       try {
@@ -1498,7 +1498,9 @@ export async function DelegationEnforcer({ client, directory } = {}) {
     "tool.execute.after": async (input, output) => {
       if (planGateEnabled() && _gateOpen(input?.sessionID)) planGateAfterTool(input?.sessionID, input?.tool, input?.args, output?.metadata)
       if (routerOnlyEnabled()) {
-        if (_gateOpen(input?.sessionID)) recordToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata)
+        if (!_gateOpen(input?.sessionID)) return
+        recordToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata)
+        recordUltraXToolResult(input?.sessionID, input?.tool, input?.args, output?.metadata, output?.output)
         return
       }
       if (!_gateOpen(input?.sessionID)) return
